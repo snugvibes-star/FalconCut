@@ -679,7 +679,7 @@ function RampEditor({ clipId, duration, points }: { clipId: string; duration: nu
   const startDrag = (i: number) => (e: React.PointerEvent<HTMLDivElement>) => {
     e.preventDefault();
     e.stopPropagation();
-    e.currentTarget.setPointerCapture(e.pointerId);
+    try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* no active pointer (e.g. synthetic event) */ }
     setDragIdx(i);
   };
   const onDrag = (i: number) => (e: React.PointerEvent<HTMLDivElement>) => {
@@ -694,7 +694,7 @@ function RampEditor({ clipId, duration, points }: { clipId: string; duration: nu
     commit(sorted.map((pt, j) => (j === i ? { t, speed: p.speed } : pt)));
   };
   const endDrag = (e: React.PointerEvent<HTMLDivElement>) => {
-    e.currentTarget.releasePointerCapture(e.pointerId);
+    try { e.currentTarget.releasePointerCapture(e.pointerId); } catch { /* ignore */ }
     setDragIdx(null);
   };
 
