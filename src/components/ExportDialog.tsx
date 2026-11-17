@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
-import { Download, Loader2, Film, X, CheckCircle2 } from 'lucide-react';
+import { Download, Loader2, Film, X, CheckCircle2, Image } from 'lucide-react';
 import { useStore } from '../state/store';
 import { useUI } from '../state/ui';
 import { getBlob } from '../state/persistence';
 import { projectDuration } from '../../engine/types';
 import { downloadBlob, projectPNG, projectSRT, mixProjectAudio, encodeWAV } from '../../exporter/artifacts';
+import { projectGIF } from '../../exporter/gif';
 import { projectWebM } from '../../exporter/webm';
 import { exportVideo, videoExportSupport, type ExportQuality } from '../../exporter/video';
 import { Dialog } from './Dialog';
@@ -25,7 +26,11 @@ export function ExportDialog() {
   const [includeAudio, setIncludeAudio] = useState(true);
   const [prog, setProg] = useState<Prog | null>(null);
   const [done, setDone] = useState('');
+  const [doneKind, setDoneKind] = useState<'video' | 'gif' | ''>('');
   const abortRef = useRef<AbortController | null>(null);
+  const zone = useStore((s) => s.zone);
+  const [gifFps, setGifFps] = useState(10);
+  const [gifWidth, setGifWidth] = useState(480);
 
   useEffect(() => { void videoExportSupport().then(setSupport); }, []);
   useEffect(() => () => abortRef.current?.abort(), []);
@@ -45,7 +50,7 @@ export function ExportDialog() {
   };
 
   const exportVideoFile = async () => {
-    setBusy('video'); setError(''); setDone(''); setProg({ pct: 0, label: 'Preparing…' });
+    setBusy('video'); setError(''); setDone(''); setDoneKind(''); setProg({ pct: 0, label: 'Preparing…' });
     useStore.getState().pause();
     const ctrl = new AbortController();
     abortRef.current = ctrl;
@@ -57,10 +62,12 @@ export function ExportDialog() {
         }, ctrl.signal);
         downloadBlob(r.blob, `${project.name}.${r.container}`);
         setDone(`${r.container.toUpperCase()} · ${r.width}×${r.height} · ${r.frames} frames${r.hasAudio ? ' · audio' : ' · silent'} · ${(r.blob.size / 1e6).toFixed(1)} MB`);
+        setDoneKind('video');
       } else {
         const blob = await projectWebM(project, getBlob, (pct) => setProg({ pct, label: `Recording in real time · ${Math.round(pct * 100)}%` }), ctrl.signal);
         downloadBlob(blob, `${project.name}.webm`);
         setDone(`WEBM · real-time capture · ${(blob.size / 1e6).toFixed(1)} MB`);
+        setDoneKind('video');
       }
       ui.toast('Video export complete', 'success');
     } catch (e) {
@@ -70,6 +77,26 @@ export function ExportDialog() {
   };
 
   const offline = !!support?.supported;
+  const zoneValid = !!zone && zone.out > zone.in + 0.05;
+  const gifRange = zoneValid ? { start: zone!.in, end: zone!.out } : { start: 0, end: duration };
+
+  const exportGif = async () => {
+    setBusy('gif'); setError(''); setDone(''); setDoneKind(''); setProg({ pct: 0, label: 'Rendering GIF frames…' });
+    useStore.getState().pause();
+    const ctrl = new AbortController();
+    abortRef.current = ctrl;
+    try {
+      const blob = await projectGIF(project, getBlob, { start: gifRange.start, end: gifRange.end, fps: gifFps, width: gifWidth },
+        (p) => setProg({ pct: p, label: 'Rendering GIF frames…' }), ctrl.signal);
+      downloadBlob(blob, `${project.name}-${gifRange.start.toFixed(1)}-${gifRange.end.toFixed(1)}s.gif`);
+      setDone(`GIF · ${(gifRange.end - gifRange.start).toFixed(1)}s · ${gifWidth}px · ${(blob.size / 1e6).toFixed(1)} MB`);
+      setDoneKind('gif');
+      ui.toast('GIF export complete', 'success');
+    } catch (e) {
+      const err = e as Error;
+      setError(err.name === 'AbortError' ? 'GIF export cancelled.' : err.message);
+    } finally { setBusy(''); setProg(null); abortRef.current = null; }
+  };
 
   return <Dialog title="Export" onClose={() => ui.close('export')}>
     <div className="space-y-4 text-xs">
@@ -130,7 +157,7 @@ export function ExportDialog() {
             <Download size={15} /> Export video
           </button>
         )}
-        {done && <p className="text-heat-green mt-2 text-[11px]">{done}</p>}
+        {done && doneKind === 'video' && <p className="text-heat-green mt-2 text-[11px]">{done}</p>}
         {support && !offline && <p className="text-heat-amber mt-2 text-[11px]">No WebCodecs encoder here — using real-time WebM capture (a {Math.round(duration)}s project takes ~{Math.round(duration)}s). Chrome / Edge enable fast MP4 export.</p>}
       </div>
 
@@ -145,6 +172,51 @@ export function ExportDialog() {
           <span className="flex items-center gap-2 text-paper font-medium mb-1">{busy === format ? <Loader2 size={15} className="animate-spin" /> : <Download size={15} />}{title}</span>
           <span className="text-paper-dim text-[11px]">{description}</span>
         </button>)}
+      </div>
+
+      {/* ---- Animated GIF ---- */}
+      <div className="rounded-xl p-3.5 border border-line bg-ink-850">
+        <div className="flex items-center gap-2 mb-2">
+          <span className="w-7 h-7 rounded-lg bg-mind/15 border border-mind/30 flex items-center justify-center"><Image size={15} className="text-mind" /></span>
+          <div className="min-w-0">
+            <div className="text-paper font-semibold text-sm leading-tight">Animated GIF</div>
+            <div className="text-[11px] text-paper-faint truncate">{zoneValid ? `Marked zone ${gifRange.start.toFixed(1)}–${gifRange.end.toFixed(1)}s` : 'Whole video (set I / O marks for a section)'}</div>
+          </div>
+        </div>
+        <div className="grid grid-cols-2 gap-2 mb-2">
+          <label className="block">
+            <span className="label">Frame rate</span>
+            <select className="field py-1 text-xs cursor-pointer" value={gifFps} onChange={(e) => setGifFps(Number(e.target.value))} disabled={!!busy}>
+              <option value={8}>8 fps — small file</option>
+              <option value={10}>10 fps</option>
+              <option value={15}>15 fps — smoother</option>
+            </select>
+          </label>
+          <label className="block">
+            <span className="label">Width</span>
+            <select className="field py-1 text-xs cursor-pointer" value={gifWidth} onChange={(e) => setGifWidth(Number(e.target.value))} disabled={!!busy}>
+              <option value={320}>320px</option>
+              <option value={480}>480px</option>
+              <option value={640}>640px</option>
+            </select>
+          </label>
+        </div>
+        {busy === 'gif' && prog ? (
+          <div className="space-y-2">
+            <div className="h-1.5 rounded-full bg-ink-800 overflow-hidden">
+              <div className="h-full cf-progress-bar transition-[width] duration-150" style={{ width: `${Math.round(prog.pct * 100)}%` }} />
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-paper-dim flex-1 truncate" role="status">{prog.label} · {Math.round(prog.pct * 100)}%</span>
+              <button className="btn-danger py-1 px-2 text-[11px]" onClick={() => abortRef.current?.abort()}><X size={12} /> Cancel</button>
+            </div>
+          </div>
+        ) : (
+          <button className="btn-solid w-full py-2" disabled={!!busy || duration <= 0} onClick={() => void exportGif()} title="Renders the section through the same engine as the preview, quantized to 256 colors (max 240 frames — longer sections get a stretched frame step)">
+            <Download size={15} /> Export GIF
+          </button>
+        )}
+        {done && doneKind === 'gif' && <p className="text-heat-green mt-2 text-[11px]">{done}</p>}
       </div>
 
       {busy && busy !== 'video' && <p role="status" className="text-signal">Preparing {busy.toUpperCase()} locally…</p>}

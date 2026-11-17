@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Send, Bot, User, Check, X, Loader2, Sparkles, RotateCcw, KeyRound } from 'lucide-react';
+import { Send, Bot, User, Check, X, Loader2, Sparkles, RotateCcw, KeyRound, Settings2 } from 'lucide-react';
 import { useStore } from '../state/store';
 import { useUI } from '../state/ui';
 import { hasAI } from '../../ai/client';
@@ -60,13 +60,20 @@ export function ChatPanel() {
   return (
     <div className="flex flex-col h-full">
       <div className="p-2.5 border-b border-line">
-        {connected ? (
-          <div className="flex items-center gap-1.5 text-[11px] text-heat-green"><Sparkles size={12} /> AI connected · {aiSettings.model}</div>
-        ) : (
-          <button className="flex items-center gap-1.5 text-[11px] text-heat-amber hover:underline" onClick={() => ui.open('settings')}>
-            <KeyRound size={12} /> No AI key — rules-only mode. Add a key for natural-language editing.
+        <div className="flex items-center gap-1.5">
+          <div className="flex-1 min-w-0">
+            {connected ? (
+              <div className="flex items-center gap-1.5 text-[11px] text-heat-green"><Sparkles size={12} /> AI connected · {aiSettings.model}</div>
+            ) : (
+              <button className="flex items-center gap-1.5 text-[11px] text-heat-amber hover:underline" onClick={() => ui.open('settings')}>
+                <KeyRound size={12} /> No AI key — rules-only mode. Add a key for natural-language editing.
+              </button>
+            )}
+          </div>
+          <button className="icon-btn shrink-0" title="AI settings — change provider, endpoint, API key or model" onClick={() => ui.open('settings')}>
+            <Settings2 size={13} />
           </button>
-        )}
+        </div>
         <div className="text-[10px] text-paper-faint mt-1">{autopilot ? 'Autopilot: plans run automatically' : 'Review mode: you approve each plan'}{session?.connected ? ' · agent live' : ''}</div>
       </div>
 

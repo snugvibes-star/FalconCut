@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
-import { Play, Pause, SkipBack, SkipForward, ChevronsLeft, ChevronsRight, Grid3x3, Maximize2, Minimize2, Theater, Repeat, PenLine } from 'lucide-react';
+import { Play, Pause, SkipBack, SkipForward, ChevronsLeft, ChevronsRight, Grid3x3, Maximize2, Minimize2, Theater, Repeat, PenLine, Camera } from 'lucide-react';
 import { useStore } from '../state/store';
 import { useUI } from '../state/ui';
 import { renderFrame, drawSafeZones, projectDuration, activeClips, getMedia } from '../../engine';
 import { toggleMarkerLoop } from '../features/zoneLoop';
+import { projectPNG } from '../../exporter/artifacts';
+import { getBlob } from '../state/persistence';
 import { OverlayEditor } from './preview/OverlayEditor';
 import { DrawBar } from './preview/DrawBar';
 
@@ -42,6 +44,32 @@ export function Preview() {
   const [safe, setSafe] = useState(false);
   const [box, setBox] = useState({ w: 0, h: 0 });
   const [full, setFull] = useState(false);
+  const [capturing, setCapturing] = useState(false);
+
+  /** Freeze frame: render the EXACT frame at the playhead (full resolution,
+   * same renderFrame as export), import it as an image and drop a 2s clip at
+   * the playhead. Two real commits: import + insert (both undoable). */
+  const freezeFrame = async () => {
+    const s = useStore.getState();
+    s.pause();
+    setCapturing(true);
+    try {
+      const blob = await projectPNG(s.project, s.playhead, getBlob);
+      const name = `freeze-${s.playhead.toFixed(2)}s.png`;
+      const { ids } = await s.importFiles([new File([blob], name, { type: 'image/png' })], { addToTimeline: false });
+      const st = useStore.getState();
+      const mediaId = ids[0];
+      if (!mediaId) throw new Error('Could not import the captured frame.');
+      const trackId = st.project.tracks.find((t) => t.kind === 'video')?.id;
+      if (!trackId) throw new Error('No video track to place the freeze frame on.');
+      st.commit([{ type: 'add_clip', clip: { trackId, mediaId, start: s.playhead, duration: 2, inPoint: 0, name: 'Freeze frame' } }], 'Freeze frame');
+      useUI.getState().toast('Freeze frame added — 2s at the playhead (trim as needed)', 'success');
+    } catch (e) {
+      useUI.getState().toast((e as Error).message, 'error');
+    } finally {
+      setCapturing(false);
+    }
+  };
 
   const { width, height, fps } = project.settings;
   const dur = projectDuration(project);
@@ -207,6 +235,14 @@ export function Preview() {
           <Repeat size={16} />
         </button>
         <button className={`icon-btn ${safe ? 'text-signal' : ''}`} onClick={() => setSafe((v) => !v)} title="Toggle caption safe zones"><Grid3x3 size={16} /></button>
+        <button
+          className="icon-btn"
+          onClick={() => void freezeFrame()}
+          disabled={capturing || !hasContent}
+          title={capturing ? 'Capturing frame…' : 'Freeze frame — insert the current frame as a 2s still at the playhead'}
+        >
+          <Camera size={16} />
+        </button>
         <button
           className={`icon-btn ${focusMode ? 'text-signal' : ''}`}
           onClick={toggleFocusMode}

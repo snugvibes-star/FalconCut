@@ -55,7 +55,7 @@ export const FEATURE_CHECKLIST: FeatureItem[] = [
   // ── Speed ──────────────────────────────────────────────────────────────────
   { id: 'speed-change', group: 'Speed', label: 'Clip speed change (0.25x–4x)', status: 'working' },
   { id: 'speed-ramp', group: 'Speed', label: 'Time remapping / speed ramps (piecewise speed points on the clip)', status: 'working', note: 'piecewise-linear speed curve integrated for exact source mapping; ramp-aware split/trim/ripple keep continuity (tested); audio under a ramp plays at the segment average speed — exact pitch-following audio remap is not possible in-browser' },
-  { id: 'freeze-frame', group: 'Speed', label: 'Freeze frame', status: 'not-possible', note: 'not implemented' },
+  { id: 'freeze-frame', group: 'Speed', label: 'Freeze frame — capture the exact frame at the playhead and insert it as a 2s still (Camera button in the preview transport)', status: 'working', note: 'full-resolution render through the same engine as export; imported through the normal media path so it persists in the project' },
   { id: 'reverse', group: 'Speed', label: 'Reverse playback of video clips', status: 'not-possible', note: 'decoders are forward-only in browser' },
 
   // ── Text & titles ──────────────────────────────────────────────────────────
@@ -113,7 +113,7 @@ export const FEATURE_CHECKLIST: FeatureItem[] = [
   { id: 'audio-cleanup', group: 'Audio', label: 'Noise reduction, de-ess, high-pass (browser DSP)', status: 'working', note: 'DSP, not ML voice isolation' },
   { id: 'audio-codec-fallback', group: 'Audio', label: 'Undecodable-codec audio (AC3/E-AC3 in MP4) still plays in preview', status: 'partial', note: 'verified: element-audio fallback (approximate volume); WebAudio effects and WAV export cannot include it — the browser cannot decode AC3' },
   { id: 'music-ducking', group: 'Audio', label: 'Auto music ducking under speech', status: 'working' },
-  { id: 'voiceover', group: 'Audio', label: 'In-app voiceover recording to timeline', status: 'not-possible', note: 'not implemented' },
+  { id: 'voiceover', group: 'Audio', label: 'In-app voiceover recording (Audio tab): captures the mic with MediaRecorder while the timeline plays, imports the take and drops it at the playhead on a Voiceover track', status: 'working', note: 'one undo step; honest errors when the mic is denied/missing; use headphones so the mic only hears you' },
   { id: 'tts', group: 'Audio', label: 'Text-to-speech voiceover generation', status: 'partial', note: 'needs user API key; not possible purely in-browser' },
   { id: 'stem-separation', group: 'Audio', label: 'Music stem separation (vocals / drums / bass)', status: 'not-possible', note: 'no in-browser model' },
 
@@ -138,6 +138,7 @@ export const FEATURE_CHECKLIST: FeatureItem[] = [
   { id: 'export-wav', group: 'Export & deliver', label: 'Audio-only WAV export', status: 'working' },
   { id: 'export-png', group: 'Export & deliver', label: 'Current frame PNG export', status: 'working' },
   { id: 'export-srt', group: 'Export & deliver', label: 'Sidecar subtitle export', status: 'working', note: 'plain text, not the styled caption render' },
+  { id: 'export-gif', group: 'Export & deliver', label: 'Animated GIF export of the marked zone (I / O) or the whole video', status: 'working', note: 'rendered frame-by-frame through the same engine as the preview, 256-color quantization, 8/10/15 fps at 320–640px, bounded to 240 frames (longer sections stretch the frame step), cancellable' },
   { id: 'export-4k', group: 'Export & deliver', label: '4K export with hardware acceleration', status: 'partial', note: 'resolution available but browser encoders are software-speed' },
   { id: 'cloud-export', group: 'Export & deliver', label: 'Direct publish to YouTube / TikTok', status: 'not-possible', note: 'no OAuth upload integrations' },
 
@@ -146,7 +147,7 @@ export const FEATURE_CHECKLIST: FeatureItem[] = [
   { id: 'preview-customize', group: 'Productivity', label: 'Preview customization: fullscreen (Fullscreen API), zoom Fit/25/50/100/200%, theater mode (hide side panels, Esc exits)', status: 'working' },
   { id: 'hideable-draw-rail', group: 'Productivity', label: 'Fully hideable preview draw rail — when hidden nothing overlays the video; a small pen icon docked beside (not on) the video restores it', status: 'working', note: 'eye button on the rail hides it; state persists across reloads (cutflow.ui.prefs)' },
   { id: 'resizable-timeline', group: 'Productivity', label: 'Resizable bottom timeline editor — drag handle between preview and timeline plus Small / Medium / Large presets', status: 'working', note: 'pointer-capture drag, height persists across reloads (cutflow.ui.prefs)' },
-  { id: 'ai-providers', group: 'Productivity', label: 'AI settings: provider selector (Google Gemini native protocol + any OpenAI-compatible endpoint), preset endpoints, real Test connection button with inline result', status: 'working', note: 'Gemini speaks generateContent (x-goog-api-key, systemInstruction, JSON response mime); provider auto-detected from the endpoint so older saved settings keep working. Keys stay in localStorage' },
+  { id: 'ai-providers', group: 'Productivity', label: 'AI settings: provider selector (Google Gemini native protocol + any OpenAI-compatible endpoint), preset endpoints, real Test connection button with inline result, and a gear in the AI panel to reopen settings anytime', status: 'working', note: 'Gemini speaks generateContent (x-goog-api-key, systemInstruction, JSON response mime); provider auto-detected from the endpoint so older saved settings keep working. Keys stay in localStorage' },
   { id: 'in-page-api', group: 'Productivity', label: 'In-page scripting API for agents', status: 'working' },
   { id: 'co-edit-lock', group: 'Productivity', label: 'Clip locking for human/AI co-editing', status: 'working' },
   { id: 'project-file', group: 'Productivity', label: 'Save / open project file', status: 'working' },

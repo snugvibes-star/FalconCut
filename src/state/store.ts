@@ -108,7 +108,7 @@ interface State {
   replaceProject: (project: Project, label: string) => void;
 
   /* media */
-  importFiles: (files: File[], opts?: { addToTimeline?: boolean }) => Promise<{ imported: number; skipped: string[] }>;
+  importFiles: (files: File[], opts?: { addToTimeline?: boolean }) => Promise<{ imported: number; skipped: string[]; ids: string[] }>;
   loadDemoTimeline: () => Promise<void>;
   removeMedia: (mediaId: string) => void;
   /** Kdenlive-style "Extract audio": decode the video's audio into a new WAV
@@ -384,6 +384,7 @@ export const useStore = create<State>()((set, get) => {
       const epoch = projectEpoch;
       const actions: Action[] = [];
       const skipped: string[] = [];
+      const ids: string[] = [];
       let imported = 0;
       let cursor = projectDuration(p0);
       const videoTrack = p0.tracks.find((t) => t.kind === 'video')?.id;
@@ -419,6 +420,7 @@ export const useStore = create<State>()((set, get) => {
             }
           }
           imported++;
+          ids.push(id);
         } catch (err) {
           // One unreadable/corrupt file must not abort the whole import and
           // orphan every blob written before it — skip it and keep going.
@@ -431,7 +433,7 @@ export const useStore = create<State>()((set, get) => {
         get().commit(actions, `Import ${imported} file${imported === 1 ? '' : 's'}`);
         for (const action of actions) if (action.type === 'add_media') get().analyze(action.asset.id);
       }
-      return { imported, skipped };
+      return { imported, skipped, ids };
     },
 
     /** First-run demo: imports the bundled sample media and lays out a tiny

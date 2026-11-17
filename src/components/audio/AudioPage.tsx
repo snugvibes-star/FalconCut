@@ -8,6 +8,7 @@ import { useEffect, useRef, useState } from 'react';
 import { SlidersHorizontal, Volume2, VolumeX, Waves } from 'lucide-react';
 import { useStore } from '../../state/store';
 import { useUI } from '../../state/ui';
+import { VoiceoverRecorder } from '../tabs/AudioTab';
 import { getMedia, type Action, type Clip, type MediaAnalysis, type Project, type Track } from '../../../engine';
 
 type CommitFn = (actions: Action[], label: string, source?: 'human' | 'ai', coalesceKey?: string) => void;
@@ -237,7 +238,7 @@ function ClipRow({ clip, name, commit, onSeek }: { clip: Clip; name: string; com
   );
 }
 
-/* ---------------- honest voice-over / TTS panel ---------------- */
+/* ---------------- voice-over / TTS panel ---------------- */
 
 function VoicePanel() {
   const row = (text: string) => (
@@ -247,10 +248,14 @@ function VoicePanel() {
     </div>
   );
   return (
-    <div className="panel space-y-1 p-2 text-[11px] text-paper-faint">
-      <div className="label mb-0.5">Voice-over &amp; TTS</div>
-      {row('Mic recording — coming to browser build')}
-      {row('Text-to-speech — needs an API key (Settings)')}
+    <div className="space-y-2">
+      {/* The real recorder (same component as the Audio tab) — records the mic
+          while the timeline plays and drops the take on a Voiceover track. */}
+      <VoiceoverRecorder />
+      <div className="panel space-y-1 p-2 text-[11px] text-paper-faint">
+        <div className="label mb-0.5">Text-to-speech</div>
+        {row('Needs an API key (Settings)')}
+      </div>
     </div>
   );
 }
