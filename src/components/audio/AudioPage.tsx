@@ -1,0 +1,366 @@
+/**
+ * Audio workspace — a dense mixer view modeled on Premiere's Audio Clip Mixer
+ * and Fairlight's channel strips. Every control maps to a real store action or
+ * applyTool; meters render REAL analysis loudness data (or an honest "no
+ * data" state), never fake movement.
+ */
+import { useEffect, useRef, useState } from 'react';
+import { SlidersHorizontal, Volume2, VolumeX, Waves } from 'lucide-react';
+import { useStore } from '../../state/store';
+import { useUI } from '../../state/ui';
+import { getMedia, type Action, type Clip, type MediaAnalysis, type Project, type Track } from '../../../engine';
+
+type CommitFn = (actions: Action[], label: string, source?: 'human' | 'ai', coalesceKey?: string) => void;
+
+const FADER_LEN = 128; // px, vertical travel of the rotated range input
+const METER_W = 10;
+const METER_H = 88;
+
+const mmss = (t: number) => {
+  const m = Math.floor(Math.max(0, t) / 60);
+  const s = Math.floor(Math.max(0, t) % 60);
+  return `${m}:${String(s).padStart(2, '0')}`;
+};
+
+/* ---------------- vertical fader (rotated range input) ---------------- */
+
+function Fader({ value, disabled, disabledReason, onCommit }: {
+  value: number;
+  disabled?: boolean;
+  disabledReason?: string;
+  onCommit: (v: number) => void;
+}) {
+  const [drag, setDrag] = useState<number | null>(null);
+  const shown = drag ?? value;
+  const release = () => {
+    if (drag !== null && Math.abs(drag - value) > 1e-4) onCommit(drag);
+    setDrag(null);
+  };
+  return (
+    <div className="relative shrink-0" style={{ height: FADER_LEN, width: 26 }} title={disabledReason}>
+      <input
+        type="range"
+        min={0}
+        max={4}
+        step={0.01}
+        value={shown}
+        disabled={disabled}
+        aria-label="clips vol"
+        onChange={(e) => setDrag(Number(e.target.value))}
+        onPointerUp={release}
+        onKeyUp={release}
+        onBlur={release}
+        className="absolute left-1/2 top-1/2 w-[128px]"
+        style={{ transform: 'translate(-50%, -50%) rotate(-90deg)' }}
+      />
+    </div>
+  );
+}
+
+/* ---------------- track meter (real analysis loudness) ---------------- */
+
+function TrackMeter({ clip, ma, playhead }: { clip: Clip | undefined; ma: MediaAnalysis | undefined; playhead: number }) {
+  const ref = useRef<HTMLCanvasElement>(null);
+  const hasData = Boolean(clip && ma && ma.loudness.length);
+
+  useEffect(() => {
+    const c = ref.current;
+    if (!c) return;
+    c.width = METER_W;
+    c.height = METER_H;
+    const ctx = c.getContext('2d');
+    if (!ctx) return;
+    ctx.clearRect(0, 0, METER_W, METER_H);
+    ctx.fillStyle = '#202024'; // ink-850 bed
+    ctx.fillRect(0, 0, METER_W, METER_H);
+    ctx.fillStyle = 'rgba(94,107,132,0.45)'; // paper-faint ticks
+    for (let i = 1; i < 4; i++) ctx.fillRect(1, Math.round((METER_H * i) / 4), METER_W - 2, 1);
+    if (!clip || !ma || !ma.loudness.length) return;
+    // map playhead → source time → 10 Hz loudness envelope index
+    const srcT = clip.inPoint + (playhead - clip.start) * clip.speed;
+    const idx = Math.max(0, Math.min(ma.loudness.length - 1, Math.round(srcT * 10)));
+    const rms = ma.loudness[idx]?.rms ?? 0;
+    const level = Math.min(1, rms * 3);
+    if (level <= 0) return;
+    const grad = ctx.createLinearGradient(0, METER_H, 0, 0); // green → amber → red, bottom to top
+    grad.addColorStop(0, '#34D399');
+    grad.addColorStop(0.7, '#FBBF24');
+    grad.addColorStop(1, '#FB7185');
+    ctx.fillStyle = grad;
+    ctx.fillRect(1, METER_H - level * (METER_H - 2), METER_W - 2, level * (METER_H - 2));
+  }, [clip, ma, playhead]);
+
+  return (
+    <div className="flex flex-col items-center gap-0.5">
+      <canvas ref={ref} className="rounded-sm border border-line" style={{ width: METER_W, height: METER_H }} />
+      <span className="text-[8px] text-paper-faint">{hasData ? 'lvl' : 'no data'}</span>
+    </div>
+  );
+}
+
+/* ---------------- one mixer channel strip ---------------- */
+
+function TrackStrip({ track, project, playhead, commit }: { track: Track; project: Project; playhead: number; commit: CommitFn }) {
+  const clips = project.clips.filter((c) => c.trackId === track.id).sort((a, b) => a.start - b.start);
+  const active = clips.find((c) => playhead >= c.start && playhead < c.start + c.duration);
+  const ma = active?.mediaId ? project.analysis?.byMedia[active.mediaId] : undefined;
+  const vol = clips.length ? clips[0].volume : null;
+
+  return (
+    <div className="panel w-24 shrink-0 flex flex-col items-center gap-1 px-1 py-2">
+      <div className="w-full truncate text-center font-mono text-[10px] text-paper-dim" title={track.name}>{track.name}</div>
+      <button
+        type="button"
+        className={`icon-btn ${track.muted ? 'text-heat' : ''}`}
+        onClick={() => commit([{ type: 'set_track', trackId: track.id, patch: { muted: !track.muted } }], track.muted ? `Unmute ${track.name}` : `Mute ${track.name}`)}
+        title={track.muted ? 'Unmute track' : 'Mute track'}
+      >
+        {track.muted ? <VolumeX size={14} aria-hidden /> : <Volume2 size={14} aria-hidden />}
+      </button>
+      <div className="flex flex-col items-center gap-0.5">
+        <span className="text-[9px] text-paper-faint">clips vol</span>
+        <Fader
+          value={vol ?? 1}
+          disabled={!clips.length || track.locked}
+          disabledReason={!clips.length ? 'No clips on this track' : track.locked ? 'Track is locked' : undefined}
+          onCommit={(v) =>
+            commit(
+              clips.map((c) => ({ type: 'set_clip_props', clipId: c.id, patch: { volume: v } })),
+              `Set ${track.name} volume`,
+            )
+          }
+        />
+        <span className="font-mono text-[10px] text-signal">{vol != null ? `${vol.toFixed(2)}×` : '—'}</span>
+      </div>
+      <TrackMeter clip={active} ma={ma} playhead={playhead} />
+      <div className="text-center font-mono text-[9px] leading-tight text-paper-faint" title="Fades of the clip under the playhead">
+        {active ? `in ${active.fades.in.toFixed(2)}s · out ${active.fades.out.toFixed(2)}s` : '—'}
+      </div>
+    </div>
+  );
+}
+
+/* ---------------- master strip (measured project loudness) ---------------- */
+
+function MasterStrip({ project }: { project: Project }) {
+  const analyses = Object.values(project.analysis?.byMedia ?? {});
+  const avg = analyses.length ? analyses.reduce((sum, ma) => sum + ma.integratedLoudness, 0) / analyses.length : null;
+  const peak = analyses.length ? analyses.reduce((sum, ma) => sum + ma.truePeak, 0) / analyses.length : null;
+  return (
+    <div className="panel w-28 shrink-0 flex flex-col items-center gap-1 border-signal/30 bg-ink-850 px-1 py-2">
+      <div className="font-mono text-[10px] text-signal">MASTER</div>
+      <div className="flex flex-1 flex-col items-center justify-center gap-0.5">
+        <div className="font-mono text-2xl text-signal">{avg != null ? avg.toFixed(1) : '—'}</div>
+        <div className="text-[9px] text-paper-faint">LUFS</div>
+        <div className="font-mono text-[10px] text-paper-dim">{peak != null ? `${peak.toFixed(1)} dBTP` : '—'}</div>
+        {analyses.length > 0 && <div className="text-[8px] text-paper-faint">{analyses.length} analyzed source{analyses.length === 1 ? '' : 's'}</div>}
+      </div>
+      <div className="text-center text-[9px] leading-tight text-paper-faint">-14 YouTube · -16 podcast · -23 broadcast</div>
+    </div>
+  );
+}
+
+/* ---------------- clip row in the right-hand list ---------------- */
+
+function ClipRow({ clip, name, commit, onSeek }: { clip: Clip; name: string; commit: CommitFn; onSeek: (clip: Clip) => void }) {
+  const setFade = (which: 'in' | 'out', v: number) =>
+    commit(
+      [{ type: 'set_fades', clipId: clip.id, ...(which === 'in' ? { fadeIn: v } : { fadeOut: v }) }],
+      `Fade ${which}`,
+      'human',
+      `${clip.id}:f${which}`,
+    );
+  const num = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const v = Number(e.target.value);
+    return Number.isFinite(v) && v >= 0 ? v : null;
+  };
+  return (
+    <div className="panel space-y-1 p-1.5">
+      <div className="flex items-center gap-1.5">
+        <button
+          type="button"
+          onClick={() => onSeek(clip)}
+          title={`${name} — click to move the playhead to its start`}
+          className="min-w-0 flex-1 truncate text-left text-[11px] text-paper hover:text-signal"
+        >
+          {name}
+        </button>
+        <span className="font-mono text-[10px] text-paper-faint">{mmss(clip.start)}</span>
+      </div>
+      <div className="flex items-center gap-1.5">
+        <input
+          type="range"
+          min={0}
+          max={4}
+          step={0.01}
+          value={clip.volume}
+          disabled={clip.locked}
+          aria-label={`Volume for ${name}`}
+          className="min-w-0 flex-1"
+          onChange={(e) =>
+            commit(
+              [{ type: 'set_clip_props', clipId: clip.id, patch: { volume: Number(e.target.value) } }],
+              'Set clip volume',
+              'human',
+              `${clip.id}:vol`,
+            )
+          }
+        />
+        <span className="w-10 text-right font-mono text-[10px] text-signal">{clip.volume.toFixed(2)}×</span>
+      </div>
+      <div className="flex items-center gap-1 text-[10px] text-paper-faint">
+        in
+        <input
+          type="number"
+          min={0}
+          step={0.05}
+          value={clip.fades.in}
+          disabled={clip.locked}
+          aria-label={`Fade in for ${name}`}
+          className="w-14 rounded border border-line bg-ink-850 px-1 py-0.5 text-right font-mono text-[10px] text-paper disabled:opacity-40"
+          onChange={(e) => { const v = num(e); if (v != null) setFade('in', v); }}
+        />
+        out
+        <input
+          type="number"
+          min={0}
+          step={0.05}
+          value={clip.fades.out}
+          disabled={clip.locked}
+          aria-label={`Fade out for ${name}`}
+          className="w-14 rounded border border-line bg-ink-850 px-1 py-0.5 text-right font-mono text-[10px] text-paper disabled:opacity-40"
+          onChange={(e) => { const v = num(e); if (v != null) setFade('out', v); }}
+        />
+        s
+      </div>
+    </div>
+  );
+}
+
+/* ---------------- honest voice-over / TTS panel ---------------- */
+
+function VoicePanel() {
+  const row = (text: string) => (
+    <div className="flex items-center gap-1.5">
+      <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-paper-faint/50" aria-hidden />
+      <span>{text}</span>
+    </div>
+  );
+  return (
+    <div className="panel space-y-1 p-2 text-[11px] text-paper-faint">
+      <div className="label mb-0.5">Voice-over &amp; TTS</div>
+      {row('Mic recording — coming to browser build')}
+      {row('Text-to-speech — needs an API key (Settings)')}
+    </div>
+  );
+}
+
+/* ---------------- page ---------------- */
+
+export function AudioPage() {
+  const project = useStore((s) => s.project);
+  const playhead = useStore((s) => s.playhead);
+  const commit = useStore((s) => s.commit);
+  const toast = useUI((s) => s.toast);
+  const [busy, setBusy] = useState<string | null>(null);
+
+  const audioTracks = project.tracks.filter((t) => t.kind === 'audio');
+  const hasAudioMedia = project.media.some((m) => m.type === 'audio');
+  const audioClips = project.clips
+    .filter((c) => {
+      const m = getMedia(project, c.mediaId);
+      return !!m && (m.type === 'audio' || m.hasAudio);
+    })
+    .sort((a, b) => a.start - b.start);
+
+  const runTool = async (name: string, params?: Record<string, unknown>) => {
+    if (busy) return;
+    setBusy(name);
+    try {
+      const result = await useStore.getState().applyTool(name, params);
+      const changed = result.actions.length > 0;
+      toast(result.summary || (changed ? `${name} applied.` : 'No changes applied.'), changed ? 'success' : 'info');
+    } catch (error) {
+      toast(error instanceof Error ? error.message : `Could not run ${name}`, 'error');
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const seek = (clip: Clip) => {
+    const s = useStore.getState();
+    s.pause();
+    s.select([clip.id]);
+    s.setPlayhead(clip.start);
+  };
+
+  const toolBtn = 'btn-solid text-xs px-2.5 py-1';
+
+  return (
+    <div className="h-full flex flex-col bg-ink-950">
+      {/* top strip */}
+      <div className="flex h-9 shrink-0 items-center justify-between gap-2 border-b border-line px-3">
+        <div className="flex items-center gap-2 font-display text-xs tracking-widest text-paper-dim">
+          <Waves size={13} className="text-signal" aria-hidden />
+          AUDIO
+        </div>
+        <div className="flex items-center gap-1.5">
+          <button type="button" className={toolBtn} disabled={busy !== null} onClick={() => void runTool('balance_audio')}>
+            <SlidersHorizontal size={12} aria-hidden /> Balance &amp; normalize
+          </button>
+          <button type="button" className={toolBtn} disabled={busy !== null} onClick={() => void runTool('cleanup_audio')}>
+            Clean up noise
+          </button>
+          <span title={hasAudioMedia ? 'Balance music under dialogue' : 'Import music first'}>
+            <button
+              type="button"
+              className={toolBtn}
+              disabled={busy !== null || !hasAudioMedia}
+              onClick={() => void runTool('add_music', { mood: 'balanced' })}
+            >
+              Duck music
+            </button>
+          </span>
+        </div>
+      </div>
+
+      {audioTracks.length === 0 ? (
+        <div className="flex flex-1 items-center justify-center p-6">
+          <div className="panel space-y-3 p-6 text-center">
+            <div className="text-sm text-paper-dim">No audio tracks</div>
+            <button
+              type="button"
+              className="btn-signal text-xs"
+              onClick={() => commit([{ type: 'add_track', track: { kind: 'audio' } }], 'Add audio track')}
+            >
+              Add audio track
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className="flex min-h-0 flex-1">
+          {/* mixer strips */}
+          <div className="min-w-0 flex-1 overflow-y-auto p-3">
+            <div className="flex items-stretch gap-2 overflow-x-auto pb-1">
+              {audioTracks.map((t) => (
+                <TrackStrip key={t.id} track={t} project={project} playhead={playhead} commit={commit} />
+              ))}
+              <MasterStrip project={project} />
+            </div>
+          </div>
+          {/* clip list */}
+          <div className="w-72 shrink-0 space-y-1.5 overflow-y-auto border-l border-line p-2">
+            <div className="label">Audio clips</div>
+            {audioClips.length === 0 && (
+              <p className="px-1 text-[11px] text-paper-faint">No audio clips on the timeline yet.</p>
+            )}
+            {audioClips.map((c) => (
+              <ClipRow key={c.id} clip={c} name={c.name ?? getMedia(project, c.mediaId)?.name ?? 'Clip'} commit={commit} onSeek={seek} />
+            ))}
+            <VoicePanel />
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

@@ -1,0 +1,480 @@
+{
+  "name": "cutflow",
+  "version": "1.0.0",
+  "description": "AI-native, privacy-first video editor. The editing skill lives in the system (analysis, rules, tools, quality checks), not in the model — so even a weak model produces professional edits by calling these tools.",
+  "privacy": "Everything runs in the browser. Your videos never leave this device. No account, no upload.",
+  "access": {
+    "inPage": {
+      "where": "window.cutflow",
+      "methods": [
+        "listTools()",
+        "getProject()",
+        "getAnalysis()",
+        "getStoryboard()",
+        "getLint()",
+        "runTool(name, params)",
+        "applyTool(name, params)",
+        "applyActions(actions, label)",
+        "undo()",
+        "redo()",
+        "onChange(cb)"
+      ],
+      "note": "Same-page agents only. Scoped to the project open in this tab; cannot reach other projects or files."
+    },
+    "relay": {
+      "where": "Connect an agent → one-time session link + QR",
+      "note": "A session token grants access to the current project only, expires when the tab closes, and is revocable with one click."
+    },
+    "mcp": {
+      "where": "node server/cutflow-mcp.mjs",
+      "note": "MCP stdio bridge that forwards to the relay."
+    }
+  },
+  "protocol": {
+    "reply": "Respond with ONLY a JSON object: {\"thought\": string, \"say\": string, \"calls\": [{\"tool\": string, \"params\": object, \"why\": string}]}",
+    "preview": "runTool returns {actions, summary, stats?, warnings?} and changes nothing. applyTool commits as ONE undo step.",
+    "plan": "Plan 3-8 tool calls. The human reviews the plan, then it runs step-by-step with a quality check after each run.",
+    "noKey": "With no AI key, every tool still works from buttons, including one-click Auto edit (rules only)."
+  },
+  "tools": [
+    {
+      "name": "remove_dead_air",
+      "description": "Cut silent pauses longer than max_pause_ms. Keeps breathing room, never cuts mid-word, adds tiny audio crossfades. Use when the video feels slow.",
+      "params": {
+        "max_pause_ms": {
+          "type": "number",
+          "description": "Cut pauses longer than this many milliseconds.",
+          "default": 650,
+          "optional": true
+        }
+      },
+      "example": {
+        "input": {
+          "max_pause_ms": 600
+        },
+        "why": "Tighten a talking-head video without losing natural breaths."
+      }
+    },
+    {
+      "name": "remove_fillers",
+      "description": "Remove filler words (um, uh, you know, i mean) detected in the transcript. Needs transcription.",
+      "params": {},
+      "example": {
+        "input": {},
+        "why": "Clean up hesitant speech."
+      }
+    },
+    {
+      "name": "cut_retakes",
+      "description": "Delete repeated false starts and keep the last complete take of each repeated phrase. Needs transcription.",
+      "params": {},
+      "example": {
+        "input": {},
+        "why": "The speaker restarted a sentence 3 times; keep the best one."
+      }
+    },
+    {
+      "name": "add_captions",
+      "description": "Generate styled captions from the transcript. Styles: clean (subtitles), karaoke (word highlight), bold-keywords, word-pop (one big word at a time). Max 2 lines, safe-zone positioned.",
+      "params": {
+        "style": {
+          "type": "enum",
+          "description": "Caption style.",
+          "enum": [
+            "clean",
+            "karaoke",
+            "bold-keywords",
+            "word-pop"
+          ],
+          "optional": true
+        }
+      },
+      "example": {
+        "input": {
+          "style": "karaoke"
+        },
+        "why": "Social clip where viewers watch without sound."
+      }
+    },
+    {
+      "name": "add_hook_title",
+      "description": "Big animated title in the first 3 seconds. If text is omitted, it is derived from the transcript opening.",
+      "params": {
+        "text": {
+          "type": "string",
+          "description": "Hook text, max ~42 chars.",
+          "optional": true
+        }
+      },
+      "example": {
+        "input": {
+          "text": "STOP doing this"
+        },
+        "why": "Grab attention in the first second."
+      }
+    },
+    {
+      "name": "zoom_on_emphasis",
+      "description": "Gentle punch-in zooms on emphasized words and sentence starts. Smooth easing, alternating intensity, keeps the face in frame. Respects max-zoom rules.",
+      "params": {},
+      "example": {
+        "input": {},
+        "why": "Add visual energy to a static talking head."
+      }
+    },
+    {
+      "name": "reframe",
+      "description": "Convert the project to another aspect ratio (9:16, 16:9, 1:1, 4:5) and pan to follow the face. Captions move to the new safe zone.",
+      "params": {
+        "aspect": {
+          "type": "enum",
+          "description": "Target aspect ratio.",
+          "default": "9:16",
+          "enum": [
+            "9:16",
+            "16:9",
+            "1:1",
+            "4:5"
+          ]
+        }
+      },
+      "example": {
+        "input": {
+          "aspect": "9:16"
+        },
+        "why": "Turn a landscape recording into a TikTok."
+      }
+    },
+    {
+      "name": "add_music",
+      "description": "Add an imported audio file as a music bed and automatically duck it under speech. Import the music file first. Mood only adjusts level.",
+      "params": {
+        "mediaId": {
+          "type": "string",
+          "description": "Media id of the imported music (omit to auto-pick).",
+          "optional": true
+        },
+        "mood": {
+          "type": "enum",
+          "description": "chill | balanced | energetic",
+          "enum": [
+            "chill",
+            "balanced",
+            "energetic"
+          ],
+          "optional": true
+        }
+      },
+      "example": {
+        "input": {
+          "mood": "chill"
+        },
+        "why": "Background music that never fights the voice."
+      }
+    },
+    {
+      "name": "balance_audio",
+      "description": "Normalize speech loudness to the pack target (LUFS), prevent clipping, add a light noise gate and high-pass. Set music to the pack level.",
+      "params": {},
+      "example": {
+        "input": {},
+        "why": "Make volume consistent and broadcast-safe."
+      }
+    },
+    {
+      "name": "cleanup_audio",
+      "description": "Light browser DSP cleanup: noise reduction (downward expansion), de-ess, high-pass. Conservative — not ML voice isolation.",
+      "params": {
+        "denoise": {
+          "type": "boolean",
+          "description": "Apply noise reduction.",
+          "default": true,
+          "optional": true
+        },
+        "deess": {
+          "type": "boolean",
+          "description": "Reduce harsh s sounds.",
+          "default": true,
+          "optional": true
+        }
+      },
+      "example": {
+        "input": {},
+        "why": "Room hiss and harsh sibilance on a voice recording."
+      }
+    },
+    {
+      "name": "apply_color_preset",
+      "description": "Apply a color look to all video clips: natural, warm, cool, cinematic, black-white, vibrant.",
+      "params": {
+        "name": {
+          "type": "enum",
+          "description": "Preset name.",
+          "enum": [
+            "natural",
+            "warm",
+            "cool",
+            "cinematic",
+            "black-white",
+            "vibrant"
+          ],
+          "optional": true
+        }
+      },
+      "example": {
+        "input": {
+          "name": "cinematic"
+        },
+        "why": "Moody look for a quote video."
+      }
+    },
+    {
+      "name": "add_transitions",
+      "description": "Add restrained transitions ONLY at real scene changes (detected shot cuts or different media). Never on every cut. Capped per minute by the style pack.",
+      "params": {
+        "style": {
+          "type": "enum",
+          "description": "Transition style.",
+          "enum": [
+            "crossfade",
+            "dip-black",
+            "dip-white",
+            "wipe-left",
+            "slide-left",
+            "zoom-in"
+          ],
+          "optional": true
+        }
+      },
+      "example": {
+        "input": {
+          "style": "crossfade"
+        },
+        "why": "Smooth shot changes in a vlog."
+      }
+    },
+    {
+      "name": "add_broll_slots",
+      "description": "Mark long talking stretches where a cutaway would help (markers + tacks). Does not insert media — fill slots yourself or with auto_broll.",
+      "params": {},
+      "example": {
+        "input": {},
+        "why": "Find boring static moments in a 2-minute monologue."
+      }
+    },
+    {
+      "name": "auto_broll",
+      "description": "Fill b-roll slots by matching transcript keywords to your own media library, or to Pexels stock if the user connected a key.",
+      "params": {
+        "pexelsKey": {
+          "type": "string",
+          "description": "User's Pexels API key (optional).",
+          "optional": true
+        },
+        "query": {
+          "type": "string",
+          "description": "Force a search query.",
+          "optional": true
+        }
+      },
+      "example": {
+        "input": {},
+        "why": "Cover static talking stretches with matching footage."
+      }
+    },
+    {
+      "name": "snap_to_beats",
+      "description": "Snap zooms (or cut points) to the analyzed music beat grid. Needs imported, analyzed music.",
+      "params": {
+        "what": {
+          "type": "enum",
+          "description": "What to sync.",
+          "default": "zooms",
+          "enum": [
+            "zooms",
+            "cuts"
+          ],
+          "optional": true
+        }
+      },
+      "example": {
+        "input": {
+          "what": "zooms"
+        },
+        "why": "Punch zooms that hit with the music."
+      }
+    },
+    {
+      "name": "add_motif",
+      "description": "Add a parameterized motion graphic: title-reveal, lower-third, bar-chart, ring-progress, count-up, burst. Params are editable in the inspector.",
+      "params": {
+        "type": {
+          "type": "enum",
+          "description": "Motif type.",
+          "enum": [
+            "title-reveal",
+            "lower-third",
+            "bar-chart",
+            "ring-progress",
+            "count-up",
+            "burst"
+          ]
+        },
+        "start": {
+          "type": "number",
+          "description": "Timeline start seconds.",
+          "default": 0,
+          "optional": true
+        },
+        "duration": {
+          "type": "number",
+          "description": "Duration seconds.",
+          "default": 3,
+          "optional": true
+        },
+        "text": {
+          "type": "string",
+          "description": "Main text/label.",
+          "optional": true
+        },
+        "params": {
+          "type": "string",
+          "description": "Extra params object (colors, values, x, y, size...).",
+          "optional": true
+        }
+      },
+      "example": {
+        "input": {
+          "type": "lower-third",
+          "start": 2,
+          "text": "Jane Doe",
+          "params": {
+            "role": "Founder"
+          }
+        },
+        "why": "Introduce the speaker professionally."
+      }
+    },
+    {
+      "name": "auto_edit",
+      "description": "Run the FULL recommended pipeline for a video type: balance audio, cut dead air/retakes/fillers, captions, zooms, transitions, color, hook, b-roll slots, music if present, then self-fix. One undo step. Works without any AI.",
+      "params": {
+        "video_type": {
+          "type": "enum",
+          "description": "Video type.",
+          "enum": [
+            "talking head",
+            "podcast clip",
+            "product promo",
+            "tutorial",
+            "vlog",
+            "quote",
+            "youtube intro"
+          ],
+          "optional": true
+        },
+        "aspect": {
+          "type": "enum",
+          "description": "Also reframe to this aspect.",
+          "enum": [
+            "9:16",
+            "16:9",
+            "1:1",
+            "4:5"
+          ],
+          "optional": true
+        }
+      },
+      "example": {
+        "input": {
+          "video_type": "talking head",
+          "aspect": "9:16"
+        },
+        "why": "Make this a viral TikTok in one call."
+      }
+    },
+    {
+      "name": "auto_fix",
+      "description": "Run the quality checker and automatically fix reported issues, up to 3 attempts. Call after editing until the report is clean.",
+      "params": {
+        "max_attempts": {
+          "type": "number",
+          "description": "Max fix passes (1-3).",
+          "default": 3,
+          "optional": true
+        }
+      },
+      "example": {
+        "input": {},
+        "why": "Clean up lint issues after an edit run."
+      }
+    },
+    {
+      "name": "smart_cutdown",
+      "description": "Find 5-10 short-clip candidates in a long video, each with a hook-strength score, title and transcript. Adds chapter markers; open candidates as projects from the Cutdown panel.",
+      "params": {
+        "count": {
+          "type": "number",
+          "description": "How many candidates (3-10).",
+          "default": 6,
+          "optional": true
+        }
+      },
+      "example": {
+        "input": {
+          "count": 8
+        },
+        "why": "Repurpose a podcast into Shorts."
+      }
+    },
+    {
+      "name": "ab_variants",
+      "description": "Generate 2-3 alternative edits (different pacing, caption style, hook) as separate versions to compare.",
+      "params": {
+        "variants": {
+          "type": "number",
+          "description": "Number of variants (2-3).",
+          "default": 3,
+          "optional": true
+        }
+      },
+      "example": {
+        "input": {
+          "variants": 3
+        },
+        "why": "Test which style performs better."
+      }
+    },
+    {
+      "name": "auto_multicam",
+      "description": "Switch between imported camera angles on speaker turns (pause heuristic). Angle 2 is muted; main audio stays continuous. Needs 2+ angles and a transcript.",
+      "params": {
+        "mediaIds": {
+          "type": "string",
+          "description": "Comma-separated angle media ids (optional).",
+          "optional": true
+        }
+      },
+      "example": {
+        "input": {},
+        "why": "Two-camera interview, cut to whoever is talking."
+      }
+    },
+    {
+      "name": "translate_captions",
+      "description": "Translate existing captions into another language using the connected AI key. Creates a separate caption track; originals kept.",
+      "params": {
+        "language": {
+          "type": "string",
+          "description": "Target language, e.g. Spanish, Hindi, Arabic."
+        }
+      },
+      "example": {
+        "input": {
+          "language": "Spanish"
+        },
+        "why": "Reach a Spanish-speaking audience."
+      }
+    }
+  ]
+}

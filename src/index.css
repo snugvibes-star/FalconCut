@@ -1,0 +1,269 @@
+@import '@fontsource-variable/inter';
+@import '@fontsource-variable/space-grotesk';
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+}
+
+html, body, #root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  @apply bg-ink-950 text-paper font-body antialiased;
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #33333a transparent;
+}
+*::-webkit-scrollbar { width: 9px; height: 9px; }
+*::-webkit-scrollbar-track { background: transparent; }
+*::-webkit-scrollbar-thumb { background: #33333a; border-radius: 8px; border: 2px solid transparent; background-clip: content-box; }
+*::-webkit-scrollbar-thumb:hover { background: #46464e; background-clip: content-box; }
+
+@layer components {
+  .panel { @apply bg-ink-900 border border-line rounded-xl; }
+  .btn { @apply inline-flex items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors select-none disabled:opacity-40 disabled:pointer-events-none; }
+  .btn-ghost { @apply btn text-paper-dim hover:text-paper hover:bg-ink-750; }
+  .btn-solid { @apply btn bg-ink-700 text-paper hover:bg-ink-600 border border-line; }
+  .btn-signal { @apply btn bg-signal text-ink-950 hover:bg-signal-dim font-semibold; }
+  .btn-mind { @apply btn bg-mind-dim text-white hover:bg-mind; }
+  .btn-danger { @apply btn bg-heat/15 text-heat hover:bg-heat/25 border border-heat/30; }
+  .chip { @apply inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-medium; }
+  .field { @apply w-full rounded-lg bg-ink-850 border border-line px-2.5 py-1.5 text-sm text-paper placeholder:text-paper-faint focus:outline-none focus:border-mind-dim; }
+  .label { @apply block text-[11px] uppercase tracking-wide text-paper-faint font-medium mb-1; }
+  .icon-btn { @apply inline-flex items-center justify-center rounded-md p-1.5 text-paper-dim hover:text-paper hover:bg-ink-750 transition-colors disabled:opacity-30 disabled:pointer-events-none; }
+  .divider { @apply h-px bg-line my-2; }
+}
+
+input[type='range'] {
+  @apply appearance-none bg-transparent cursor-pointer;
+  height: 18px;
+}
+input[type='range']::-webkit-slider-runnable-track {
+  height: 4px; border-radius: 4px; background: #33333a;
+}
+input[type='range']::-webkit-slider-thumb {
+  -webkit-appearance: none; appearance: none;
+  width: 13px; height: 13px; margin-top: -4.5px; border-radius: 50%;
+  background: #4C9AFF; border: 2px solid #101012; box-shadow: 0 0 0 1px #173A5E;
+}
+input[type='range']::-moz-range-track { height: 4px; border-radius: 4px; background: #33333a; }
+input[type='range']::-moz-range-thumb { width: 13px; height: 13px; border-radius: 50%; background: #4C9AFF; border: 2px solid #101012; }
+
+input[type='color'] {
+  @apply appearance-none bg-transparent border-0 p-0 cursor-pointer;
+  width: 28px; height: 24px;
+}
+input[type='color']::-webkit-color-swatch-wrapper { padding: 0; }
+input[type='color']::-webkit-color-swatch { border: 1px solid #3e3e46; border-radius: 6px; }
+
+.no-select { user-select: none; -webkit-user-select: none; }
+
+@keyframes fade-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+.animate-fade-in { animation: fade-in 0.16s ease-out; }
+
+@keyframes pulse-dot { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+.animate-pulse-dot { animation: pulse-dot 1.4s ease-in-out infinite; }
+
+/* ---------- Responsive shell chrome (App / TopBar / panel shells) ---------- */
+/* Reuses existing palette values only — no new colors. */
+
+/* Slim vertical drag handle straddling a panel edge. data-side picks which
+   edge it hangs off: 'right' = left panel's right edge, 'left' = right panel's. */
+.resize-handle {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 9px;
+  cursor: col-resize;
+  z-index: 20;
+  touch-action: none;
+}
+.resize-handle[data-side='right'] { right: -4px; }
+.resize-handle[data-side='left'] { left: -4px; }
+.resize-handle::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 4px;
+  width: 1px;
+  background: transparent;
+  transition: background 0.12s ease, width 0.12s ease;
+}
+.resize-handle:hover::before,
+.resize-handle.dragging::before {
+  width: 2px;
+  background: #4C9AFF; /* signal */
+}
+/* Chevron affordance on the handle: collapses the panel (or closes overlay) */
+.resize-chev {
+  position: absolute;
+  top: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 16px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  background: #323238; /* ink-700 */
+  border: 1px solid #2A2A30; /* line */
+  color: #A0A0A6; /* paper-dim */
+  opacity: 0;
+  transition: opacity 0.12s ease, color 0.12s ease;
+  cursor: pointer;
+  z-index: 21;
+}
+.resize-chev:hover { color: #EAEAEA; /* paper */ }
+.resize-handle:hover .resize-chev,
+.resize-handle.dragging .resize-chev { opacity: 1; }
+
+/* Compact workspace segmented control (<768px TopBar) */
+.cf-segmented {
+  display: flex;
+  border-radius: 8px;
+  background: #202024; /* ink-850 */
+  border: 1px solid #2A2A30; /* line */
+  padding: 2px;
+}
+.cf-segmented button {
+  padding: 3px 8px;
+  border-radius: 6px;
+  font-size: 10px;
+  line-height: 1.2;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  color: #A0A0A6; /* paper-dim */
+  transition: color 0.12s ease, background 0.12s ease;
+}
+.cf-segmented button:hover { color: #EAEAEA; }
+.cf-segmented button[data-active='true'] {
+  background: #323238; /* ink-700 */
+  color: #EAEAEA;
+}
+
+/* "More" dropdown menu (<768px TopBar) — fixed so it clears the scrollable bar */
+.cf-more-menu {
+  position: fixed;
+  right: 8px;
+  top: 48px;
+  z-index: 50;
+  min-width: 190px;
+  border-radius: 12px;
+  background: #202024; /* ink-850 */
+  border: 1px solid #2A2A30; /* line */
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45); /* shadow-panel */
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  animation: fade-in 0.16s ease-out;
+}
+.cf-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 10px;
+  border-radius: 8px;
+  text-align: left;
+  font-size: 12px;
+  color: #A0A0A6; /* paper-dim */
+  transition: color 0.12s ease, background 0.12s ease;
+}
+.cf-menu-item:hover { color: #EAEAEA; background: #2A2A30; /* ink-750 */ }
+
+/* Touch sizing: ≥28px hit areas on small screens only. */
+@media (max-width: 767px) {
+  .icon-btn {
+    min-width: 30px;
+    min-height: 30px;
+    padding: 6px;
+  }
+  .btn { min-height: 30px; }
+  .field { min-height: 30px; }
+  .cf-segmented button { padding: 5px 9px; }
+}
+
+/* ---------- Power-up visual language (palette-derived) ---------- */
+
+/* Gradient brand wordmark */
+.cf-brand {
+  background: linear-gradient(100deg, #4C9AFF 0%, #38BDF8 45%, #C084FC 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+/* Hairline spectrum under the top bar */
+.cf-spectrum {
+  height: 1px;
+  background: linear-gradient(90deg, transparent, #4C9AFF 18%, #38BDF8 42%, #C084FC 68%, #FB7185 88%, transparent);
+  opacity: 0.55;
+}
+
+/* Export video card: layered tint + inner glow */
+.cf-export-video {
+  background:
+    radial-gradient(120% 90% at 0% 0%, rgba(76, 154, 255, 0.14), transparent 55%),
+    radial-gradient(120% 90% at 100% 100%, rgba(139, 92, 246, 0.14), transparent 55%),
+    #202024;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04), 0 0 24px rgba(76, 154, 255, 0.10);
+}
+
+/* Animated progress bar */
+.cf-progress-bar {
+  background: linear-gradient(90deg, #2F7CD8, #4C9AFF 35%, #38BDF8 65%, #C084FC);
+  background-size: 200% 100%;
+  animation: cf-sheen 1.6s linear infinite;
+  box-shadow: 0 0 12px rgba(76, 154, 255, 0.45);
+}
+@keyframes cf-sheen { from { background-position: 0% 0; } to { background-position: -200% 0; } }
+
+/* Crash recovery card */
+.cf-crash-card { box-shadow: 0 0 0 1px rgba(251, 113, 133, 0.15), 0 8px 32px rgba(0, 0, 0, 0.45); }
+
+/* Empty-canvas aurora */
+.cf-aurora {
+  position: relative;
+}
+.cf-aurora::before {
+  content: '';
+  position: absolute;
+  inset: -40%;
+  background:
+    radial-gradient(38% 32% at 30% 35%, rgba(76, 154, 255, 0.16), transparent 70%),
+    radial-gradient(34% 30% at 70% 60%, rgba(139, 92, 246, 0.14), transparent 70%),
+    radial-gradient(26% 24% at 55% 30%, rgba(56, 189, 248, 0.10), transparent 70%);
+  filter: blur(8px);
+  animation: cf-drift 14s ease-in-out infinite alternate;
+  pointer-events: none;
+}
+@keyframes cf-drift {
+  from { transform: translate3d(-2%, -1%, 0) scale(1); }
+  to { transform: translate3d(2%, 2%, 0) scale(1.06); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cf-aurora::before, .cf-progress-bar { animation: none; }
+}
+
+/* Scrollbar thumb picks up the accent on hover */
+*::-webkit-scrollbar-thumb:hover { background: #4C9AFF; background-clip: content-box; }
+* { scrollbar-color: #33333a transparent; }
+*:hover { scrollbar-color: #46464e transparent; }
+
+/* Horizontal tool strips scroll inside themselves on narrow screens instead
+   of widening the whole document. */
+.cf-hscroll { overflow-x: auto; overflow-y: hidden; min-width: 0; scrollbar-width: thin; }
+.cf-hscroll > * { flex-shrink: 0; }

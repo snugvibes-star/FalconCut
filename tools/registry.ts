@@ -1,0 +1,262 @@
+/**
+ * THE tool registry. One manifest for humans (buttons), the chat AI, the
+ * in-page API, external agents and the MCP bridge. Descriptions are short
+ * and concrete so weak models can use them. Every tool returns a preview
+ * (action list + summary) before anything is applied.
+ */
+import type { Action } from '../engine/actions';
+import type { Project } from '../engine/types';
+import type { ToolContext, ToolResult } from './cutTools';
+export type { ToolContext, ToolResult } from './cutTools';
+import { makeContext } from './helpers';
+import { removeDeadAir, removeFillers, cutRetakes } from './cutTools';
+import { addCaptions, addHookTitle, translateCaptions } from './captionTools';
+import { zoomOnEmphasis, reframe, addTransitions, snapToBeats, addMotif } from './motionTools';
+import { addMusic, balanceAudio, cleanupAudio } from './audioTools';
+import { applyColorPreset, addBrollSlots, autoBroll } from './lookTools';
+import { autoEdit, autoFix, smartCutdown, abVariants, autoMulticam } from './autoEdit';
+
+export interface ParamSpec { type: 'string' | 'number' | 'boolean' | 'enum'; desc: string; default?: unknown; enum?: string[]; optional?: boolean }
+
+export interface ToolDef {
+  name: string;
+  description: string;
+  params: Record<string, ParamSpec>;
+  example: { input: Record<string, unknown>; why: string };
+  roles: string[]; // multi-agent team roles allowed to use this tool
+  run: (ctx: ToolContext, params: any) => Promise<ToolResult> | ToolResult;
+}
+
+export const TOOLS: ToolDef[] = [
+  {
+    name: 'remove_dead_air',
+    description: 'Cut silent pauses longer than max_pause_ms. Keeps breathing room, never cuts mid-word, adds tiny audio crossfades. Use when the video feels slow.',
+    params: { max_pause_ms: { type: 'number', desc: 'Cut pauses longer than this many milliseconds.', default: 650, optional: true } },
+    example: { input: { max_pause_ms: 600 }, why: 'Tighten a talking-head video without losing natural breaths.' },
+    roles: ['story', 'sound'],
+    run: (c, p) => removeDeadAir(c, p),
+  },
+  {
+    name: 'remove_fillers',
+    description: 'Remove filler words (um, uh, you know, i mean) detected in the transcript. Needs transcription.',
+    params: {},
+    example: { input: {}, why: 'Clean up hesitant speech.' },
+    roles: ['story', 'sound'],
+    run: (c) => removeFillers(c),
+  },
+  {
+    name: 'cut_retakes',
+    description: 'Delete repeated false starts and keep the last complete take of each repeated phrase. Needs transcription.',
+    params: {},
+    example: { input: {}, why: 'The speaker restarted a sentence 3 times; keep the best one.' },
+    roles: ['story'],
+    run: (c) => cutRetakes(c),
+  },
+  {
+    name: 'add_captions',
+    description: 'Generate styled captions from the transcript. Styles: clean (subtitles), karaoke (word highlight), bold-keywords, word-pop (one big word at a time). Max 2 lines, safe-zone positioned.',
+    params: { style: { type: 'enum', desc: 'Caption style.', enum: ['clean', 'karaoke', 'bold-keywords', 'word-pop'], optional: true } },
+    example: { input: { style: 'karaoke' }, why: 'Social clip where viewers watch without sound.' },
+    roles: ['captions'],
+    run: (c, p) => addCaptions(c, p),
+  },
+  {
+    name: 'add_hook_title',
+    description: 'Big animated title in the first 3 seconds. If text is omitted, it is derived from the transcript opening.',
+    params: { text: { type: 'string', desc: 'Hook text, max ~42 chars.', optional: true } },
+    example: { input: { text: 'STOP doing this' }, why: 'Grab attention in the first second.' },
+    roles: ['captions', 'motion', 'story'],
+    run: (c, p) => addHookTitle(c, p),
+  },
+  {
+    name: 'zoom_on_emphasis',
+    description: 'Gentle punch-in zooms on emphasized words and sentence starts. Smooth easing, alternating intensity, keeps the face in frame. Respects max-zoom rules.',
+    params: {},
+    example: { input: {}, why: 'Add visual energy to a static talking head.' },
+    roles: ['motion'],
+    run: (c) => zoomOnEmphasis(c),
+  },
+  {
+    name: 'reframe',
+    description: 'Convert the project to another aspect ratio (9:16, 16:9, 1:1, 4:5) and pan to follow the face. Captions move to the new safe zone.',
+    params: { aspect: { type: 'enum', desc: 'Target aspect ratio.', enum: ['9:16', '16:9', '1:1', '4:5'], default: '9:16' } },
+    example: { input: { aspect: '9:16' }, why: 'Turn a landscape recording into a TikTok.' },
+    roles: ['motion', 'story'],
+    run: (c, p) => reframe(c, p),
+  },
+  {
+    name: 'add_music',
+    description: 'Add an imported audio file as a music bed and automatically duck it under speech. Import the music file first. Mood only adjusts level.',
+    params: {
+      mediaId: { type: 'string', desc: 'Media id of the imported music (omit to auto-pick).', optional: true },
+      mood: { type: 'enum', desc: 'chill | balanced | energetic', enum: ['chill', 'balanced', 'energetic'], optional: true },
+    },
+    example: { input: { mood: 'chill' }, why: 'Background music that never fights the voice.' },
+    roles: ['sound'],
+    run: (c, p) => addMusic(c, p),
+  },
+  {
+    name: 'balance_audio',
+    description: 'Normalize speech loudness to the pack target (LUFS), prevent clipping, add a light noise gate and high-pass. Set music to the pack level.',
+    params: {},
+    example: { input: {}, why: 'Make volume consistent and broadcast-safe.' },
+    roles: ['sound'],
+    run: (c) => balanceAudio(c),
+  },
+  {
+    name: 'cleanup_audio',
+    description: 'Light browser DSP cleanup: noise reduction (downward expansion), de-ess, high-pass. Conservative — not ML voice isolation.',
+    params: { denoise: { type: 'boolean', desc: 'Apply noise reduction.', default: true, optional: true }, deess: { type: 'boolean', desc: 'Reduce harsh s sounds.', default: true, optional: true } },
+    example: { input: {}, why: 'Room hiss and harsh sibilance on a voice recording.' },
+    roles: ['sound'],
+    run: (c, p) => cleanupAudio(c, p),
+  },
+  {
+    name: 'apply_color_preset',
+    description: 'Apply a color look to all video clips: natural, warm, cool, cinematic, black-white, vibrant.',
+    params: { name: { type: 'enum', desc: 'Preset name.', enum: ['natural', 'warm', 'cool', 'cinematic', 'black-white', 'vibrant'], optional: true } },
+    example: { input: { name: 'cinematic' }, why: 'Moody look for a quote video.' },
+    roles: ['color'],
+    run: (c, p) => applyColorPreset(c, p),
+  },
+  {
+    name: 'add_transitions',
+    description: 'Add restrained transitions ONLY at real scene changes (detected shot cuts or different media). Never on every cut. Capped per minute by the style pack.',
+    params: { style: { type: 'enum', desc: 'Transition style.', enum: ['crossfade', 'dip-black', 'dip-white', 'wipe-left', 'slide-left', 'zoom-in'], optional: true } },
+    example: { input: { style: 'crossfade' }, why: 'Smooth shot changes in a vlog.' },
+    roles: ['story', 'motion'],
+    run: (c, p) => addTransitions(c, p),
+  },
+  {
+    name: 'add_broll_slots',
+    description: 'Mark long talking stretches where a cutaway would help (markers + tacks). Does not insert media — fill slots yourself or with auto_broll.',
+    params: {},
+    example: { input: {}, why: 'Find boring static moments in a 2-minute monologue.' },
+    roles: ['story'],
+    run: (c) => addBrollSlots(c),
+  },
+  {
+    name: 'auto_broll',
+    description: 'Fill b-roll slots by matching transcript keywords to your own media library, or to Pexels stock if the user connected a key.',
+    params: { pexelsKey: { type: 'string', desc: "User's Pexels API key (optional).", optional: true }, query: { type: 'string', desc: 'Force a search query.', optional: true } },
+    example: { input: {}, why: 'Cover static talking stretches with matching footage.' },
+    roles: ['story', 'motion'],
+    run: (c, p) => autoBroll(c, p),
+  },
+  {
+    name: 'snap_to_beats',
+    description: 'Snap zooms (or cut points) to the analyzed music beat grid. Needs imported, analyzed music.',
+    params: { what: { type: 'enum', desc: 'What to sync.', enum: ['zooms', 'cuts'], default: 'zooms', optional: true } },
+    example: { input: { what: 'zooms' }, why: 'Punch zooms that hit with the music.' },
+    roles: ['motion', 'sound'],
+    run: (c, p) => snapToBeats(c, p),
+  },
+  {
+    name: 'add_motif',
+    description: 'Add a parameterized motion graphic: title-reveal, lower-third, bar-chart, ring-progress, count-up, burst. Params are editable in the inspector.',
+    params: {
+      type: { type: 'enum', desc: 'Motif type.', enum: ['title-reveal', 'lower-third', 'bar-chart', 'ring-progress', 'count-up', 'burst'] },
+      start: { type: 'number', desc: 'Timeline start seconds.', default: 0, optional: true },
+      duration: { type: 'number', desc: 'Duration seconds.', default: 3, optional: true },
+      text: { type: 'string', desc: 'Main text/label.', optional: true },
+      params: { type: 'string', desc: 'Extra params object (colors, values, x, y, size...).', optional: true },
+    },
+    example: { input: { type: 'lower-third', start: 2, text: 'Jane Doe', params: { role: 'Founder' } }, why: 'Introduce the speaker professionally.' },
+    roles: ['motion', 'captions'],
+    run: (c, p) => addMotif(c, p),
+  },
+  {
+    name: 'auto_edit',
+    description: 'Run the FULL recommended pipeline for a video type: balance audio, cut dead air/retakes/fillers, captions, zooms, transitions, color, hook, b-roll slots, music if present, then self-fix. One undo step. When an AI model is connected (Settings → AI) the pipeline is planned for the video type; otherwise the built-in rules pipeline runs on-device.',
+    params: {
+      video_type: { type: 'enum', desc: 'Video type.', enum: ['talking head', 'podcast clip', 'product promo', 'tutorial', 'vlog', 'quote', 'youtube intro'], optional: true },
+      aspect: { type: 'enum', desc: 'Also reframe to this aspect.', enum: ['9:16', '16:9', '1:1', '4:5'], optional: true },
+    },
+    example: { input: { video_type: 'talking head', aspect: '9:16' }, why: 'Make this a viral TikTok in one call.' },
+    roles: ['director'],
+    run: (c, p) => autoEdit(c, p),
+  },
+  {
+    name: 'auto_fix',
+    description: 'Run the quality checker and automatically fix reported issues, up to 3 attempts. Call after editing until the report is clean.',
+    params: { max_attempts: { type: 'number', desc: 'Max fix passes (1-3).', default: 3, optional: true } },
+    example: { input: {}, why: 'Clean up lint issues after an edit run.' },
+    roles: ['qa', 'director'],
+    run: (c, p) => autoFix(c, p, (fc, name, params) => runTool(fc.project, name, params, { locked: fc.lockedClipIds, ai: fc.ai })),
+  },
+  {
+    name: 'smart_cutdown',
+    description: 'Find 5-10 short-clip candidates in a long video, each with a hook-strength score, title and transcript. Adds chapter markers; open candidates as projects from the Cutdown panel.',
+    params: { count: { type: 'number', desc: 'How many candidates (3-10).', default: 6, optional: true } },
+    example: { input: { count: 8 }, why: 'Repurpose a podcast into Shorts.' },
+    roles: ['story', 'director'],
+    run: (c, p) => smartCutdown(c, p),
+  },
+  {
+    name: 'ab_variants',
+    description: 'Generate 2-3 alternative edits (different pacing, caption style, hook) as separate versions to compare.',
+    params: { variants: { type: 'number', desc: 'Number of variants (2-3).', default: 3, optional: true } },
+    example: { input: { variants: 3 }, why: 'Test which style performs better.' },
+    roles: ['director'],
+    run: (c, p) => abVariants(c, p),
+  },
+  {
+    name: 'auto_multicam',
+    description: 'Switch between imported camera angles on speaker turns (pause heuristic). Angle 2 is muted; main audio stays continuous. Needs 2+ angles and a transcript.',
+    params: { mediaIds: { type: 'string', desc: 'Comma-separated angle media ids (optional).', optional: true } },
+    example: { input: {}, why: 'Two-camera interview, cut to whoever is talking.' },
+    roles: ['story'],
+    run: (c, p) => autoMulticam(c, p),
+  },
+  {
+    name: 'translate_captions',
+    description: 'Translate existing captions into another language using the connected AI key. Creates a separate caption track; originals kept.',
+    params: { language: { type: 'string', desc: 'Target language, e.g. Spanish, Hindi, Arabic.' } },
+    example: { input: { language: 'Spanish' }, why: 'Reach a Spanish-speaking audience.' },
+    roles: ['captions'],
+    run: (c, p) => translateCaptions(c, p),
+  },
+];
+
+export const TOOL_MAP = new Map(TOOLS.map((t) => [t.name, t]));
+
+/** Filter out actions that touch human-locked clips (co-editing priority). */
+export function filterLocked(actions: Action[], locked?: Set<string>): { actions: Action[]; skipped: number } {
+  if (!locked?.size) return { actions, skipped: 0 };
+  let skipped = 0;
+  const out = actions.filter((a) => {
+    if ('clipId' in a && typeof (a as any).clipId === 'string' && locked.has((a as any).clipId)) { skipped++; return false; }
+    return true;
+  });
+  return { actions: out, skipped };
+}
+
+/** Run a tool in PREVIEW mode: returns actions + summary, changes nothing. */
+export async function runTool(project: Project, name: string, params: Record<string, unknown> = {}, opts: { locked?: Set<string>; ai?: ToolContext['ai'] } = {}): Promise<ToolResult> {
+  const def = TOOL_MAP.get(name);
+  if (!def) throw new Error(`Unknown tool "${name}". Available: ${TOOLS.map((t) => t.name).join(', ')}`);
+  const ctx = makeContext(project, opts.locked, opts.ai);
+  const result = await def.run(ctx, params ?? {});
+  const { actions, skipped } = filterLocked(result.actions, opts.locked);
+  if (skipped) {
+    result.warnings = [...(result.warnings ?? []), `${skipped} change${skipped === 1 ? '' : 's'} skipped: clip${skipped === 1 ? ' is' : 's are'} locked by the human editor.`];
+  }
+  return { ...result, actions };
+}
+
+/** Compact manifest for AI prompts / tools.json / llms.txt. */
+export function toolManifest() {
+  return TOOLS.map((t) => ({
+    name: t.name,
+    description: t.description,
+    params: Object.fromEntries(Object.entries(t.params).map(([k, v]) => [k, { type: v.type, description: v.desc, ...(v.default !== undefined ? { default: v.default } : {}), ...(v.enum ? { enum: v.enum } : {}), ...(v.optional ? { optional: true } : {}) }])),
+    example: t.example,
+  }));
+}
+
+export function toolsPromptText(): string {
+  return TOOLS.map((t) => {
+    const ps = Object.entries(t.params).map(([k, v]) => `${k}${v.optional ? '?' : ''}: ${v.type}${v.enum ? ` (${v.enum.join('|')})` : ''} — ${v.desc}`).join('; ');
+    return `- ${t.name}(${ps || 'no params'}): ${t.description} Example: ${JSON.stringify(t.example.input)}`;
+  }).join('\n');
+}

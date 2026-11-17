@@ -1,0 +1,121 @@
+/**
+ * Style packs: professional editing taste stored as editable data.
+ * One pack per video type. Tools read the ACTIVE pack (after user rules).
+ */
+import type { StylePack } from '../engine/types';
+
+const base = {
+  captions: { enabled: true, style: 'clean' as const, color: '#FFFFFF', highlightColor: '#C6F24E', fontSize: 0.046, y: 0.8, maxCharsPerLine: 26, safeMargin: 0.06 },
+  zoom: { enabled: true, maxScale: 1.1, minIntervalSec: 5, durationSec: 1.4 },
+  transitions: { enabled: true, style: 'crossfade' as const, maxPerMinute: 4, durationSec: 0.3 },
+  music: { level: 0.16, duckLevel: 0.07, duckAttackMs: 150, duckReleaseMs: 450 },
+  audio: { targetLoudness: -16, gateThresholdDb: -48 },
+  hook: { enabled: true, maxSec: 3, fontSize: 0.085 },
+  broll: { enabled: true, minStretchSec: 12 },
+};
+
+export const BUILT_IN_PACKS: StylePack[] = [
+  {
+    id: 'talking-head', name: 'Talking Head', videoType: 'talking head', builtIn: true,
+    description: 'One person to camera. Tight pacing, readable captions, gentle punch-ins on emphasis, face always framed.',
+    pacing: { avgShotSec: 6, maxStaticSec: 8, deadAirMaxMs: 650, breathKeepMs: 160 },
+    captions: { ...base.captions, style: 'bold-keywords', y: 0.78 },
+    zoom: { ...base.zoom, maxScale: 1.09, minIntervalSec: 6 },
+    transitions: { ...base.transitions, maxPerMinute: 2 },
+    music: { ...base.music, level: 0.1, duckLevel: 0.045 },
+    audio: { targetLoudness: -16, gateThresholdDb: -48 },
+    color: 'natural',
+    hook: { ...base.hook },
+    broll: { ...base.broll, minStretchSec: 14 },
+    donts: ['Do not cut mid-word', 'Do not zoom past 110%', 'Do not cover the face with captions', 'No transition on every cut — only real scene changes'],
+  },
+  {
+    id: 'podcast-clip', name: 'Podcast Clip', videoType: 'podcast clip', builtIn: true,
+    description: 'Conversation extract. Keep breathing room, karaoke captions, speaker-aware framing, very restrained motion.',
+    pacing: { avgShotSec: 9, maxStaticSec: 12, deadAirMaxMs: 900, breathKeepMs: 240 },
+    captions: { ...base.captions, style: 'karaoke', fontSize: 0.05, y: 0.82, maxCharsPerLine: 30 },
+    zoom: { ...base.zoom, enabled: true, maxScale: 1.06, minIntervalSec: 9 },
+    transitions: { ...base.transitions, maxPerMinute: 2, style: 'crossfade' },
+    music: { ...base.music, level: 0.08, duckLevel: 0.035 },
+    audio: { targetLoudness: -16, gateThresholdDb: -50 },
+    color: 'warm',
+    hook: { enabled: true, maxSec: 3, fontSize: 0.075 },
+    broll: { enabled: false, minStretchSec: 20 },
+    donts: ['Never cut breaths that carry meaning', 'No word-pop captions for long dialogue', 'Keep music barely audible under speech'],
+  },
+  {
+    id: 'product-promo', name: 'Product Promo', videoType: 'product promo', builtIn: true,
+    description: 'Fast, punchy, benefit-first. Word-pop captions, beat-synced cuts, vibrant color, strong hook, music forward.',
+    pacing: { avgShotSec: 2.5, maxStaticSec: 4, deadAirMaxMs: 350, breathKeepMs: 90 },
+    captions: { ...base.captions, style: 'word-pop', fontSize: 0.08, y: 0.5, maxCharsPerLine: 18 },
+    zoom: { ...base.zoom, maxScale: 1.14, minIntervalSec: 2.5, durationSec: 0.8 },
+    transitions: { ...base.transitions, maxPerMinute: 12, style: 'zoom-in', durationSec: 0.22 },
+    music: { ...base.music, level: 0.3, duckLevel: 0.14 },
+    audio: { targetLoudness: -14, gateThresholdDb: -46 },
+    color: 'vibrant',
+    hook: { enabled: true, maxSec: 2.5, fontSize: 0.1 },
+    broll: { enabled: true, minStretchSec: 6 },
+    donts: ['No static shot longer than 4s', 'Do not let music drown the voiceover', 'No slow crossfades — keep energy'],
+  },
+  {
+    id: 'tutorial', name: 'Tutorial', videoType: 'tutorial', builtIn: true,
+    description: 'Screen or demo teaching. Clarity over pace: clean subtitles, minimal zooms, chapter markers, no music distraction.',
+    pacing: { avgShotSec: 12, maxStaticSec: 20, deadAirMaxMs: 1100, breathKeepMs: 260 },
+    captions: { ...base.captions, style: 'clean', fontSize: 0.042, y: 0.86, maxCharsPerLine: 34 },
+    zoom: { ...base.zoom, maxScale: 1.05, minIntervalSec: 12 },
+    transitions: { ...base.transitions, maxPerMinute: 1, durationSec: 0.25 },
+    music: { ...base.music, level: 0.05, duckLevel: 0.02 },
+    audio: { targetLoudness: -16, gateThresholdDb: -50 },
+    color: 'natural',
+    hook: { enabled: true, maxSec: 3, fontSize: 0.07 },
+    broll: { enabled: false, minStretchSec: 30 },
+    donts: ['Never zoom on UI text the viewer must read', 'Do not cut thinking pauses shorter than 1s', 'Captions must never cover the demo area'],
+  },
+  {
+    id: 'vlog', name: 'Vlog', videoType: 'vlog', builtIn: true,
+    description: 'Personal, warm, story-driven. Natural color, moderate pace, music bed with ducking, scene-change transitions only.',
+    pacing: { avgShotSec: 5, maxStaticSec: 9, deadAirMaxMs: 800, breathKeepMs: 200 },
+    captions: { ...base.captions, style: 'clean', y: 0.82 },
+    zoom: { ...base.zoom, maxScale: 1.08, minIntervalSec: 7 },
+    transitions: { ...base.transitions, maxPerMinute: 5, style: 'crossfade', durationSec: 0.35 },
+    music: { ...base.music, level: 0.2, duckLevel: 0.08 },
+    audio: { targetLoudness: -16, gateThresholdDb: -47 },
+    color: 'warm',
+    hook: { enabled: true, maxSec: 3, fontSize: 0.08 },
+    broll: { enabled: true, minStretchSec: 10 },
+    donts: ['Do not over-cut genuine moments', 'Keep location audio audible under music'],
+  },
+  {
+    id: 'quote-motivational', name: 'Quote / Motivational', videoType: 'quote', builtIn: true,
+    description: 'One powerful line over cinematic visuals. Big karaoke or word-pop text, slow push-ins, dramatic color, music-led.',
+    pacing: { avgShotSec: 4, maxStaticSec: 7, deadAirMaxMs: 700, breathKeepMs: 220 },
+    captions: { ...base.captions, style: 'word-pop', fontSize: 0.09, y: 0.48, maxCharsPerLine: 16 },
+    zoom: { ...base.zoom, maxScale: 1.12, minIntervalSec: 4, durationSec: 2.2 },
+    transitions: { ...base.transitions, maxPerMinute: 6, style: 'dip-black', durationSec: 0.4 },
+    music: { ...base.music, level: 0.34, duckLevel: 0.16 },
+    audio: { targetLoudness: -14, gateThresholdDb: -48 },
+    color: 'cinematic',
+    hook: { enabled: true, maxSec: 2.5, fontSize: 0.1 },
+    broll: { enabled: true, minStretchSec: 8 },
+    donts: ['No cluttered captions — one idea on screen', 'Never let the quote leave the safe zone'],
+  },
+  {
+    id: 'youtube-intro', name: 'YouTube Intro', videoType: 'youtube intro', builtIn: true,
+    description: 'First 15 seconds that earn the click. Hook title, fast pattern interrupts, bold keywords, bright clean color.',
+    pacing: { avgShotSec: 3, maxStaticSec: 5, deadAirMaxMs: 450, breathKeepMs: 120 },
+    captions: { ...base.captions, style: 'bold-keywords', fontSize: 0.055, y: 0.76 },
+    zoom: { ...base.zoom, maxScale: 1.12, minIntervalSec: 3, durationSec: 1 },
+    transitions: { ...base.transitions, maxPerMinute: 8, style: 'zoom-in', durationSec: 0.25 },
+    music: { ...base.music, level: 0.22, duckLevel: 0.09 },
+    audio: { targetLoudness: -14, gateThresholdDb: -46 },
+    color: 'vibrant',
+    hook: { enabled: true, maxSec: 3, fontSize: 0.095 },
+    broll: { enabled: true, minStretchSec: 8 },
+    donts: ['No dead air in the first 5 seconds', 'Hook must appear within 1 second'],
+  },
+];
+
+export function getPack(p: { stylePackId: string; customPacks: StylePack[] }, id?: string): StylePack {
+  const want = id ?? p.stylePackId;
+  return p.customPacks.find((x) => x.id === want) ?? BUILT_IN_PACKS.find((x) => x.id === want) ?? BUILT_IN_PACKS[0];
+}

@@ -1,0 +1,115 @@
+import { writeFile } from 'node:fs/promises';
+
+const targets = await (await fetch('http://127.0.0.1:9224/json/list')).json();
+const target = targets.find((t) => t.type === 'page');
+if (!target) throw new Error('Start a dedicated headless Chrome on port 9224 first.');
+const ws = new WebSocket(target.webSocketDebuggerUrl);
+await new Promise((resolve, reject) => { ws.onopen = resolve; ws.onerror = reject; });
+let seq = 0;
+const pending = new Map();
+const errors = [];
+const send = (method, params = {}) => new Promise((resolve, reject) => {
+  const id = ++seq;
+  const timer = setTimeout(() => { pending.delete(id); reject(new Error(`Timeout: ${method}`)); }, 30_000);
+  pending.set(id, { resolve, reject, timer }); ws.send(JSON.stringify({ id, method, params }));
+});
+ws.onmessage = ({ data }) => {
+  const message = JSON.parse(data);
+  if (message.id) {
+    const p = pending.get(message.id);
+    if (p) { clearTimeout(p.timer); pending.delete(message.id); message.error ? p.reject(new Error(message.error.message)) : p.resolve(message.result); }
+  } else if (message.method === 'Runtime.exceptionThrown') errors.push(message.params.exceptionDetails.text + ': ' + message.params.exceptionDetails.exception?.description);
+  else if (message.method === 'Page.javascriptDialogOpening') void send('Page.handleJavaScriptDialog', { accept: true });
+};
+const evaluate = async (expression) => {
+  const result = await send('Runtime.evaluate', { expression, awaitPromise: true, returnByValue: true, userGesture: true });
+  if (result.exceptionDetails) throw new Error(result.exceptionDetails.exception?.description ?? result.exceptionDetails.text);
+  return result.result?.value;
+};
+const wait = (expression) => evaluate(`new Promise((resolve,reject)=>{const until=Date.now()+15000; const check=()=>{if(${expression})resolve(true);else if(Date.now()>until)reject(new Error('Condition timed out: '+${JSON.stringify(expression)}));else setTimeout(check,40)};check()})`);
+const click = async (label) => {
+  await evaluate(`(()=>{const b=[...document.querySelectorAll('button')].find(b=>b.textContent.trim()===${JSON.stringify(label)} || b.title===${JSON.stringify(label)} || b.getAttribute('aria-label')===${JSON.stringify(label)});if(!b||b.disabled)throw new Error('Button unavailable: '+${JSON.stringify(label)}); b.click();})()`);
+};
+const fill = (selector, value) => evaluate(`(()=>{const el=document.querySelector(${JSON.stringify(selector)});if(!el)throw new Error('Field missing');const proto=el.tagName==='TEXTAREA'?HTMLTextAreaElement.prototype:el.tagName==='SELECT'?HTMLSelectElement.prototype:HTMLInputElement.prototype;Object.getOwnPropertyDescriptor(proto,'value').set.call(el,${JSON.stringify(value)});el.dispatchEvent(new Event('input',{bubbles:true}));el.dispatchEvent(new Event('change',{bubbles:true}));})()`);
+const check = async (expression, label) => { if (!await evaluate(expression)) throw new Error(label); console.log('PASS', label); };
+
+try {
+  await send('Page.enable'); await send('Runtime.enable');
+  await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 1000, deviceScaleFactor: 1, mobile: false });
+  await send('Page.navigate', { url: 'http://127.0.0.1:5173' });
+  await wait('window.cutflow && document.querySelector("header")');
+  await evaluate(`(async()=>{window.qaStore=(await import('/src/state/store.ts')).useStore;window.qaUI=(await import('/src/state/ui.ts')).useUI;qaStore.getState().newProject('Browser QA');})()`);
+  await check('window.cutflow.getAnalysis()===undefined', 'Empty analysis API returns undefined');
+  await click('Generate a procedural background');
+  await wait(`[...document.querySelectorAll('button')].some(b=>b.textContent.trim()==='Gradient')`);
+  await click('Gradient');
+  await wait('window.cutflow.getProject().clips.length===1');
+  await check('document.querySelector("canvas").width===1920', 'Generator creates a rendered project-resolution canvas');
+  await click('Command palette (Ctrl+K)');
+  await wait('document.querySelector("dialog[open]")');
+  await fill('[aria-label="Search commands"]', 'Add text');
+  await evaluate(`[...document.querySelectorAll('dialog button')].find(b=>b.textContent.includes('Add text at playhead')).click()`);
+  await wait('window.cutflow.getProject().clips.some(c=>c.kind==="text")');
+  await check('!document.querySelector("dialog[open]")', 'Command creates text and closes dialog');
+  await check(`(async()=>{await document.fonts.load('800 48px "Inter Variable"');await document.fonts.ready;const {renderFrame}=await import('/engine/render.ts');const s=qaStore.getState();const a=document.createElement('canvas'),b=document.createElement('canvas');a.width=b.width=480;a.height=b.height=270;renderFrame(s.project,1,a.getContext('2d'),s.pool);renderFrame({...s.project,clips:s.project.clips.filter(c=>c.kind!=='text')},1,b.getContext('2d'),s.pool);const x=a.getContext('2d').getImageData(0,0,480,270).data,y=b.getContext('2d').getImageData(0,0,480,270).data;return x.some((v,i)=>Math.abs(v-y[i])>20)})()`, 'Text overlay changes rendered pixels above video');
+  await click('Notes');
+  await fill('textarea', 'Tighten this opening');
+  await evaluate(`[...document.querySelectorAll('button')].find(b=>b.textContent.includes('Add note at')).click()`);
+  await wait('window.cutflow.getProject().tacks.length===1');
+  await fill('ol textarea', 'Keep the first beat');
+  await click('Add reply');
+  await click('Resolve note');
+  await check('window.cutflow.getProject().tacks[0].resolved && window.cutflow.getProject().tacks[0].replies.length===1', 'Pinned note replies and resolution');
+  await click('Versions');
+  await fill('input[placeholder="Before tightening the intro"]', 'Before QA change');
+  await click('Save snapshot');
+  await wait('qaStore.getState().versions.length===1');
+  await evaluate(`qaStore.getState().commit([{type:'rename_project',name:'Changed QA'}],'Rename')`);
+  await click('Compare');
+  await click('Restore');
+  await wait('window.cutflow.getProject().name==="Browser QA"');
+  await check('qaStore.getState().versions.length===2', 'Version restore preserves safety snapshot');
+  await click('Media');
+  await evaluate(`(async()=>{const c=document.createElement('canvas');c.width=320;c.height=180;c.getContext('2d').fillStyle='#27a8b9';c.getContext('2d').fillRect(0,0,320,180);const blob=await new Promise(r=>c.toBlob(r));const dt=new DataTransfer();dt.items.add(new File([blob],'qa-image.png',{type:'image/png'}));const input=document.querySelector('input[type=file]');input.files=dt.files;input.dispatchEvent(new Event('change',{bubbles:true}));})()`);
+  await wait('qaStore.getState().project.media.some(m=>m.name==="qa-image.png") && !qaStore.getState().queue');
+  await check(`(()=>{const s=qaStore.getState();const m=s.project.media.find(m=>m.name==='qa-image.png');return !!s.project.analysis?.byMedia[m.id]})()`, 'Imported image automatically receives analysis');
+  await evaluate(`(async()=>{const {encodeWAV}=await import('/exporter/artifacts.ts');const b=new AudioBuffer({length:96000,numberOfChannels:1,sampleRate:48000});const d=b.getChannelData(0);for(let i=0;i<48000;i++)d[i]=Math.sin(i*2*Math.PI*220/48000)*0.2;const dt=new DataTransfer();dt.items.add(new File([encodeWAV(b)],'qa-tone.wav',{type:'audio/wav'}));const input=document.querySelector('input[type=file]');input.files=dt.files;input.dispatchEvent(new Event('change',{bubbles:true}));})()`);
+  await wait('qaStore.getState().project.media.some(m=>m.name==="qa-tone.wav") && !qaStore.getState().queue');
+  await check(`(()=>{const s=qaStore.getState();const m=s.project.media.find(m=>m.name==='qa-tone.wav');const a=s.project.analysis?.byMedia[m.id];return a?.loudness.length>0 && a.silences.length>0})()`, 'Imported WAV receives loudness and silence analysis');
+  await evaluate(`(()=>{const s=qaStore.getState();s.commit([{type:'add_text',start:0,duration:2,text:'Browser verified caption',role:'caption'}],'Caption');window.qaDownloads=[];const original=URL.createObjectURL;URL.createObjectURL=(b)=>{if(b instanceof Blob)qaDownloads.push({type:b.type,size:b.size});return original(b)};})()`);
+  await click('Export (Ctrl+E)');
+  await wait('document.querySelector("dialog[open]")');
+  await evaluate(`[...document.querySelectorAll('dialog button')].find(b=>b.textContent.includes('Project JSON')).click()`);
+  await wait('!document.querySelector("dialog").textContent.includes("Preparing")');
+  await evaluate(`[...document.querySelectorAll('dialog button')].find(b=>b.textContent.includes('Captions SRT')).click()`);
+  await wait('qaDownloads.some(d=>d.type==="application/x-subrip")');
+  await evaluate(`[...document.querySelectorAll('dialog button')].find(b=>b.textContent.includes('Current frame PNG')).click()`);
+  await wait('qaDownloads.some(d=>d.type==="image/png")');
+  await evaluate(`[...document.querySelectorAll('dialog button')].find(b=>b.textContent.includes('Mixed audio WAV')).click()`);
+  await wait('qaDownloads.some(d=>d.type==="audio/wav")');
+  await check('qaDownloads.filter(d=>d.size>40).length>=4', 'UI exports JSON, SRT, PNG and mixed WAV');
+  await click('Close Export');
+  await click('Quality');
+  await check('document.body.textContent.includes("Rules, not a visual review")', 'Quality panel discloses heuristic coverage');
+  await click('AI & analysis settings');
+  await wait('document.querySelector("#ai-endpoint")');
+  await fill('#ai-model', 'unsaved-model');
+  await click('Cancel');
+  await check('qaStore.getState().aiSettings.model!=="unsaved-model"', 'Settings cancel discards draft');
+  await click('Connect an external agent');
+  await wait('document.querySelector("#relay-url")');
+  await fill('#relay-url', 'https://invalid.example');
+  await click('Create session');
+  await check('!qaStore.getState().session && !!document.querySelector("[role=alert]")', 'Invalid relay rejected without a session');
+  await click('Close Connect an agent');
+  await evaluate(`qaStore.getState().setPlayhead(1)`);
+  const screenshot = await send('Page.captureScreenshot', { format: 'png' });
+  await writeFile(new URL('../editor-qa.png', import.meta.url), Buffer.from(screenshot.data, 'base64'));
+  const savedId = await evaluate('qaStore.getState().project.id');
+  await wait('qaStore.getState().saveStatus==="saved"');
+  await send('Page.reload');
+  await wait('window.cutflow && document.querySelector("header")');
+  await check(`window.cutflow.getProject().id===${JSON.stringify(savedId)} && window.cutflow.getProject().media.length===3`, 'Reload recovers saved project and media');
+  if (errors.length) throw new Error(errors.join('\n'));
+  console.log('PASS No uncaught browser errors. Screenshot: editor-qa.png');
+} finally { ws.close(); }
