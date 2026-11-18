@@ -6,13 +6,15 @@
  */
 import { produce } from 'immer';
 import {
-  Clip, Effect, Keyframe, Marker, MediaAsset, Project, Rule, SpeedPoint, StylePack, Tack, Track,
+  Clip, Effect, Keyframe, Lut, Marker, MediaAsset, Project, Rule, SpeedPoint, StylePack, Tack, Track,
   Transform, Transition, TextData, MotifData, DrawingStroke, defaultTransform, defaultTextStyle,
   detUid, enterDeterministicIds, exitDeterministicIds, getMedia, speedAtLocal, speedPointsOf, sourceTimeOf,
 } from './types';
 
 export type Action =
   | { type: 'add_media'; asset: MediaAsset }
+  | { type: 'add_lut'; lut: Lut }
+  | { type: 'remove_lut'; lutId: string }
   | { type: 'remove_media'; mediaId: string }
   | { type: 'add_track'; track: Partial<Track> & { kind: Track['kind'] }; index?: number }
   | { type: 'remove_track'; trackId: string }
@@ -25,7 +27,7 @@ export type Action =
   | { type: 'set_speed'; clipId: string; speed: number }
   | { type: 'set_speed_ramp'; clipId: string; points: SpeedPoint[] }
   | { type: 'set_transform'; clipId: string; patch: Partial<Transform> }
-  | { type: 'set_clip_props'; clipId: string; patch: Partial<Pick<Clip, 'volume' | 'fit' | 'label' | 'name' | 'locked' | 'groupId' | 'blendMode'>> }
+  | { type: 'set_clip_props'; clipId: string; patch: Partial<Pick<Clip, 'volume' | 'fit' | 'label' | 'name' | 'locked' | 'groupId' | 'blendMode' | 'reversed'>> }
   | { type: 'set_fades'; clipId: string; fadeIn?: number; fadeOut?: number }
   | { type: 'add_effect'; clipId: string; effect: Partial<Effect> & { type: Effect['type'] } }
   | { type: 'remove_effect'; clipId: string; effectId: string }
@@ -62,6 +64,8 @@ export type Action =
 /** Plain-English schema for AI models. Keep descriptions short and concrete. */
 export const ACTION_SCHEMA: Record<Action['type'], string> = {
   add_media: 'Register an imported media file (video/audio/image) in the project. Params: asset object.',
+  add_lut: 'Register an imported color LUT (.cube). Params: lut object.',
+  remove_lut: 'Delete a LUT and every effect that references it. Params: lutId.',
   remove_media: 'Remove a media asset and every clip that uses it. Params: mediaId.',
   add_track: 'Add a timeline track. kind: video | audio | text. Higher video tracks draw on top.',
   remove_track: 'Delete a track and all clips on it.',
@@ -74,7 +78,7 @@ export const ACTION_SCHEMA: Record<Action['type'], string> = {
   set_speed: 'Change playback speed (0.25..4). Duration adjusts automatically; pitch is preserved on export. Clears any speed ramp.',
   set_speed_ramp: 'Time remap: piecewise-linear speed curve. points = [{t, speed}] with t in clip-local seconds, speed 0.1..8. Video is truly remapped; audio under a ramp plays at the ramp average speed. Media clips only.',
   set_transform: 'Set position x/y (px from center), scale (1=fit), rotation (deg), opacity (0..1), crop fractions.',
-  set_clip_props: 'Set volume (linear gain), fit mode, color label, name, lock, group, blendMode (normal/multiply/screen/overlay/darken/lighten/color-dodge/color-burn/hard-light/soft-light/difference/exclusion/hue/saturation/color/luminosity).',
+  set_clip_props: 'Set volume (linear gain), fit mode, color label, name, lock, group, blendMode (normal/multiply/screen/overlay/darken/lighten/color-dodge/color-burn/hard-light/soft-light/difference/exclusion/hue/saturation/color/luminosity), reversed (play the source backward).',
   set_fades: 'Audio+video fade in/out seconds. Tiny 0.015s fades at cuts prevent audio pops.',
   add_effect: 'Add an effect: color, blur, sharpen, vignette, chromaKey, eq, gate, deess, denoise.',
   remove_effect: 'Remove an effect by id.',
@@ -201,6 +205,17 @@ export function applyAction(project: Project, action: Action): Project {
         if (!p.media.some((m) => m.id === action.asset.id)) p.media.push(action.asset);
         break;
       }
+      case 'add_lut': {
+        p.luts = p.luts ?? [];
+        if (!p.luts.some((l) => l.id === action.lut.id)) p.luts.push(action.lut);
+        break;
+      }
+      case 'remove_lut': {
+        p.luts = (p.luts ?? []).filter((l) => l.id !== action.lutId);
+        // Effects referencing a removed LUT are dropped so renders never see a dangling id.
+        for (const c of p.clips) c.effects = c.effects.filter((e) => !(e.type === 'lut' && e.params.lut === action.lutId));
+        break;
+      }
       case 'remove_media': {
         p.media = p.media.filter((m) => m.id !== action.mediaId);
         p.clips = p.clips.filter((c) => c.mediaId !== action.mediaId);
@@ -246,7 +261,16 @@ export function applyAction(project: Project, action: Action): Project {
         right.id = detUid('clip');
         right.start = t;
         right.duration = c.duration - leftDur;
-        right.inPoint = sourceTimeOf(c, t); // ramp-aware consumed-source split
+        right.inPoint = c.inPoint; // split anchor — flipped below for reversed
+        const srcAtSplit = sourceTimeOf(c, t); // ramp-aware consumed-source split
+        if (c.reversed) {
+          // Reversed clips anchor at their consumed segment's END (inPoint).
+          // The LEFT piece (this clip) takes the mapped source position; the
+          // right piece keeps the copied anchor and plays toward it.
+          c.inPoint = srcAtSplit;
+        } else {
+          right.inPoint = srcAtSplit;
+        }
         right.fades = { in: 0, out: c.fades.out };
         right.transitionIn = undefined;
         right.keyframes = c.keyframes.filter((k) => k.time >= leftDur - 1e-6).map((k) => ({ ...k, id: detUid('kf'), time: k.time - leftDur }));
@@ -267,7 +291,10 @@ export function applyAction(project: Project, action: Action): Project {
         const media = getMedia(p, c.mediaId);
         if (action.start != null) {
           const delta = action.start - c.start;
-          if (c.kind === 'media') c.inPoint = Math.max(0, sourceTimeOf(c, action.start));
+          // Forward clips re-anchor at the mapped source position. Reversed
+          // clips anchor at the segment end (inPoint), so trimming the head
+          // only shortens the run — the anchor must NOT move.
+          if (c.kind === 'media' && !c.reversed) c.inPoint = Math.max(0, sourceTimeOf(c, action.start));
           c.start = Math.max(0, action.start);
           c.duration = Math.max(0.04, c.duration - delta);
         }
@@ -449,7 +476,16 @@ export function applyAction(project: Project, action: Action): Project {
             const leftDur = start - c.start;
             right.start = start; // will shift below
             right.duration = cEnd - end;
-            right.inPoint = sourceTimeOf(c, end); // ramp-aware consumed-source split
+            right.inPoint = c.inPoint; // split anchor — flipped below for reversed
+            const srcAtEnd = sourceTimeOf(c, end); // ramp-aware consumed-source split
+            const srcAtStart = sourceTimeOf(c, start);
+            if (c.reversed) {
+              // Reversed: left/middle piece anchors at the mapped position;
+              // the right piece keeps the copied end anchor.
+              c.inPoint = srcAtStart;
+            } else {
+              right.inPoint = srcAtEnd;
+            }
             right.keyframes = c.keyframes.filter((k) => k.time >= end - c.start).map((k) => ({ ...k, id: detUid('kf'), time: k.time - (end - c.start) }));
             right.speedPoints = splitSpeedPoints(c, start - c.start).right;
             right.fades = { in: 0.015, out: c.fades.out };
@@ -465,11 +501,13 @@ export function applyAction(project: Project, action: Action): Project {
             c.fades.out = Math.min(c.fades.out || 0.015, c.duration / 2);
             c.keyframes = c.keyframes.filter((k) => k.time <= c.duration);
           } else {
-            const srcCut = c.kind === 'media' ? sourceTimeOf(c, end) - c.inPoint : 0;
+            // Head-shave: for forward clips advance inPoint past the cut; for
+            // reversed clips the end anchor is `inPoint` itself — untouched.
+            const srcCut = c.kind === 'media' && !c.reversed ? sourceTimeOf(c, end) - c.inPoint : 0;
             const cut = end - c.start;
             c.start = start;
             c.duration = cEnd - end;
-            if (c.kind === 'media') c.inPoint += srcCut;
+            if (c.kind === 'media' && !c.reversed) c.inPoint += srcCut;
             c.fades.in = Math.min(c.fades.in || 0.015, c.duration / 2);
             c.keyframes = c.keyframes.filter((k) => k.time >= cut).map((k) => ({ ...k, time: k.time - cut }));
           }

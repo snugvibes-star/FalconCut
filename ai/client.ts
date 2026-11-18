@@ -24,7 +24,19 @@ export interface AISettings {
 export const OPENAI_ENDPOINT = 'https://api.openai.com/v1/chat/completions';
 export const OPENAI_MODEL = 'gpt-4o-mini';
 export const GEMINI_ENDPOINT = 'https://generativelanguage.googleapis.com/v1beta/models';
-export const GEMINI_MODEL = 'gemini-2.0-flash';
+/** Checked against the live API (Nov 2026): gemini-2.0-flash was retired by
+ * Google (404 "no longer available"). New default per Google's own guidance. */
+export const GEMINI_MODEL = 'gemini-3.8-flash';
+export const OPENAI_MODEL_PLACEHOLDER = OPENAI_MODEL;
+
+/** Models Google has retired with a known replacement — auto-upgraded on load
+ * so saved settings keep working after the API changes under them. */
+const RETIRED_GEMINI: Record<string, string> = {
+  'gemini-2.0-flash': GEMINI_MODEL,
+  'gemini-2.0-flash-lite': GEMINI_MODEL,
+  'gemini-1.5-flash': GEMINI_MODEL,
+  'gemini-1.5-pro': GEMINI_MODEL,
+};
 
 export const DEFAULT_AI_SETTINGS: AISettings = {
   endpoint: OPENAI_ENDPOINT,
@@ -40,6 +52,9 @@ export function loadAISettings(): AISettings {
     const raw = localStorage.getItem(LS_KEY);
     if (!raw) return { ...DEFAULT_AI_SETTINGS };
     const parsed = JSON.parse(raw) as Partial<AISettings>;
+    // Retired-model migration: a saved Gemini model the API no longer serves
+    // would fail on every call — upgrade it to Google's recommended successor.
+    if (parsed.model && RETIRED_GEMINI[parsed.model]) parsed.model = RETIRED_GEMINI[parsed.model];
     return { ...DEFAULT_AI_SETTINGS, ...parsed };
   } catch {
     return { ...DEFAULT_AI_SETTINGS };
@@ -75,7 +90,12 @@ export interface ChatOptions { json?: boolean; signal?: AbortSignal; temperature
  * the `x-goog-api-key` header, and map messages onto the Gemini shape. */
 async function geminiComplete(messages: ChatMessage[], opts: ChatOptions, settings: AISettings, signal: AbortSignal | undefined): Promise<string> {
   let url = settings.endpoint;
-  if (!/generateContent/.test(url)) {
+  if (/generateContent/.test(url)) {
+    // The endpoint has a model action baked in. The MODEL FIELD must win —
+    // otherwise users who change the model (e.g. after a retirement like
+    // gemini-2.0-flash) still hit the stale model encoded in the preset URL.
+    url = url.replace(/\/models\/[^/?]+:generateContent/i, `/models/${encodeURIComponent(settings.model)}:generateContent`);
+  } else {
     // Accept "/models", "/models/" or the API root — append the model action.
     url = `${url.replace(/\/+$/, '')}/${settings.model}:generateContent`;
   }
@@ -107,7 +127,11 @@ async function geminiComplete(messages: ChatMessage[], opts: ChatOptions, settin
   }
   if (!res.ok) {
     const data = await res.json().catch(() => null) as { error?: { message?: string } } | null;
-    throw new Error(`Gemini returned ${res.status}. ${data?.error?.message ?? ''}`.trim());
+    const msg = data?.error?.message ?? '';
+    const hint = res.status === 404 && /model/i.test(msg)
+      ? ' Check the Model name — press "Fetch models" in Settings to list the models this key can actually use.'
+      : '';
+    throw new Error(`Gemini returned ${res.status}. ${msg}${hint}`.trim());
   }
   const data = await res.json().catch(() => null) as {
     candidates?: { content?: { parts?: { text?: string }[] }; finishReason?: string }[];
@@ -148,13 +172,67 @@ export async function chatComplete(messages: ChatMessage[], opts: ChatOptions = 
     throw new Error(`Could not reach the AI endpoint: ${(e as Error).message}. Check the URL in Settings → AI.`);
   }
   if (!res.ok) {
-    const text = await res.text().catch(() => '');
-    throw new Error(`AI endpoint returned ${res.status}. ${text.slice(0, 200)}`);
+    const text = await res.text().catch(() => '') as string;
+    let msg = text.slice(0, 300);
+    try {
+      const data = JSON.parse(text) as { error?: { message?: string } | string };
+      msg = typeof data.error === 'string' ? data.error : data.error?.message ?? msg;
+    } catch { /* keep raw text */ }
+    const hint = res.status === 404 || res.status === 400
+      ? ' If this mentions an unknown model, press "Fetch models" in Settings to list the models this endpoint offers.'
+      : '';
+    throw new Error(`AI endpoint returned ${res.status}. ${msg}${hint}`.trim());
   }
   const data = await res.json().catch(() => null) as { choices?: { message?: { content?: string } }[] } | null;
   const content = data?.choices?.[0]?.message?.content;
   if (typeof content !== 'string') throw new Error('AI endpoint returned an unexpected response shape (no choices[0].message.content).');
   return content;
+}
+
+/** Query the endpoint for the models the key can actually use, so users never
+ * have to guess model names. Gemini: GET /v1beta/models (x-goog-api-key).
+ * OpenAI-compatible: GET /models on the same base as the chat URL. */
+export async function listModels(settings: AISettings = loadAISettings(), signal?: AbortSignal): Promise<string[]> {
+  if (!hasAI(settings)) throw new Error('Add an API key first — then Fetch models lists what the key can use.');
+  if (providerOf(settings) === 'gemini') {
+    const root = settings.endpoint.match(/^https?:\/\/[^/]+\/v1(?:beta)?\/models/i)?.[0]
+      ?? `${GEMINI_ENDPOINT}`;
+    let res: Response;
+    try {
+      res = await fetch(root, { headers: { 'x-goog-api-key': settings.apiKey }, signal });
+    } catch (e) {
+      if ((e as Error).name === 'AbortError') throw e;
+      throw new Error(`Could not reach Gemini to list models: ${(e as Error).message}`);
+    }
+    if (!res.ok) {
+      const data = await res.json().catch(() => null) as { error?: { message?: string } } | null;
+      throw new Error(`Gemini returned ${res.status} listing models. ${data?.error?.message ?? ''}`.trim());
+    }
+    const data = await res.json().catch(() => null) as { models?: { name?: string; supportedGenerationMethods?: string[] }[] } | null;
+    const names = (data?.models ?? [])
+      .filter((m) => !m.supportedGenerationMethods || m.supportedGenerationMethods.includes('generateContent'))
+      .map((m) => (m.name ?? '').replace(/^models\//, ''))
+      .filter((n) => n && !/embedding|aqa|imagen|veo/i.test(n));
+    if (names.length === 0) throw new Error('Gemini listed no chat models for this key.');
+    return names;
+  }
+  // OpenAI-compatible: derive /models from the chat URL's origin (+ base path).
+  const base = settings.endpoint.replace(/\/chat\/completions\/?$/i, '').replace(/\/+$/, '');
+  let res: Response;
+  try {
+    res = await fetch(`${base}/models`, { headers: { Authorization: `Bearer ${settings.apiKey}` }, signal });
+  } catch (e) {
+    if ((e as Error).name === 'AbortError') throw e;
+    throw new Error(`Could not reach ${base}/models: ${(e as Error).message}. Some servers (Ollama, LM Studio) may not support listing — type the model name instead.`);
+  }
+  if (!res.ok) throw new Error(`Listing models returned ${res.status}. Type the model name manually instead.`);
+  const data = await res.json().catch(() => null) as { data?: { id?: string }[] } | { models?: { name?: string }[] } | null;
+  const raw = Array.isArray((data as { data?: { id?: string }[] })?.data) ? (data as { data?: { id?: string }[] }).data!
+    : Array.isArray((data as { models?: { name?: string }[] })?.models) ? (data as { models?: { name?: string }[] }).models!.map((m) => ({ id: m.name }))
+    : [];
+  const names = raw.map((m) => m.id ?? '').filter(Boolean);
+  if (names.length === 0) throw new Error('The endpoint returned no models — type the model name manually.');
+  return names;
 }
 
 /** Convenience: one system + one user message. */

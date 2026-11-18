@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react';
-import { chatComplete, GEMINI_ENDPOINT, GEMINI_MODEL, OPENAI_ENDPOINT, OPENAI_MODEL, providerOf, type AISettings, type AIProvider } from '../../ai/client';
+import { chatComplete, listModels, GEMINI_ENDPOINT, GEMINI_MODEL, OPENAI_ENDPOINT, OPENAI_MODEL, providerOf, type AISettings, type AIProvider } from '../../ai/client';
 import { FEATURE_CHECKLIST, GROUP_ORDER, checklistSummary, type FeatureStatus } from '../features/checklist';
 import { useStore } from '../state/store';
 import { useUI } from '../state/ui';
@@ -84,6 +84,8 @@ export function SettingsDialog() {
   const [error, setError] = useState('');
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<{ ok: boolean; text: string } | null>(null);
+  const [models, setModels] = useState<string[]>([]);
+  const [fetching, setFetching] = useState(false);
   const onClose = () => close('settings');
 
   const provider = providerOf({
@@ -137,6 +139,33 @@ export function SettingsDialog() {
       setTestResult({ ok: false, text: (e as Error).message });
     } finally {
       setTesting(false);
+    }
+  };
+
+  /** Ask the endpoint which models the key can actually use (no guessing). */
+  const fetchModels = async () => {
+    setFetching(true);
+    setError('');
+    try {
+      const draftSettings: AISettings = {
+        endpoint: draft.endpoint.trim(),
+        apiKey: draft.apiKey.trim(),
+        model: draft.model.trim(),
+        temperature: Number(draft.temperature) || 0.4,
+        provider: draft.provider ?? settings.provider,
+      };
+      const names = await listModels(draftSettings);
+      setModels(names);
+      // If the current model isn't in the list, preselect the newest-looking
+      // chat model so the user lands on a name that works.
+      if (names.length && !names.includes(draftSettings.model)) {
+        setDraft((d) => ({ ...d, model: names[0] }));
+      }
+      setTestResult({ ok: true, text: `${names.length} models available — pick one below. Currently: ${names.includes(draftSettings.model) ? draftSettings.model : names[0]}` });
+    } catch (e) {
+      setTestResult({ ok: false, text: (e as Error).message });
+    } finally {
+      setFetching(false);
     }
   };
 
@@ -219,7 +248,12 @@ export function SettingsDialog() {
             <label className="label" htmlFor="ai-model">Model name</label>
             <input id="ai-model" className="field" required autoComplete="off" spellCheck={false}
               value={draft.model} onChange={(e) => setDraft({ ...draft, model: e.target.value })}
+              list="ai-model-options"
               placeholder={provider === 'gemini' ? GEMINI_MODEL : OPENAI_MODEL} />
+            <datalist id="ai-model-options">
+              {models.map((m) => <option key={m} value={m} />)}
+            </datalist>
+            {models.length > 0 && <p className="mt-1 text-[11px] text-heat-green">✓ {models.length} models from this key — start typing to filter.</p>}
           </div>
           <div>
             <label className="label" htmlFor="ai-temperature">Temperature</label>
@@ -228,12 +262,16 @@ export function SettingsDialog() {
           </div>
         </div>
         <div className="flex items-center gap-2">
+          <button type="button" className="btn-solid focus-visible:outline focus-visible:outline-2 focus-visible:outline-signal"
+            onClick={() => void fetchModels()} disabled={fetching || !draft.apiKey.trim()}>
+            {fetching ? 'Fetching…' : 'Fetch models'}
+          </button>
           <button type="button" className="btn-signal focus-visible:outline focus-visible:outline-2 focus-visible:outline-signal"
             onClick={() => void testConnection()} disabled={testing || !draft.apiKey.trim() || !draft.endpoint.trim()}>
             {testing ? 'Testing…' : 'Test connection'}
           </button>
           <span className="text-[11px] leading-snug text-paper-dim">
-            Sends one tiny real request with the values in this form — no save needed.
+            Fetch models lists what your key can use; Test sends one tiny real request with the values in this form — no save needed.
           </span>
         </div>
         {testResult && (

@@ -15,3 +15,14 @@ createRoot(document.getElementById('root')!).render(
     <App />
   </ErrorBoundary>,
 );
+
+// PWA: register the service worker in production builds only (dev HMR must
+// never be cached). Once installed, the editor runs fully offline — media
+// stays in IndexedDB on the device either way.
+if (import.meta.env.PROD && 'serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js').catch(() => {
+      // SW registration is a progressive enhancement — never block the app.
+    });
+  });
+}

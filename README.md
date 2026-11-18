@@ -31,16 +31,17 @@ npm run test
 CutFlow's honest, always-up-to-date status board lives in [`src/features/checklist.ts`](src/features/checklist.ts) — it is rendered in-app and marks every capability as `working`, `partial`, or `not-possible`. Highlights:
 
 - **Multi-track timeline** — video + audio tracks, split/trim/ripple delete, drag-reorder between tracks, snapping, markers, undo/redo, autosave to browser storage.
-- **Speed ramps & freeze frames** — clip speed 0.25x–4x, piecewise time remapping with a graphical ramp editor (ramp-aware split/trim/ripple keep continuity), and one-click freeze frames from the preview transport.
+- **Speed ramps & freeze frames** — clip speed 0.25x–4x, piecewise time remapping with a graphical ramp editor (ramp-aware split/trim/ripple keep continuity), one-click freeze frames from the preview transport, and true clip reverse (video scrubs frame-by-frame, audio plays a genuinely reversed buffer — preview and export match).
 - **Blend modes & blend transitions** — screen, multiply, overlay, add, soft-light and more via canvas compositing, plus 15 blend-style transitions. The same engine renders preview and export, so what you see is what you get.
 - **Drawing & direct manipulation** — 12 draw tools (brush, pen, arrow, shapes, stickers…) as independent editable overlay layers; drag-move, corner-resize, rotate, and inline text edit directly on the preview.
 - **Captions** — automatic transcription with Whisper running as WASM in a web worker, multiple caption styles, editing, translation (needs an AI key), and `.srt` sidecar export.
-- **Color grading** — lift/gamma/gain per channel, hue/temperature/saturation, preset looks, auto-normalize, and live scopes (waveform, vectorscope, histogram) in the Color workspace.
+- **Color grading** — lift/gamma/gain per channel, hue/temperature/saturation, preset looks, auto-normalize, live scopes (waveform, vectorscope, histogram) in the Color workspace, and `.cube` LUT import with per-clip strength.
 - **Audio DSP** — compressor, limiter, echo, pan, fades, LUFS loudness normalization, noise reduction/de-ess/high-pass, auto music ducking, in-app voiceover recording.
 - **Export** — MP4 (H.264 + AAC) via WebCodecs when available, WebM (VP9/Opus) otherwise, audio-only WAV, current-frame PNG, animated GIF of a marked section, and `.srt` subtitles.
 - **Stock media panel** — search and import free stock media (Archive.org works keyless; Pexels/Pixabay/Freesound use a free personal key stored locally).
 - **Keyboard shortcuts** — Premiere-style edit keys (V select, C razor, I/O zone, Ctrl+K add-edit-all…) plus a full cheatsheet in the command palette.
-- **Optional AI planning** — connect an AI agent for one-click auto edits, dead-air cutting, smart cutdowns, A/B variants, auto b-roll, and beat-snapped assembly. Without a key, every tool still works from buttons via local rules.
+- **Optional AI planning** — connect an AI agent for one-click auto edits, dead-air cutting, smart cutdowns, A/B variants, auto b-roll, and beat-snapped assembly. Without a key, every tool still works from buttons via local rules. Model settings support Google Gemini (native protocol) and any OpenAI-compatible endpoint, with a **Fetch models** button that lists the models your key can actually use and a **Test connection** button that sends one tiny real request with the values in the form.
+- **PWA — installable on every device** — install CutFlow as an app on Windows, macOS, Linux, Android (Chrome) and iOS (Safari 16.4+). A service worker caches the app shell, so an installed editor keeps working offline — media lives in IndexedDB on the device either way.
 
 Honest limits worth knowing: no 3D camera space, no reverse playback, no optical-flow frame blending, no LUT `.cube` import, no multicam angle-switching UI. The checklist file is the source of truth.
 

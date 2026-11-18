@@ -8,6 +8,7 @@ export * from './media';
 export * from './audio';
 export * from './captions';
 export * from './effects';
+export * from './luts';
 export * from './wav';
 export * from './generators';
 export * from './motifs';

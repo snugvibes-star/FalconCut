@@ -56,7 +56,7 @@ export const FEATURE_CHECKLIST: FeatureItem[] = [
   { id: 'speed-change', group: 'Speed', label: 'Clip speed change (0.25x–4x)', status: 'working' },
   { id: 'speed-ramp', group: 'Speed', label: 'Time remapping / speed ramps (piecewise speed points on the clip)', status: 'working', note: 'piecewise-linear speed curve integrated for exact source mapping; ramp-aware split/trim/ripple keep continuity (tested); audio under a ramp plays at the segment average speed — exact pitch-following audio remap is not possible in-browser' },
   { id: 'freeze-frame', group: 'Speed', label: 'Freeze frame — capture the exact frame at the playhead and insert it as a 2s still (Camera button in the preview transport)', status: 'working', note: 'full-resolution render through the same engine as export; imported through the normal media path so it persists in the project' },
-  { id: 'reverse', group: 'Speed', label: 'Reverse playback of video clips', status: 'not-possible', note: 'decoders are forward-only in browser' },
+  { id: 'reverse', group: 'Speed', label: 'Reverse clip (video + audio): preview scrubs frame-by-frame (browsers cannot play a video element backward) and audio plays a genuinely reversed buffer; preview and export match', status: 'working', note: 'works with speed ramps too; scrubbing means reversed sections play at a lower effective fps than forward clips' },
 
   // ── Text & titles ──────────────────────────────────────────────────────────
   { id: 'text-clips', group: 'Text & titles', label: 'Text clips (font, size, color, outline, position)', status: 'working' },
@@ -81,7 +81,7 @@ export const FEATURE_CHECKLIST: FeatureItem[] = [
   { id: 'color-wheels', group: 'Color', label: 'Color wheels / curves / HSL qualifier', status: 'partial', note: 'lift/gamma/gain done; bezier curves and HSL qualifier not yet' },
   { id: 'auto-color-normalize', group: 'Color', label: 'Auto color normalize (Kdenlive "Normalize RGB")', status: 'working', note: 'percentile auto-levels per frame, strength slider' },
   { id: 'negate', group: 'Color', label: 'Negate / invert (Kdenlive `avfilter.negate`)', status: 'working' },
-  { id: 'lut-import', group: 'Color', label: 'LUT import (.cube)', status: 'not-possible', note: 'no .cube parser' },
+  { id: 'lut-import', group: 'Color', label: 'LUT import (.cube): Adobe 3D cube LUTs (17³/33³/65³…), stored inside the project, applied per clip with strength slider — same render path for preview and export', status: 'working', note: 'baked to a 64-level direct lookup (6 bits/channel — smooth LUTs show no visible banding); 1D LUTs are rejected with an honest error' },
   { id: 'scopes', group: 'Color', label: 'Video scopes (waveform, vectorscope, histogram)', status: 'working', note: 'live from the graded preview canvas in the Color workspace' },
 
   // ── Effects & transitions ──────────────────────────────────────────────────
@@ -147,7 +147,8 @@ export const FEATURE_CHECKLIST: FeatureItem[] = [
   { id: 'preview-customize', group: 'Productivity', label: 'Preview customization: fullscreen (Fullscreen API), zoom Fit/25/50/100/200%, theater mode (hide side panels, Esc exits)', status: 'working' },
   { id: 'hideable-draw-rail', group: 'Productivity', label: 'Fully hideable preview draw rail — when hidden nothing overlays the video; a small pen icon docked beside (not on) the video restores it', status: 'working', note: 'eye button on the rail hides it; state persists across reloads (cutflow.ui.prefs)' },
   { id: 'resizable-timeline', group: 'Productivity', label: 'Resizable bottom timeline editor — drag handle between preview and timeline plus Small / Medium / Large presets', status: 'working', note: 'pointer-capture drag, height persists across reloads (cutflow.ui.prefs)' },
-  { id: 'ai-providers', group: 'Productivity', label: 'AI settings: provider selector (Google Gemini native protocol + any OpenAI-compatible endpoint), preset endpoints, real Test connection button with inline result, and a gear in the AI panel to reopen settings anytime', status: 'working', note: 'Gemini speaks generateContent (x-goog-api-key, systemInstruction, JSON response mime); provider auto-detected from the endpoint so older saved settings keep working. Keys stay in localStorage' },
+  { id: 'ai-providers', group: 'Productivity', label: 'AI settings: provider selector (Google Gemini native protocol + any OpenAI-compatible endpoint), preset endpoints, Fetch models (lists the models your key can actually use — Gemini and OpenAI-compatible), real Test connection button with inline result, and a gear in the AI panel to reopen settings anytime', status: 'working', note: 'the model FIELD always wins over a model baked into the endpoint URL; retired Gemini models (e.g. gemini-2.0-flash) auto-upgrade to Google\'s recommended successor on load. Keys stay in localStorage' },
+  { id: 'pwa', group: 'Productivity', label: 'PWA: installable on desktop and mobile (Android/Chrome, iOS 16.4+/Safari add-to-home), offline app shell via service worker, standalone display', status: 'working', note: 'media lives in IndexedDB, so an installed editor keeps editing offline; AI features need the network by nature' },
   { id: 'in-page-api', group: 'Productivity', label: 'In-page scripting API for agents', status: 'working' },
   { id: 'co-edit-lock', group: 'Productivity', label: 'Clip locking for human/AI co-editing', status: 'working' },
   { id: 'project-file', group: 'Productivity', label: 'Save / open project file', status: 'working' },

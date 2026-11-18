@@ -8,6 +8,7 @@ import type { Clip, Project, Transform } from './types';
 import { getMedia, defaultTransform, sourceTimeOf } from './types';
 import { evalKeyframes } from './easing';
 import { resolveEffects, applyPixelOps, drawVignette } from './effects';
+import { bakeLut } from './luts';
 import { layoutCaption, drawCaption } from './captions';
 import { drawGenerator } from './generators';
 import { drawMotif } from './motifs';
@@ -121,6 +122,12 @@ function drawMediaLayer(p: Project, clip: Clip, t: number, ctx: Ctx2D, resolver:
   }
 
   const useScratch = fx.needsPixels || (fx.filter !== '' && !supportsFilter(ctx));
+  if (fx.lut) {
+    // Resolve the lut id against the project's imported LUTs; bake once (cached).
+    const lutObj = p.luts?.find((l) => l.id === fx.lut!.lut.id);
+    if (lutObj) { fx.lut.lut = lutObj; fx.lut.baked = bakeLut(lutObj); }
+    else fx.lut = undefined; // LUT was deleted from the project — skip gracefully
+  }
   if (useScratch || fx.filter) {
     const capW = 1600;
     const rw = Math.max(2, Math.min(Math.round(drawW), capW));

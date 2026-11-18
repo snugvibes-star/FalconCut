@@ -42,9 +42,9 @@ export function DrawBar() {
 
   return (
     <>
-      <div className="absolute left-1.5 top-1.5 z-10 flex flex-col gap-0.5 p-1 rounded-xl bg-ink-900/90 backdrop-blur border border-line shadow-panel">
-        {/* header row: hide button — while visible, the rail floats on the video */}
-        <div className="flex items-center justify-center pb-0.5 border-b border-line/60 mb-0.5">
+      <div className="absolute left-1.5 top-1.5 bottom-1.5 z-10 flex flex-col gap-0.5 p-1 rounded-xl bg-ink-900/90 backdrop-blur border border-line shadow-panel overflow-y-auto cf-thin-scroll overscroll-contain">
+        {/* header row: hide button — sticky so it stays reachable while the tool list scrolls */}
+        <div className="sticky top-0 z-10 flex items-center justify-center pb-0.5 border-b border-line/60 mb-0.5 bg-ink-900/95">
           <button
             className="icon-btn p-1"
             onClick={() => setRailVisible(false)}

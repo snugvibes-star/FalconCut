@@ -61,7 +61,7 @@ export interface Transform {
 }
 
 export type EffectType =
-  | 'color' | 'blur' | 'sharpen' | 'vignette' | 'chromaKey' | 'negate' | 'normalize'
+  | 'color' | 'blur' | 'sharpen' | 'vignette' | 'chromaKey' | 'negate' | 'normalize' | 'lut'
   | 'eq' | 'gate' | 'deess' | 'denoise' | 'compressor' | 'limiter' | 'echo' | 'pan';
 
 /** Canvas globalCompositeOperation blend modes, 1:1 with the CSS list. */
@@ -206,6 +206,10 @@ export interface Clip {
   /** Speed ramp (time remap). When present it overrides `speed` between its
    * points; video rendering + preview use the true piecewise map. */
   speedPoints?: SpeedPoint[];
+  /** Play the consumed source segment BACKWARD (ends at `inPoint`). The
+   * preview scrubs the element (browsers cannot play a video element
+   * backward); the audio graph plays a genuinely reversed buffer. */
+  reversed?: boolean;
   /** Blend mode of this layer against everything under it (canvas
    * globalCompositeOperation). 'normal'/absent = plain over. */
   blendMode?: BlendMode;
@@ -339,10 +343,23 @@ export interface Project {
   clips: Clip[];
   markers: Marker[];
   tacks: Tack[];
+  /** Imported color LUTs (.cube). Table is size³ RGB float triples flattened
+   * (red fastest), serialized as plain numbers so project JSON round-trips. */
+  luts?: Lut[];
   analysis?: Analysis;
   stylePackId: string;
   customPacks: StylePack[];
   rules: Rule[];
+}
+
+/** A 3D color LUT parsed from a .cube file. */
+export interface Lut {
+  id: string;
+  name: string;
+  /** LUT_3D_SIZE (cube edge length, typically 17/33/65). */
+  size: number;
+  /** size³ × 3 floats, red fastest (matches .cube row order). */
+  table: number[];
 }
 
 /* ---------------- Defaults ---------------- */
@@ -483,10 +500,10 @@ export function speedAtLocal(clip: Clip, localT: number): number {
   return last.speed;
 }
 
-/** Source position (seconds inside the original media) for a timeline time —
- * honors the speed ramp by integrating the piecewise-linear speed. */
-export function sourceTimeOf(clip: Clip, timelineT: number): number {
-  const localT = Math.max(0, timelineT - clip.start);
+/** Forward-integrated source position for clip-local time (honors the speed
+ * ramp by integrating the piecewise-linear speed). This is the direction-agnostic
+ * part: `sourceTimeOf` flips it for reversed clips. */
+export function forwardSourceTime(clip: Clip, localT: number): number {
   const pts = speedPointsOf(clip);
   if (!pts) return clip.inPoint + localT * clip.speed;
   const last = pts[pts.length - 1];
@@ -506,6 +523,24 @@ export function sourceTimeOf(clip: Clip, timelineT: number): number {
   // trailing constant-speed zone
   if (localT > last.t) consumed += (localT - last.t) * last.speed;
   return clip.inPoint + consumed;
+}
+
+/** Total source seconds this clip consumes over its full duration. */
+export function consumedSource(clip: Clip): number {
+  return forwardSourceTime(clip, clip.duration) - clip.inPoint;
+}
+
+/** Source position (seconds inside the original media) for a timeline time —
+ * honors the speed ramp, and runs BACKWARD (from the consumed segment's end
+ * toward `inPoint`) when the clip is reversed. */
+export function sourceTimeOf(clip: Clip, timelineT: number): number {
+  const localT = Math.max(0, timelineT - clip.start);
+  const fwd = forwardSourceTime(clip, localT);
+  if (!clip.reversed) return fwd;
+  // Reversed: play the consumed segment from its END toward inPoint. With a
+  // ramp the same integration applies — only the direction flips.
+  const endPos = clip.inPoint + consumedSource(clip);
+  return endPos - (fwd - clip.inPoint);
 }
 
 /** Average speed over the whole clip = total consumed source / duration.

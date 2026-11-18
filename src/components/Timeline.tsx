@@ -145,6 +145,7 @@ const EFFECT_DEFAULTS: Record<EffectType, Record<string, number | string | boole
   denoise: { thresholdDb: -45 },
   negate: { invert: 1 },
   normalize: { strength: 0.8 },
+  lut: { strength: 1 },
   compressor: { thresholdDb: -24, ratio: 4 },
   limiter: { ceilingDb: -1 },
   echo: { delayMs: 250, feedback: 0.3, mix: 0.35 },

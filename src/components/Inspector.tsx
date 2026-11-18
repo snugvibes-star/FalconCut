@@ -1,8 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
-import { Plus, Trash2, Diamond, Lock, Unlock, Sparkles, RotateCcw, X } from 'lucide-react';
+import { Plus, Trash2, Diamond, Lock, Unlock, Sparkles, RotateCcw, X, Palette } from 'lucide-react';
 import { useStore } from '../state/store';
 import { useUI } from '../state/ui';
-import { resolvedTransform, clipVolumeAt, getMedia, COLOR_PRESETS, BLEND_MODES, speedPointsOf, avgSpeed, type Clip, type Effect, type EffectType, type Easing, type Transform, type Transition, type Aspect, type Action, type BlendMode, type SpeedPoint, ASPECT_SIZES } from '../../engine';
+import { resolvedTransform, clipVolumeAt, getMedia, COLOR_PRESETS, BLEND_MODES, speedPointsOf, avgSpeed, parseCube, type Clip, type Effect, type EffectType, type Easing, type Transform, type Transition, type Aspect, type Action, type BlendMode, type SpeedPoint, ASPECT_SIZES } from '../../engine';
 
 const EASINGS: Easing[] = ['linear', 'easeIn', 'easeOut', 'easeInOut', 'easeOutBack', 'easeOutExpo'];
 
@@ -447,6 +447,7 @@ export function Inspector() {
             <Slider label="Gamma (mids)" value={(cp.gamma_r ?? 1)} min={0.2} max={2.5} step={0.01} onChange={(v) => setLgg('gamma', v)} />
             <Slider label="Gain (highlights)" value={(cp.gain_r ?? 1)} min={0} max={2} step={0.01} onChange={(v) => setLgg('gain', v)} />
           </div>
+          <LutSection clipId={id} clipEffects={clip.effects} />
         </Section>
       )}
 
@@ -569,6 +570,17 @@ export function Inspector() {
                   Add speed ramp
                 </button>
               )}
+              <button
+                className={`btn-ghost text-[11px] px-2 py-1 w-full justify-center ${clip.reversed ? 'text-signal' : ''}`}
+                title={clip.reversed
+                  ? 'Reversed ON — the clip plays its source backward. Preview scrubs (browsers cannot play video elements backward); audio plays a genuinely reversed buffer.'
+                  : 'Play this clip\'s source backward — classic reverse effect. Works with speed ramps too.'}
+                onClick={() => set([{ type: 'set_clip_props', clipId: id, patch: { reversed: !clip.reversed } }], clip.reversed ? 'Forward playback' : 'Reverse clip')}>
+                {clip.reversed ? '✓ Reversed — click for forward' : 'Reverse clip (play backward)'}
+              </button>
+              {clip.reversed && (
+                <p className="text-[11px] text-heat-amber">Reversed: the preview scrubs frame-by-frame (browsers can't play video elements backward) and audio plays a real reversed buffer. Render/export match.</p>
+              )}
             </Section>
             {ramp && (
               <Section title="Speed ramp" action={
@@ -639,6 +651,86 @@ function AITab({ runTool }: { runTool: (name: string, params?: Record<string, un
         {result ?? 'Run a tool on this clip. The result is applied as one undoable edit.'}
       </p>
     </Section>
+  );
+}
+
+/** Color-LUT (.cube) panel for the Inspector's Color tab: import files,
+ * apply/remove a LUT effect on the selected clip, strength + enable toggles.
+ * Import + apply are separate commits — each is its own undo step. */
+function LutSection({ clipId, clipEffects }: { clipId: string; clipEffects: Effect[] }) {
+  const luts = useStore((s) => s.project.luts ?? []);
+  const commit = useStore((s) => s.commit);
+  const ui = useUI();
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [busy, setBusy] = useState(false);
+  const lutEffects = clipEffects.filter((e) => e.type === 'lut');
+
+  const importLut = async (files: FileList | null) => {
+    if (!files || files.length === 0) return;
+    setBusy(true);
+    try {
+      for (const file of Array.from(files)) {
+        if (!/\.cube$/i.test(file.name)) { ui.toast(`${file.name}: only .cube LUT files are supported.`, 'error'); continue; }
+        const parsed = parseCube(await file.text(), file.name);
+        if ('error' in parsed) { ui.toast(`${file.name}: ${parsed.error}`, 'error'); continue; }
+        commit([{ type: 'add_lut', lut: parsed.lut }], `Import LUT ${parsed.lut.name}`);
+        ui.toast(`LUT imported — ${parsed.lut.name} (${parsed.lut.size}³). Select a clip and click Apply.`, 'success');
+      }
+    } finally {
+      setBusy(false);
+      if (fileRef.current) fileRef.current.value = '';
+    }
+  };
+
+  return (
+    <div className="border-t border-line pt-2 mt-1">
+      <span className="label flex items-center gap-1.5"><Palette size={12} /> LUT (.cube)</span>
+      {luts.length === 0 && (
+        <p className="text-[11px] text-paper-faint">No LUTs imported yet. Import an Adobe .cube file — it is stored inside the project and applied through the same render path as export.</p>
+      )}
+      {luts.length > 0 && (
+        <div className="space-y-1 mb-1.5">
+          {luts.map((l) => {
+            const applied = lutEffects.find((e) => e.params.lut === l.id);
+            return (
+              <div key={l.id} className="flex items-center gap-1.5 text-[11px] bg-ink-850 rounded-md px-2 py-1 border border-line">
+                <Palette size={10} className="text-mind shrink-0" />
+                <span className="text-paper truncate flex-1" title={`${l.name} — ${l.size}³ LUT, ${(l.table.length / 3) | 0} colors`}>{l.name}</span>
+                {applied ? (
+                  <>
+                    <span className="text-heat-green shrink-0">✓</span>
+                    <button className="btn-ghost text-[10px] px-1 py-0.5" title="Remove this LUT effect from the clip"
+                      onClick={() => commit([{ type: 'remove_effect', clipId, effectId: applied.id }], `Remove LUT ${l.name}`)}>Remove</button>
+                  </>
+                ) : (
+                  <button className="btn-ghost text-[10px] px-1 py-0.5" title={`Apply ${l.name} to this clip`}
+                    disabled={!clipId}
+                    onClick={() => commit([{ type: 'add_effect', clipId, effect: { type: 'lut', enabled: true, params: { lut: l.id, strength: 1 } } }], `Apply LUT ${l.name}`)}>Apply</button>
+                )}
+                <button className="icon-btn p-0.5 hover:text-heat" title="Delete this LUT from the project (also removes it from all clips)"
+                  onClick={() => commit([{ type: 'remove_lut', lutId: l.id }], `Delete LUT ${l.name}`)}><Trash2 size={11} /></button>
+              </div>
+            );
+          })}
+          {lutEffects.map((e) => {
+            const lutName = luts.find((l) => l.id === e.params.lut)?.name ?? 'LUT';
+            return (
+              <div key={e.id} className="pl-1">
+                <Slider label={`${lutName} strength`} value={typeof e.params.strength === 'number' ? e.params.strength : 1} min={0} max={1} step={0.01}
+                  onChange={(v) => commit([{ type: 'set_effect', clipId, effectId: e.id, params: { strength: v } }], 'LUT strength')} />
+              </div>
+            );
+          })}
+        </div>
+      )}
+      <input ref={fileRef} type="file" accept=".cube" multiple className="hidden"
+        onChange={(e) => void importLut(e.target.files)} />
+      <button className="btn-ghost text-[11px] px-2 py-1 w-full justify-center" disabled={busy}
+        title="Import Adobe .cube 3D LUT files (17³, 33³, 65³…)"
+        onClick={() => fileRef.current?.click()}>
+        {busy ? 'Importing…' : 'Import .cube LUT'}
+      </button>
+    </div>
   );
 }
 

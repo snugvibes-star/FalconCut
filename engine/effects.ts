@@ -3,8 +3,9 @@
  * Uses ctx.filter where available; CPU pixel fallback otherwise.
  * Pixel ops (temperature, chroma key, sharpen) always run on a scratch canvas.
  */
-import type { Clip, Effect } from './types';
+import type { Clip, Effect, Lut } from './types';
 import { evalKeyframes } from './easing';
+import { bakeLut, type BakedLut } from './luts';
 
 export interface ResolvedEffects {
   filter: string;
@@ -16,6 +17,9 @@ export interface ResolvedEffects {
    * shadow lift (additive), gamma (exponent), and highlight gain (multiplier).
    * Present only when non-neutral; always requires the CPU pixel pass. */
   lgg?: { lift: [number, number, number]; gamma: [number, number, number]; gain: [number, number, number] };
+  /** .cube LUT grade: the project's Lut object + blend strength (0..1). The
+   * BAKED table is injected by render.ts (it knows the project). */
+  lut?: { lut: Lut; strength: number; baked?: BakedLut };
   needsPixels: boolean;
 }
 
@@ -63,6 +67,14 @@ export function resolveEffects(clip: Clip, localT: number, filterSupported: bool
         const n = parseInt(hex.slice(1), 16);
         r.chroma = { color: [(n >> 16) & 255, (n >> 8) & 255, n & 255], tolerance: val(e, 'tolerance', 0.28), softness: val(e, 'softness', 0.12) };
         r.needsPixels = true;
+        break;
+      }
+      case 'lut': {
+        // params.lut is the lut id (string); strength is keyframeable.
+        if (typeof e.params.lut === 'string' && e.params.lut) {
+          r.lut = { lut: { id: e.params.lut, name: '', size: 0, table: [] }, strength: clamp(val(e, 'strength', 1), 0, 1) };
+          r.needsPixels = true;
+        }
         break;
       }
     }
@@ -173,6 +185,14 @@ export function applyPixelOps(canvas: HTMLCanvasElement | OffscreenCanvas, r: Re
       }
     }
     if (temp !== 0) { R += tr; B += tb; }
+    // .cube LUT grade: single baked-table lookup per pixel, blended by strength.
+    if (r.lut && r.lut.baked) {
+      const packed = r.lut.baked[(clamp(R, 0, 255) >> 2) << 12 | (clamp(G, 0, 255) >> 2) << 6 | (clamp(B, 0, 255) >> 2)];
+      const s = r.lut.strength;
+      R = R * (1 - s) + (packed & 255) * s;
+      G = G * (1 - s) + ((packed >>> 8) & 255) * s;
+      B = B * (1 - s) + ((packed >>> 16) & 255) * s;
+    }
     if (chroma) {
       const dr = R - chroma.color[0], dg = G - chroma.color[1], db = B - chroma.color[2];
       const dist = Math.sqrt(dr * dr + dg * dg + db * db) / 441.7;

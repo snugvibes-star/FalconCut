@@ -177,10 +177,10 @@ export class MediaPool implements MediaResolver {
    * active clip drives its OWN element (keyed by asset+clip), so two clips
    * sharing one asset stay independently positioned instead of fighting. */
   syncPlayback(active: { clip: Clip; asset: MediaAsset }[], timelineT: number, playing: boolean) {
-    const wanted = new Map<string, { mediaId: string; expected: number; speed: number }>();
+    const wanted = new Map<string, { mediaId: string; expected: number; speed: number; reversed: boolean }>();
     for (const { clip, asset } of active) {
       if (asset.type !== 'video') continue;
-      wanted.set(asset.id + '|' + clip.id, { mediaId: asset.id, expected: sourceTimeOf(clip, timelineT), speed: speedAtLocal(clip, timelineT - clip.start) });
+      wanted.set(asset.id + '|' + clip.id, { mediaId: asset.id, expected: sourceTimeOf(clip, timelineT), speed: speedAtLocal(clip, timelineT - clip.start), reversed: !!clip.reversed });
     }
     const usedMedia = new Set([...wanted.values()].map((w) => w.mediaId));
     for (const [id, v] of this.videos) {
@@ -190,6 +190,13 @@ export class MediaPool implements MediaResolver {
       const sep = key.indexOf('|');
       const v = this.entryFor(key.slice(0, sep), key.slice(sep + 1));
       if (!v || v.el.readyState < 2) continue;
+      if (w.reversed) {
+        // Browsers cannot play a video element backward — scrub instead
+        // (seek per frame, same path as paused scrubbing). Honest, stable.
+        if (!v.el.paused) v.el.pause();
+        if (Math.abs(v.el.currentTime - w.expected) > 0.04) this.seekEntry(v, w.expected);
+        continue;
+      }
       v.el.playbackRate = Math.max(0.1, Math.min(4, w.speed));
       if (playing) {
         const drift = Math.abs(v.el.currentTime - w.expected);

@@ -82,13 +82,25 @@ export function buildAudioGraph(
     // Under a speed ramp a constant-rate source can only follow the ramp's
     // AVERAGE speed — edges line up, some drift inside (documented honestly).
     const effSpeed = avgSpeed(clip);
-    const bufferOffset = Math.min(buffer.duration - 0.01, clip.inPoint + offsetInClip * effSpeed);
+    // Reversed clips play a genuinely REVERSED copy of the buffer (index 0 =
+    // original end). In that copy, timeline-forward = sample-forward, and the
+    // clip "starts" at its source END anchor: inPoint + consumed.
+    let playBuffer = buffer;
+    let bufferOffset: number;
+    if (clip.reversed) {
+      playBuffer = reversedBuffer(buffer);
+      const endPos = clip.inPoint + avgSpeed(clip) * clip.duration;
+      const s0 = endPos - offsetInClip * effSpeed; // source position at `from`
+      bufferOffset = Math.max(0, Math.min(playBuffer.duration - 0.01, playBuffer.duration - s0));
+    } else {
+      bufferOffset = Math.min(buffer.duration - 0.01, clip.inPoint + offsetInClip * effSpeed);
+    }
     const playDur = Math.min((to - from) * effSpeed, buffer.duration - bufferOffset);
     if (playDur <= 0.01) continue;
     const when = opts.when + (from - startAt);
 
     const src = ctx.createBufferSource();
-    src.buffer = buffer;
+    src.buffer = playBuffer;
     src.playbackRate.value = Math.max(0.1, Math.min(8, effSpeed));
 
     let node: AudioNode = src;
@@ -179,8 +191,28 @@ export function buildAudioGraph(
   };
 }
 
-/** Rough integrated loudness of the mixed timeline, for lint (uses analysis envelopes). */
-export function estimateSpeechMusicBalance(p: Project): { musicOverSpeech: { time: number; musicDb: number; speechDb: number }[] } {
+/** Cache of genuinely reversed AudioBuffers (weak: freed with the original).
+ * Reversing is O(samples) — done once per buffer, not per playback. */
+const reversedBufCache = new WeakMap<AudioBuffer, AudioBuffer>();
+
+function reversedBuffer(original: AudioBuffer): AudioBuffer {
+  const cached = reversedBufCache.get(original);
+  if (cached) return cached;
+  const out = new AudioBuffer({
+    length: original.length,
+    sampleRate: original.sampleRate,
+    numberOfChannels: original.numberOfChannels,
+  });
+  for (let ch = 0; ch < original.numberOfChannels; ch++) {
+    const src = original.getChannelData(ch);
+    const dst = out.getChannelData(ch);
+    for (let i = 0, n = src.length; i < n; i++) dst[i] = src[n - 1 - i];
+  }
+  reversedBufCache.set(original, out);
+  return out;
+}
+
+/** Rough integrated loudness of the mixed timeline, for lint (uses analysis envelopes). */export function estimateSpeechMusicBalance(p: Project): { musicOverSpeech: { time: number; musicDb: number; speechDb: number }[] } {
   const out: { time: number; musicDb: number; speechDb: number }[] = [];
   const audioTracks = p.tracks.filter((t) => t.kind === 'audio' && !t.muted);
   const musicClips = p.clips.filter((c) => audioTracks.some((t) => t.id === c.trackId) && getMedia(p, c.mediaId)?.type === 'audio');
