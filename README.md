@@ -14,7 +14,7 @@ Privacy-first by design: media never leaves the device — no uploads, no accoun
 - **WYSIWYG guarantees.** The preview canvas is the export engine, so what you see is exactly what renders.
 - **One action, one undo.** Every tool (human click or AI tool call) is a single undoable commit.
 - **Keyboard-first, Premiere-style.** V select, C razor, I/O zone, Ctrl+K add-edit-all, Shift+←/→ frame steps, full cheatsheet in the command palette.
-- **Vertical-first and platform-ready.** 9:16 / 16:9 / 1:1 / 4:5 with caption-safe zones, one click.
+- **Vertical-first and platform-ready.** 9:16 / 16:9 / 1:1 / 4:5 with caption-safe zones, one click — and the export dialog has delivery targets (TikTok/Reels/Shorts, YouTube, Instagram feed, square) that reframe the whole project in one undo step, so preview, timeline and file match the platform in a single click.
 - **Honest labels.** The in-app capability board (`src/features/checklist.ts`) marks every feature `working`, `partial` or `not-possible` — no fake buttons.
 
 ## Quickstart
@@ -73,15 +73,15 @@ AI is **fully optional** — all core editing works without any key. If you want
 
 | Provider | Key from | Preset model |
 |---|---|---|
-| **OpenAI** | platform.openai.com/api-keys | `gpt-4o-mini` |
+| **OpenAI-compatible** (any vendor) | OpenAI, Groq, Together, Mistral, DeepSeek, Fireworks, Perplexity — one-tap presets in the dialog | `gpt-4o-mini`, or Fetch models for the exact name |
+| **Local server** | no key needed — Ollama, LM Studio, vLLM, any gateway | your own model name |
 | **OpenRouter** | openrouter.ai/keys — one key, hundreds of models | `auto` (picks whatever your credits allow) |
 | **Google Gemini** | aistudio.google.com | `gemini-3.8-flash` |
-| **Local / any OpenAI-compatible** | no key needed (Ollama, LM Studio, gateways) | your own model name |
 
-1. Select the provider — endpoint and model are preset to a pair that works.
+1. Select the provider, then (for the compatible family) tap the vendor chip — endpoint and model are preset to a pair that works. Or paste any `…/chat/completions` URL.
 2. Paste the key (leave it empty for a local server — that's supported).
-3. **Test connection** sends one tiny real request and shows the provider's own answer.
-4. **Fetch models** lists the models your key can actually use; pick one and save.
+3. **Verify** (shield button beside the key) sends one tiny request and tells you whether this key is valid for this endpoint — before you save anything.
+4. **Test connection** does the same through the full agent path; **Fetch models** lists the models your key can actually use.
 
 **Why OpenAI used to fail in the browser:** `api.openai.com` refuses browser cross-origin requests, and no client-side code can work around that. When CutFlow runs from its own local server (`Start CutFlow.bat`, `npm run serve` or `npm run dev`) those calls are proxied through the same origin — bound to loopback only, with a header allowlist, and your key still goes straight to the provider. The dialog shows whether the proxy is active.
 

@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react';
-import { chatComplete, hasAI, isLocalEndpoint, listModels, localProxyAvailable, GEMINI_ENDPOINT, GEMINI_MODEL, OPENAI_ENDPOINT, OPENAI_MODEL, OPENROUTER_MODEL, PROVIDER_PRESETS, providerOf, type AISettings, type AIProvider } from '../../ai/client';
+import { CheckCircle2, Eye, EyeOff, Loader2, ShieldCheck, ShieldX } from 'lucide-react';
+import { chatComplete, COMPATIBLE_PRESETS, hasAI, isLocalEndpoint, listModels, localProxyAvailable, GEMINI_ENDPOINT, GEMINI_MODEL, OPENAI_ENDPOINT, OPENAI_MODEL, OPENROUTER_MODEL, PROVIDER_PRESETS, providerOf, type AISettings, type AIProvider, type CompatiblePreset } from '../../ai/client';
 import { FEATURE_CHECKLIST, GROUP_ORDER, checklistSummary, type FeatureStatus } from '../features/checklist';
 import { useStore } from '../state/store';
 import { useUI } from '../state/ui';
@@ -86,6 +87,9 @@ export function SettingsDialog() {
   const [testResult, setTestResult] = useState<{ ok: boolean; text: string } | null>(null);
   const [models, setModels] = useState<string[]>([]);
   const [fetching, setFetching] = useState(false);
+  /** Inline key check result — the shield button next to the key field. */
+  const [keyCheck, setKeyCheck] = useState<{ state: 'checking' | 'ok' | 'bad'; text: string } | null>(null);
+  const [showKey, setShowKey] = useState(false);
   /** null = still probing. Whether this origin exposes the /__ai proxy. */
   const [proxy, setProxy] = useState<boolean | null>(null);
   const onClose = () => close('settings');
@@ -111,8 +115,39 @@ export function SettingsDialog() {
   /** Switching providers presets a known-good endpoint + model for it. */
   const switchProvider = (p: AIProvider) => {
     setTestResult(null);
+    setKeyCheck(null);
     const preset = PROVIDER_PRESETS[p];
     setDraft((d) => ({ ...d, provider: p, endpoint: preset.endpoint, model: preset.model }));
+  };
+
+  /** Endpoint preset inside the OpenAI-compatible family (any vendor). */
+  const applyCompatiblePreset = (preset: CompatiblePreset) => {
+    setTestResult(null);
+    setKeyCheck(null);
+    setDraft((d) => ({ ...d, provider: 'openai', endpoint: preset.endpoint, model: preset.model ?? d.model }));
+  };
+
+  const draftSettings = (): AISettings => ({
+    endpoint: draft.endpoint.trim(),
+    apiKey: draft.apiKey.trim(),
+    model: draft.model.trim(),
+    temperature: Number(draft.temperature) || 0.4,
+    provider: draft.provider ?? settings.provider,
+  });
+
+  /** Shield button: is this key valid for this endpoint, right now? */
+  const verifyKey = async () => {
+    setKeyCheck({ state: 'checking', text: 'Checking the key with one tiny request…' });
+    try {
+      const reply = await chatComplete(
+        [{ role: 'user', content: 'Reply with the single word: ok' }],
+        { temperature: 0, maxTokens: 16 },
+        draftSettings(),
+      );
+      setKeyCheck({ state: 'ok', text: `Key is valid — the endpoint answered${reply.trim() ? `: "${reply.trim().slice(0, 40)}"` : '.'}` });
+    } catch (e) {
+      setKeyCheck({ state: 'bad', text: (e as Error).message });
+    }
   };
 
   /** Real connection test with the CURRENT draft values (no save needed). */
@@ -193,7 +228,7 @@ export function SettingsDialog() {
     };
     try {
       setAISettings(next);
-      toast(testResult?.ok ? 'AI settings saved — connection verified.' : 'AI settings saved. Use Test connection to verify it.', 'success');
+      toast(keyCheck?.state === 'ok' || testResult?.ok ? 'AI settings saved — key verified.' : 'AI settings saved. Use Verify or Test connection to check it.', 'success');
       onClose();
     } catch {
       setError('Could not save AI settings. Try again or check browser storage permissions.');
@@ -206,28 +241,44 @@ export function SettingsDialog() {
       <ChecklistSection />
       <form onSubmit={save} className="space-y-4">
         <p className="text-xs leading-relaxed text-paper-dim">
-          Connect an AI model for planning and auto edit. Supported providers: OpenAI, OpenRouter and Google Gemini, plus any OpenAI-compatible endpoint. AI is optional; every editing tool works without an API key.
+          Connect any chat model for planning and auto edit: any OpenAI-compatible vendor (OpenAI, Groq, Together, Mistral, DeepSeek, Fireworks, Perplexity, Ollama, LM Studio…), OpenRouter, or Google Gemini's native API. AI is optional; every editing tool works without an API key.
         </p>
         <div>
           <label className="label" htmlFor="ai-provider">Provider</label>
           <select id="ai-provider" className="field cursor-pointer" value={provider}
             onChange={(e) => switchProvider(e.target.value as AIProvider)}>
-            <option value="openai">OpenAI (GPT models)</option>
+            <option value="openai">OpenAI-compatible API (any vendor or local server)</option>
             <option value="openrouter">OpenRouter (one key, hundreds of models)</option>
-            <option value="gemini">Google Gemini</option>
+            <option value="gemini">Google Gemini (native API)</option>
           </select>
           <p className="mt-1 text-[11px] leading-relaxed text-paper-dim">
             {provider === 'openrouter'
               ? 'OpenRouter routes one key to many providers. "auto" picks a working model for your credits; press Fetch models to see everything the key can use (free models end in :free).'
               : provider === 'gemini'
                 ? 'Use a key from aistudio.google.com. Paste the full :generateContent URL (preset above) or just …/v1beta/models — the model action is added automatically.'
-                : 'Official OpenAI API, or any OpenAI-compatible server: edit the endpoint below (LM Studio, Ollama, Azure-compatible gateways…).'}
+                : 'Any server that speaks the OpenAI chat-completions API — not just OpenAI. Pick a vendor below, or paste your own endpoint (vLLM, Azure, a gateway…).'}
           </p>
+          {provider === 'openai' && (
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {COMPATIBLE_PRESETS.map((preset) => {
+                const active = draft.endpoint === preset.endpoint;
+                return (
+                  <button key={preset.id} type="button" onClick={() => applyCompatiblePreset(preset)}
+                    className={`px-2 py-1 rounded-md border text-[11px] transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-signal ${
+                      active ? 'border-signal/60 bg-signal/10 text-signal' : 'border-line text-paper-dim hover:text-paper hover:border-signal/40'
+                    }`}
+                    title={`${preset.endpoint}${preset.local ? ' — no key needed' : ''}`}>
+                    {preset.label}
+                  </button>
+                );
+              })}
+            </div>
+          )}
         </div>
         <div>
           <label className="label" htmlFor="ai-endpoint">API endpoint</label>
           <input id="ai-endpoint" type="url" className="field" required autoComplete="off" spellCheck={false}
-            value={draft.endpoint} onChange={(e) => { setDraft({ ...draft, endpoint: e.target.value }); setTestResult(null); }}
+            value={draft.endpoint} onChange={(e) => { setDraft({ ...draft, endpoint: e.target.value }); setTestResult(null); setKeyCheck(null); }}
             placeholder={provider === 'gemini' ? `${GEMINI_ENDPOINT}/${GEMINI_MODEL}:generateContent` : OPENAI_ENDPOINT}
             aria-describedby="ai-cors" />
           <p id="ai-cors" className="mt-1 text-[11px] leading-relaxed text-paper-dim">
@@ -235,21 +286,48 @@ export function SettingsDialog() {
               ? 'Paste the full :generateContent URL (preset above), or just …/v1beta/models — the model action is added automatically. The key is sent as x-goog-api-key.'
               : provider === 'openrouter'
                 ? 'Full chat-completions URL (preset above). The key is sent as a Bearer token with OpenRouter attribution headers.'
-                : 'Use the full chat-completions URL, not just the server address. The endpoint must allow CORS from this app.'}
+                : 'Use the full chat-completions URL, not just the server address. Browser-blocked providers (api.openai.com included) are proxied automatically when the app runs from its local server.'}
           </p>
         </div>
         <div>
           <label className="label" htmlFor="ai-key">API key</label>
           <div className="flex gap-2">
-            <input id="ai-key" type="password" className="field min-w-0" autoComplete="off" spellCheck={false}
-              value={draft.apiKey} onChange={(e) => { setDraft({ ...draft, apiKey: e.target.value }); setTestResult(null); }}
-              placeholder={provider === 'gemini' ? 'AIza… key from aistudio.google.com' : localServer ? 'Not required for local servers' : 'Leave empty to disable AI'}
+            <input id="ai-key" type={showKey ? 'text' : 'password'} className="field min-w-0" autoComplete="off" spellCheck={false}
+              value={draft.apiKey} onChange={(e) => { setDraft({ ...draft, apiKey: e.target.value }); setTestResult(null); setKeyCheck(null); }}
+              placeholder={provider === 'gemini' ? 'AIza… key from aistudio.google.com' : localServer ? 'Not required for local servers' : 'Paste the key from your provider'}
               aria-describedby="ai-key-note" />
+            <button type="button" className="icon-btn shrink-0 border border-line rounded-lg w-9"
+              title={showKey ? 'Hide the key' : 'Show the key'} aria-label={showKey ? 'Hide API key' : 'Show API key'}
+              onClick={() => setShowKey((v) => !v)}>
+              {showKey ? <EyeOff size={14} /> : <Eye size={14} />}
+            </button>
+            <button type="button"
+              className="btn-solid shrink-0 focus-visible:outline focus-visible:outline-2 focus-visible:outline-signal gap-1.5"
+              disabled={!ready || keyCheck?.state === 'checking'}
+              aria-label="Verify API key" aria-busy={keyCheck?.state === 'checking'}
+              title="Verify key — sends one tiny real request and tells you whether this key works with this endpoint"
+              onClick={() => void verifyKey()}>
+              {keyCheck?.state === 'checking' ? <Loader2 size={14} className="animate-spin" />
+                : keyCheck?.state === 'ok' ? <ShieldCheck size={14} className="text-heat-green" />
+                : keyCheck?.state === 'bad' ? <ShieldX size={14} className="text-heat" />
+                : <ShieldCheck size={14} />}
+              <span className="hidden sm:inline">Verify</span>
+            </button>
             <button type="button" className="btn-solid shrink-0 focus-visible:outline focus-visible:outline-2 focus-visible:outline-signal"
-              disabled={!draft.apiKey} onClick={() => setDraft({ ...draft, apiKey: '' })}>Clear key</button>
+              disabled={!draft.apiKey} onClick={() => { setDraft({ ...draft, apiKey: '' }); setKeyCheck(null); }}>Clear</button>
           </div>
+          {keyCheck && (
+            <p role="status" className={`mt-1 flex items-start gap-1.5 text-[11px] leading-relaxed ${
+              keyCheck.state === 'ok' ? 'text-heat-green' : keyCheck.state === 'bad' ? 'text-heat' : 'text-paper-dim'
+            }`}>
+              {keyCheck.state === 'ok' ? <CheckCircle2 size={12} className="mt-0.5 shrink-0" />
+                : keyCheck.state === 'bad' ? <ShieldX size={12} className="mt-0.5 shrink-0" />
+                : <Loader2 size={12} className="mt-0.5 shrink-0 animate-spin" />}
+              <span>{keyCheck.text}</span>
+            </p>
+          )}
           <p id="ai-key-note" className="mt-1 text-[11px] leading-relaxed text-paper-dim">
-            Stored in this browser's local storage, not encrypted. Clearing the key takes effect only after Save settings.
+            Verify sends one tiny request and reports whether the key is valid for this endpoint — nothing is saved until you press Save settings. The key is stored in this browser's local storage, not encrypted.
           </p>
         </div>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-[1fr_8rem]">

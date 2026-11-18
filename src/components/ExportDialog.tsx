@@ -12,6 +12,17 @@ import { Dialog } from './Dialog';
 
 interface Prog { pct: number; label: string }
 
+/** Delivery targets. Choosing one reframes the project (a real, undoable edit)
+ * so the preview, the timeline and the exported file all match the platform
+ * the clip is going to — the same idea as an NLE's export destination list,
+ * minus the upload that a browser app cannot honestly promise. */
+const DESTINATIONS: { id: string; label: string; aspect: '9:16' | '16:9' | '1:1' | '4:5'; width: number; height: number; note: string }[] = [
+  { id: 'tiktok', label: 'TikTok · Reels · Shorts', aspect: '9:16', width: 1080, height: 1920, note: 'Vertical 1080×1920' },
+  { id: 'youtube', label: 'YouTube', aspect: '16:9', width: 1920, height: 1080, note: 'Landscape 1920×1080' },
+  { id: 'instagram', label: 'Instagram feed', aspect: '4:5', width: 1080, height: 1350, note: 'Portrait 1080×1350' },
+  { id: 'square', label: 'Square post', aspect: '1:1', width: 1080, height: 1080, note: 'Square 1080×1080' },
+];
+
 export function ExportDialog() {
   const project = useStore((s) => s.project);
   const playhead = useStore((s) => s.playhead);
@@ -76,6 +87,18 @@ export function ExportDialog() {
     } finally { setBusy(''); setProg(null); abortRef.current = null; }
   };
 
+  /** Pick a delivery target: reframe the project, keep export at 100%. */
+  const applyDestination = (d: (typeof DESTINATIONS)[number]) => {
+    const s = project.settings;
+    if (s.aspect === d.aspect && s.width === d.width && s.height === d.height) return;
+    useStore.getState().commit(
+      [{ type: 'set_settings', patch: { aspect: d.aspect, width: d.width, height: d.height } }],
+      `Reframe for ${d.label}`,
+    );
+    setScale(1);
+    ui.toast(`Project reframed to ${d.width}×${d.height} (${d.aspect})`, 'success');
+  };
+
   const offline = !!support?.supported;
   const zoneValid = !!zone && zone.out > zone.in + 0.05;
   const gifRange = zoneValid ? { start: zone!.in, end: zone!.out } : { start: 0, end: duration };
@@ -101,6 +124,30 @@ export function ExportDialog() {
   return <Dialog title="Export" onClose={() => ui.close('export')}>
     <div className="space-y-4 text-xs">
       <p className="text-paper-dim">{project.name} · {duration.toFixed(2)} seconds · {project.settings.width}×{project.settings.height} @ {project.settings.fps}fps</p>
+
+      {/* ---- Destination ---- */}
+      <div>
+        <div className="flex items-baseline justify-between mb-1.5">
+          <span className="label mb-0">Destination</span>
+          <span className="text-[11px] text-paper-faint tabular-nums">{project.settings.width}×{project.settings.height} · {project.settings.aspect}</span>
+        </div>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+          {DESTINATIONS.map((d) => {
+            const active = project.settings.aspect === d.aspect;
+            return (
+              <button key={d.id} type="button" disabled={!!busy} onClick={() => applyDestination(d)}
+                className={`p-2 rounded-lg border text-left transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
+                  active ? 'border-signal/60 bg-signal/10' : 'border-line bg-ink-850 hover:border-signal/40'
+                }`}
+                title={`Reframe the project to ${d.width}×${d.height} (${d.aspect}) — one undo step`}>
+                <span className={`block text-[11px] font-medium truncate ${active ? 'text-signal' : 'text-paper'}`}>{d.label}</span>
+                <span className="block text-[10px] text-paper-faint">{d.note}</span>
+              </button>
+            );
+          })}
+        </div>
+        <p className="mt-1 text-[11px] text-paper-faint">Reframing changes the project frame (one undo step) so the preview, timeline and export all match the platform.</p>
+      </div>
 
       {/* ---- Video ---- */}
       <div className="cf-export-video rounded-xl p-3.5 border border-signal/30">

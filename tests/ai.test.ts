@@ -3,7 +3,7 @@ import { createProject, applyActions, diffProjects } from '../engine';
 import type { MediaAsset, Project } from '../engine/types';
 import { parseAgentReply, validateCalls, extractJSON } from '../ai/protocol';
 import { rulesPlan, planFromReply, buildProjectContext } from '../ai/planner';
-import { hasAI, isLocalEndpoint, providerOf, PROVIDER_PRESETS, OPENROUTER_ENDPOINT, GEMINI_MODEL } from '../ai/client';
+import { hasAI, isLocalEndpoint, providerOf, PROVIDER_PRESETS, COMPATIBLE_PRESETS, OPENROUTER_ENDPOINT, GEMINI_MODEL } from '../ai/client';
 
 function base(): Project {
   let p = createProject('Diff test', '16:9');
@@ -114,6 +114,22 @@ describe('AI provider resolution', () => {
     }
     expect(PROVIDER_PRESETS.gemini.endpoint).toContain(':generateContent');
     expect(PROVIDER_PRESETS.gemini.model).toBe(GEMINI_MODEL);
+    // "OpenAI" means the OpenAI-*compatible protocol, not one vendor's GPT models.
+    expect(PROVIDER_PRESETS.openai.label).toMatch(/compatible/i);
+  });
+
+  it('offers OpenAI-compatible vendor presets that are all real chat-completions URLs', () => {
+    expect(COMPATIBLE_PRESETS.length).toBeGreaterThanOrEqual(6);
+    for (const preset of COMPATIBLE_PRESETS) {
+      // Every preset must be a concrete completions endpoint, not a bare host.
+      expect(preset.endpoint).toMatch(/\/chat\/completions$/);
+      // …and must be recognised as the OpenAI protocol by the client.
+      expect(providerOf({ temperature: 0.4, model: 'm', endpoint: preset.endpoint, apiKey: '' })).toBe('openai');
+      // Local presets are the only keyless ones, and they must be loopback.
+      if (preset.local) expect(isLocalEndpoint(preset.endpoint)).toBe(true);
+      else expect(isLocalEndpoint(preset.endpoint)).toBe(false);
+    }
+    expect(COMPATIBLE_PRESETS.some((p) => p.label.startsWith('Groq'))).toBe(true);
   });
 });
 

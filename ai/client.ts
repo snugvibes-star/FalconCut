@@ -43,10 +43,38 @@ export const OPENAI_MODEL_PLACEHOLDER = OPENAI_MODEL;
 
 /** Endpoint + model preset per provider (used by the Provider selector). */
 export const PROVIDER_PRESETS: Record<AIProvider, { endpoint: string; model: string; label: string }> = {
-  openai: { endpoint: OPENAI_ENDPOINT, model: OPENAI_MODEL, label: 'OpenAI' },
+  openai: { endpoint: OPENAI_ENDPOINT, model: OPENAI_MODEL, label: 'OpenAI-compatible' },
   openrouter: { endpoint: OPENROUTER_ENDPOINT, model: OPENROUTER_MODEL, label: 'OpenRouter' },
   gemini: { endpoint: `${GEMINI_ENDPOINT}/${GEMINI_MODEL}:generateContent`, model: GEMINI_MODEL, label: 'Google Gemini' },
 };
+
+/**
+ * Endpoint presets for the OpenAI-*compatible* protocol — i.e. any server that
+ * speaks `POST /chat/completions` with a Bearer key, which is most of the
+ * industry. `model` is left undefined where the vendor's catalogue churns
+ * weekly: the endpoint is the durable part, and the in-dialog "Fetch models"
+ * button lists the real names for that key instead of us shipping a guess.
+ */
+export interface CompatiblePreset {
+  id: string;
+  label: string;
+  endpoint: string;
+  model?: string;
+  /** Local servers need no key. */
+  local?: boolean;
+}
+export const COMPATIBLE_PRESETS: CompatiblePreset[] = [
+  { id: 'openai', label: 'OpenAI', endpoint: OPENAI_ENDPOINT, model: OPENAI_MODEL },
+  { id: 'groq', label: 'Groq', endpoint: 'https://api.groq.com/openai/v1/chat/completions' },
+  { id: 'together', label: 'Together', endpoint: 'https://api.together.xyz/v1/chat/completions' },
+  { id: 'mistral', label: 'Mistral', endpoint: 'https://api.mistral.ai/v1/chat/completions' },
+  { id: 'deepseek', label: 'DeepSeek', endpoint: 'https://api.deepseek.com/v1/chat/completions' },
+  { id: 'fireworks', label: 'Fireworks', endpoint: 'https://api.fireworks.ai/inference/v1/chat/completions' },
+  { id: 'perplexity', label: 'Perplexity', endpoint: 'https://api.perplexity.ai/chat/completions' },
+  { id: 'ollama', label: 'Ollama (local)', endpoint: 'http://localhost:11434/v1/chat/completions', model: 'llama3.2', local: true },
+  { id: 'lmstudio', label: 'LM Studio (local)', endpoint: 'http://localhost:1234/v1/chat/completions', local: true },
+];
+
 
 /** Models Google has retired with a known replacement — auto-upgraded on load
  * so saved settings keep working after the API changes under them. */
