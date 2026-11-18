@@ -66,7 +66,7 @@ export function ChatPanel() {
               <div className="flex items-center gap-1.5 text-[11px] text-heat-green"><Sparkles size={12} /> AI connected · {aiSettings.model}</div>
             ) : (
               <button className="flex items-center gap-1.5 text-[11px] text-heat-amber hover:underline" onClick={() => ui.open('settings')}>
-                <KeyRound size={12} /> No AI key — rules-only mode. Add a key for natural-language editing.
+                <KeyRound size={12} /> No AI configured — rules-only mode. Add a key (OpenAI, OpenRouter, Gemini) or a local model endpoint.
               </button>
             )}
           </div>

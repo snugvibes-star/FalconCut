@@ -1,5 +1,5 @@
-import { useState, type FormEvent } from 'react';
-import { chatComplete, listModels, GEMINI_ENDPOINT, GEMINI_MODEL, OPENAI_ENDPOINT, OPENAI_MODEL, providerOf, type AISettings, type AIProvider } from '../../ai/client';
+import { useEffect, useState, type FormEvent } from 'react';
+import { chatComplete, hasAI, isLocalEndpoint, listModels, localProxyAvailable, GEMINI_ENDPOINT, GEMINI_MODEL, OPENAI_ENDPOINT, OPENAI_MODEL, OPENROUTER_MODEL, PROVIDER_PRESETS, providerOf, type AISettings, type AIProvider } from '../../ai/client';
 import { FEATURE_CHECKLIST, GROUP_ORDER, checklistSummary, type FeatureStatus } from '../features/checklist';
 import { useStore } from '../state/store';
 import { useUI } from '../state/ui';
@@ -86,7 +86,15 @@ export function SettingsDialog() {
   const [testResult, setTestResult] = useState<{ ok: boolean; text: string } | null>(null);
   const [models, setModels] = useState<string[]>([]);
   const [fetching, setFetching] = useState(false);
+  /** null = still probing. Whether this origin exposes the /__ai proxy. */
+  const [proxy, setProxy] = useState<boolean | null>(null);
   const onClose = () => close('settings');
+
+  useEffect(() => {
+    let live = true;
+    void localProxyAvailable().then((ok) => { if (live) setProxy(ok); });
+    return () => { live = false; };
+  }, []);
 
   const provider = providerOf({
     endpoint: draft.endpoint,
@@ -96,24 +104,15 @@ export function SettingsDialog() {
     provider: draft.provider ?? settings.provider,
   });
 
+  /** A key is optional for local servers (Ollama, LM Studio) — hasAI() knows. */
+  const ready = hasAI({ endpoint: draft.endpoint, apiKey: draft.apiKey, model: draft.model, temperature: 0.4, provider });
+  const localServer = isLocalEndpoint(draft.endpoint);
+
   /** Switching providers presets a known-good endpoint + model for it. */
   const switchProvider = (p: AIProvider) => {
     setTestResult(null);
-    if (p === 'gemini') {
-      setDraft((d) => ({
-        ...d,
-        provider: 'gemini',
-        endpoint: `${GEMINI_ENDPOINT}/${GEMINI_MODEL}:generateContent`,
-        model: GEMINI_MODEL,
-      }));
-    } else {
-      setDraft((d) => ({
-        ...d,
-        provider: 'openai',
-        endpoint: OPENAI_ENDPOINT,
-        model: OPENAI_MODEL,
-      }));
-    }
+    const preset = PROVIDER_PRESETS[p];
+    setDraft((d) => ({ ...d, provider: p, endpoint: preset.endpoint, model: preset.model }));
   };
 
   /** Real connection test with the CURRENT draft values (no save needed). */
@@ -131,10 +130,10 @@ export function SettingsDialog() {
       };
       const reply = await chatComplete(
         [{ role: 'user', content: 'Reply with exactly the word: connected' }],
-        { temperature: 0, maxTokens: 16 },
+        { temperature: 0, maxTokens: 64 },
         draftSettings,
       );
-      setTestResult({ ok: true, text: `Connected — the model replied: "${reply.trim().slice(0, 60)}"` });
+      setTestResult({ ok: true, text: reply.trim() ? `Connected — the model replied: "${reply.trim().slice(0, 60)}"` : 'Connected — the model responded (empty text reply, which is normal for some reasoning models).' });
     } catch (e) {
       setTestResult({ ok: false, text: (e as Error).message });
     } finally {
@@ -207,15 +206,23 @@ export function SettingsDialog() {
       <ChecklistSection />
       <form onSubmit={save} className="space-y-4">
         <p className="text-xs leading-relaxed text-paper-dim">
-          Connect an AI model for planning and auto edit. Supported: Google Gemini and any OpenAI-compatible chat endpoint. AI is optional; editing tools work without an API key.
+          Connect an AI model for planning and auto edit. Supported providers: OpenAI, OpenRouter and Google Gemini, plus any OpenAI-compatible endpoint. AI is optional; every editing tool works without an API key.
         </p>
         <div>
           <label className="label" htmlFor="ai-provider">Provider</label>
           <select id="ai-provider" className="field cursor-pointer" value={provider}
             onChange={(e) => switchProvider(e.target.value as AIProvider)}>
-            <option value="openai">OpenAI-compatible (OpenAI, OpenRouter, LM Studio…)</option>
+            <option value="openai">OpenAI (GPT models)</option>
+            <option value="openrouter">OpenRouter (one key, hundreds of models)</option>
             <option value="gemini">Google Gemini</option>
           </select>
+          <p className="mt-1 text-[11px] leading-relaxed text-paper-dim">
+            {provider === 'openrouter'
+              ? 'OpenRouter routes one key to many providers. "auto" picks a working model for your credits; press Fetch models to see everything the key can use (free models end in :free).'
+              : provider === 'gemini'
+                ? 'Use a key from aistudio.google.com. Paste the full :generateContent URL (preset above) or just …/v1beta/models — the model action is added automatically.'
+                : 'Official OpenAI API, or any OpenAI-compatible server: edit the endpoint below (LM Studio, Ollama, Azure-compatible gateways…).'}
+          </p>
         </div>
         <div>
           <label className="label" htmlFor="ai-endpoint">API endpoint</label>
@@ -226,7 +233,9 @@ export function SettingsDialog() {
           <p id="ai-cors" className="mt-1 text-[11px] leading-relaxed text-paper-dim">
             {provider === 'gemini'
               ? 'Paste the full :generateContent URL (preset above), or just …/v1beta/models — the model action is added automatically. The key is sent as x-goog-api-key.'
-              : 'Use the full chat-completions URL, not just the server address. The endpoint must allow CORS from this app.'}
+              : provider === 'openrouter'
+                ? 'Full chat-completions URL (preset above). The key is sent as a Bearer token with OpenRouter attribution headers.'
+                : 'Use the full chat-completions URL, not just the server address. The endpoint must allow CORS from this app.'}
           </p>
         </div>
         <div>
@@ -234,7 +243,7 @@ export function SettingsDialog() {
           <div className="flex gap-2">
             <input id="ai-key" type="password" className="field min-w-0" autoComplete="off" spellCheck={false}
               value={draft.apiKey} onChange={(e) => { setDraft({ ...draft, apiKey: e.target.value }); setTestResult(null); }}
-              placeholder={provider === 'gemini' ? 'AIza… key from aistudio.google.com' : 'Leave empty to disable AI'}
+              placeholder={provider === 'gemini' ? 'AIza… key from aistudio.google.com' : localServer ? 'Not required for local servers' : 'Leave empty to disable AI'}
               aria-describedby="ai-key-note" />
             <button type="button" className="btn-solid shrink-0 focus-visible:outline focus-visible:outline-2 focus-visible:outline-signal"
               disabled={!draft.apiKey} onClick={() => setDraft({ ...draft, apiKey: '' })}>Clear key</button>
@@ -249,7 +258,7 @@ export function SettingsDialog() {
             <input id="ai-model" className="field" required autoComplete="off" spellCheck={false}
               value={draft.model} onChange={(e) => setDraft({ ...draft, model: e.target.value })}
               list="ai-model-options"
-              placeholder={provider === 'gemini' ? GEMINI_MODEL : OPENAI_MODEL} />
+              placeholder={provider === 'gemini' ? GEMINI_MODEL : provider === 'openrouter' ? OPENROUTER_MODEL : OPENAI_MODEL} />
             <datalist id="ai-model-options">
               {models.map((m) => <option key={m} value={m} />)}
             </datalist>
@@ -263,17 +272,24 @@ export function SettingsDialog() {
         </div>
         <div className="flex items-center gap-2">
           <button type="button" className="btn-solid focus-visible:outline focus-visible:outline-2 focus-visible:outline-signal"
-            onClick={() => void fetchModels()} disabled={fetching || !draft.apiKey.trim()}>
+            onClick={() => void fetchModels()} disabled={fetching || !ready}>
             {fetching ? 'Fetching…' : 'Fetch models'}
           </button>
           <button type="button" className="btn-signal focus-visible:outline focus-visible:outline-2 focus-visible:outline-signal"
-            onClick={() => void testConnection()} disabled={testing || !draft.apiKey.trim() || !draft.endpoint.trim()}>
+            onClick={() => void testConnection()} disabled={testing || !ready}>
             {testing ? 'Testing…' : 'Test connection'}
           </button>
           <span className="text-[11px] leading-snug text-paper-dim">
             Fetch models lists what your key can use; Test sends one tiny real request with the values in this form — no save needed.
           </span>
         </div>
+        {proxy !== null && (
+          <p className="text-[11px] leading-relaxed text-paper-dim">
+            {proxy
+              ? 'Connection proxy: active (this app is running from its local server). Providers that block direct browser requests, such as api.openai.com, are routed locally without any extra setup — your key still goes straight to the provider.'
+              : 'Connection proxy: not available on this origin. OpenAI and other providers that block direct browser requests may fail here — open CutFlow from its local server (Start CutFlow.bat) to enable the proxy, or use OpenRouter or Gemini.'}
+          </p>
+        )}
         {testResult && (
           <p role="status" className={`text-xs leading-relaxed ${testResult.ok ? 'text-heat-green' : 'text-heat'}`}>
             {testResult.ok ? '✓ ' : '✕ '}{testResult.text}

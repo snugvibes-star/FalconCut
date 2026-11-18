@@ -62,28 +62,30 @@ CutFlow's honest, always-up-to-date status board lives in [`src/features/checkli
 - **Export** — MP4 (H.264 + AAC) via WebCodecs when available, WebM (VP9/Opus) otherwise, audio-only WAV, current-frame PNG, animated GIF of a marked section, and `.srt` subtitles.
 - **Stock media panel** — search and import free stock media (Archive.org works keyless; Pexels/Pixabay/Freesound use a free personal key stored locally).
 - **Keyboard shortcuts** — Premiere-style edit keys (V select, C razor, I/O zone, Ctrl+K add-edit-all…) plus a full cheatsheet in the command palette.
-- **Optional AI planning** — connect an AI agent for one-click auto edits, dead-air cutting, smart cutdowns, A/B variants, auto b-roll, and beat-snapped assembly. Without a key, every tool still works from buttons via local rules. Model settings support Google Gemini (native protocol) and any OpenAI-compatible endpoint, with a **Fetch models** button that lists the models your key can actually use and a **Test connection** button that sends one tiny real request with the values in the form.
+- **Optional AI planning** — connect an AI agent for one-click auto edits, dead-air cutting, smart cutdowns, A/B variants, auto b-roll, and beat-snapped assembly. Without a key, every tool still works from buttons via local rules. Model settings support OpenAI, OpenRouter and Google Gemini (native protocol) plus any OpenAI-compatible or local endpoint, with a **Fetch models** button that lists the models your key can actually use and a **Test connection** button that sends one tiny real request with the values in the form.
 - **PWA — installable on every device** — install CutFlow as an app on Windows, macOS, Linux, Android (Chrome) and iOS (Safari 16.4+). A service worker caches the app shell, so an installed editor keeps working offline — media lives in IndexedDB on the device either way.
 
-Honest limits worth knowing: no 3D camera space, no reverse playback, no optical-flow frame blending, no LUT `.cube` import, no multicam angle-switching UI. The checklist file is the source of truth.
+Honest limits worth knowing: no 3D camera space, no optical-flow frame blending, no true motion blur on animated transforms, no Lottie/AE animation import, no shape masks or rotoscoping, no music stem separation, no direct publishing to YouTube/TikTok. The checklist file is the source of truth.
 
 ## Optional AI setup
 
-AI is **fully optional** — all core editing works without any key. If you want model-driven planning (auto edit, caption translation, AI chat), configure a provider in-app.
+AI is **fully optional** — all core editing works without any key. If you want model-driven planning (auto edit, caption translation, AI chat), open **Settings → AI** and pick a provider:
+
+| Provider | Key from | Preset model |
+|---|---|---|
+| **OpenAI** | platform.openai.com/api-keys | `gpt-4o-mini` |
+| **OpenRouter** | openrouter.ai/keys — one key, hundreds of models | `auto` (picks whatever your credits allow) |
+| **Google Gemini** | aistudio.google.com | `gemini-3.8-flash` |
+| **Local / any OpenAI-compatible** | no key needed (Ollama, LM Studio, gateways) | your own model name |
+
+1. Select the provider — endpoint and model are preset to a pair that works.
+2. Paste the key (leave it empty for a local server — that's supported).
+3. **Test connection** sends one tiny real request and shows the provider's own answer.
+4. **Fetch models** lists the models your key can actually use; pick one and save.
+
+**Why OpenAI used to fail in the browser:** `api.openai.com` refuses browser cross-origin requests, and no client-side code can work around that. When CutFlow runs from its own local server (`Start CutFlow.bat`, `npm run serve` or `npm run dev`) those calls are proxied through the same origin — bound to loopback only, with a header allowlist, and your key still goes straight to the provider. The dialog shows whether the proxy is active.
 
 **Keys are stored in your browser's `localStorage` only.** They are never sent anywhere except to the provider you choose, and never committed anywhere.
-
-### Google Gemini
-
-1. Get a free API key at [aistudio.google.com](https://aistudio.google.com).
-2. Open **Settings** (gear icon) → **AI provider** → select **Google Gemini**.
-3. Paste your key.
-4. Set the model, e.g. `gemini-2.0-flash`.
-5. Click **Test connection**.
-
-### OpenAI-compatible endpoints
-
-Settings → AI provider → **OpenAI-compatible**: enter a base URL (e.g. an OpenAI or local LM Studio/Ollama-compatible endpoint), an API key, and a model name. Test connection to verify.
 
 ## Privacy & data
 

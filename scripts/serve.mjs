@@ -11,6 +11,7 @@ import { createServer } from 'node:http';
 import { readFile, stat } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
+import { handleAIProxy } from '../server/aiProxy.mjs';
 
 const ROOT = path.join(process.cwd(), 'dist');
 const PORT = Number(process.env.PORT || 4173);
@@ -45,6 +46,10 @@ const MIME = {
 const server = createServer(async (req, res) => {
   try {
     const url = new URL(req.url || '/', `http://localhost:${PORT}`);
+    // Same-origin AI proxy (see server/aiProxy.mjs): some providers — notably
+    // api.openai.com — refuse browser CORS, so chat requests are forwarded
+    // here server-side, where CORS does not apply.
+    if (url.pathname === '/__ai') { await handleAIProxy(req, res); return; }
     let filePath = path.join(ROOT, decodeURIComponent(url.pathname));
     // Directory traversal guard.
     if (!filePath.startsWith(ROOT)) { res.writeHead(403).end('Forbidden'); return; }

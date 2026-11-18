@@ -3,6 +3,7 @@ import { createProject, applyActions, diffProjects } from '../engine';
 import type { MediaAsset, Project } from '../engine/types';
 import { parseAgentReply, validateCalls, extractJSON } from '../ai/protocol';
 import { rulesPlan, planFromReply, buildProjectContext } from '../ai/planner';
+import { hasAI, isLocalEndpoint, providerOf, PROVIDER_PRESETS, OPENROUTER_ENDPOINT, GEMINI_MODEL } from '../ai/client';
 
 function base(): Project {
   let p = createProject('Diff test', '16:9');
@@ -84,6 +85,35 @@ describe('AI protocol', () => {
     expect(valid[0].params!.max_pause_ms).toBe(600);
     expect(valid[1].params!.style).not.toBe('sparkle');
     expect(errors.some((e) => e.includes('not_a_tool'))).toBe(true);
+  });
+});
+
+describe('AI provider resolution', () => {
+  const base = { temperature: 0.4, model: 'some-model' };
+
+  it('resolves the protocol from the explicit field or the endpoint URL', () => {
+    expect(providerOf({ ...base, endpoint: 'https://api.openai.com/v1/chat/completions', apiKey: 'k' })).toBe('openai');
+    expect(providerOf({ ...base, endpoint: OPENROUTER_ENDPOINT, apiKey: 'k' })).toBe('openrouter');
+    expect(providerOf({ ...base, endpoint: 'https://generativelanguage.googleapis.com/v1beta/models', apiKey: 'k' })).toBe('gemini');
+    // An explicit provider wins over a URL that looks like another provider.
+    expect(providerOf({ ...base, endpoint: OPENROUTER_ENDPOINT, apiKey: 'k', provider: 'openai' })).toBe('openai');
+  });
+
+  it('requires a key for remote endpoints but not for local servers', () => {
+    expect(hasAI({ ...base, endpoint: 'https://api.openai.com/v1/chat/completions', apiKey: '' })).toBe(false);
+    expect(hasAI({ ...base, endpoint: 'http://localhost:11434/v1/chat/completions', apiKey: '' })).toBe(true);
+    expect(hasAI({ ...base, endpoint: 'http://127.0.0.1:1234/v1/chat/completions', apiKey: '' })).toBe(true);
+    expect(isLocalEndpoint('https://api.openai.com/v1/chat/completions')).toBe(false);
+    expect(hasAI({ ...base, endpoint: '', apiKey: 'k' })).toBe(false);
+  });
+
+  it('ships a usable preset for every provider', () => {
+    for (const p of ['openai', 'openrouter', 'gemini'] as const) {
+      expect(PROVIDER_PRESETS[p].endpoint).toMatch(/^https:\/\//);
+      expect(PROVIDER_PRESETS[p].model.length).toBeGreaterThan(0);
+    }
+    expect(PROVIDER_PRESETS.gemini.endpoint).toContain(':generateContent');
+    expect(PROVIDER_PRESETS.gemini.model).toBe(GEMINI_MODEL);
   });
 });
 
