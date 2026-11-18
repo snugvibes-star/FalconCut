@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Play, Pause, SkipBack, SkipForward, ChevronsLeft, ChevronsRight, Grid3x3, Maximize2, Minimize2, Theater, Repeat, PenLine, Camera } from 'lucide-react';
 import { useStore } from '../state/store';
 import { useUI } from '../state/ui';
-import { renderFrame, drawSafeZones, projectDuration, activeClips, getMedia } from '../../engine';
+import { renderFrame, drawSafeZones, projectDuration, activeClips, getMedia, type Action } from '../../engine';
 import { toggleMarkerLoop } from '../features/zoneLoop';
 import { projectPNG } from '../../exporter/artifacts';
 import { getBlob } from '../state/persistence';
@@ -62,7 +62,13 @@ export function Preview() {
       if (!mediaId) throw new Error('Could not import the captured frame.');
       const trackId = st.project.tracks.find((t) => t.kind === 'video')?.id;
       if (!trackId) throw new Error('No video track to place the freeze frame on.');
-      st.commit([{ type: 'add_clip', clip: { trackId, mediaId, start: s.playhead, duration: 2, inPoint: 0, name: 'Freeze frame' } }], 'Freeze frame');
+      // Insert at the playhead like a real NLE: if a clip spans the playhead,
+      // split it there first, then ripple-insert the still so following clips
+      // shift right instead of the still being clamped to a far-away gap.
+      const spanning = st.project.clips.find((c) => c.trackId === trackId && c.kind === 'media' && c.start < s.playhead - 1e-6 && c.start + c.duration > s.playhead + 1e-6);
+      const actions: Action[] = spanning ? [{ type: 'split_clip', clipId: spanning.id, time: s.playhead }] : [];
+      actions.push({ type: 'add_clip', clip: { trackId, mediaId, start: s.playhead, duration: 2, inPoint: 0, name: 'Freeze frame' }, ripple: true });
+      st.commit(actions, 'Freeze frame');
       useUI.getState().toast('Freeze frame added — 2s at the playhead (trim as needed)', 'success');
     } catch (e) {
       useUI.getState().toast((e as Error).message, 'error');
@@ -195,9 +201,12 @@ export function Preview() {
             </div>
             <h2 className="font-display text-lg font-semibold mb-1">Your canvas is empty</h2>
             <p className="text-sm text-paper-dim">Import a video, audio or image from the left panel to begin. Everything stays on this device.</p>
-            <div className="mt-5">
-              <button className="btn-solid text-xs" onClick={() => { void useStore.getState().loadDemoTimeline(); }}>
-                Load demo timeline — sample video, music and title
+            <div className="mt-5 flex flex-col items-center gap-2">
+              <button className="btn-solid text-xs" onClick={() => { void useStore.getState().loadShowcaseDemo(); }}>
+                Load demo — real footage, cut · reverse · speed · titles
+              </button>
+              <button className="btn-ghost text-[11px]" onClick={() => { void useStore.getState().loadDemoTimeline(); }}>
+                or the minimal demo (sample video, music, title)
               </button>
             </div>
           </div>

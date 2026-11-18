@@ -1,23 +1,44 @@
 # CutFlow
 
-CutFlow is a privacy-first, AI-native video editor that runs entirely in your browser. Your media never leaves the device — no uploads, no account, no backend. Editing intelligence (analysis, style rules, high-level tools, quality checks) lives in the application, not in a model, so even a modest AI model can produce professional, human-looking edits — and every AI feature is optional.
+**A premium video editor for humans — with AI as an optional assistant, not a requirement.**
+
+CutFlow edits professional vertical and horizontal video in your browser. Manual editing is the primary path: every cut, speed ramp, reverse, grade, LUT, title, transition and export is one real button (each = one undo step), preview and export use the exact same engine, and nothing waits on a model. AI is a second pair of hands — connect a key and it can plan edits, cut dead air and write captions; without a key, **every feature still works from buttons via local rules**.
+
+Privacy-first by design: media never leaves the device — no uploads, no account, no backend.
 
 <!-- TODO: screenshot -->
+
+## Why it's fast and premium
+
+- **No upload wait.** Import a long clip and start cutting immediately — decoding, grading, effects and export all run on your machine.
+- **WYSIWYG guarantees.** The preview canvas is the export engine, so what you see is exactly what renders.
+- **One action, one undo.** Every tool (human click or AI tool call) is a single undoable commit.
+- **Keyboard-first, Premiere-style.** V select, C razor, I/O zone, Ctrl+K add-edit-all, Shift+←/→ frame steps, full cheatsheet in the command palette.
+- **Vertical-first and platform-ready.** 9:16 / 16:9 / 1:1 / 4:5 with caption-safe zones, one click.
+- **Honest labels.** The in-app capability board (`src/features/checklist.ts`) marks every feature `working`, `partial` or `not-possible` — no fake buttons.
 
 ## Quickstart
 
 **Requirements:** Node.js 18+ and a Chromium-based browser (Chrome or Edge) for the best experience (see [Browser requirements](#browser-requirements)).
 
+> **Why double-clicking `dist/index.html` doesn't work:** a web app cannot run from `file://` — ES modules, service workers and IndexedDB all require an `http(s)` origin. That's a browser security rule, not an app bug. CutFlow ships a launcher that gives it a real localhost origin, and from there the browser installs it as a **PWA with a desktop/home-screen icon** that opens standalone and works offline.
+
+**Windows — one double-click:** run **`Start CutFlow.bat`**. First run installs dependencies and builds (about a minute), then opens `http://localhost:4173`.
+
+Or manually, on any OS:
+
 ```bash
 npm install        # install dependencies
-npm run dev        # dev server at http://localhost:5173
+npm run build      # type-check + production build to dist/
+npm run serve      # static server at http://localhost:4173
 ```
 
-Production build:
+**Install the app icon:** open the URL in Chrome or Edge → click the **install icon** in the address bar (or ⋮ → *Install CutFlow*). Android: ⋮ → *Add to Home screen*. iOS 16.4+ Safari: Share → *Add to Home Screen*. Launching the icon opens CutFlow standalone with no address bar, and the shell loads offline — projects and media live in local IndexedDB.
+
+Dev workflow (hot reload at `http://localhost:5173`):
 
 ```bash
-npm run build      # type-check + build to dist/
-npm run preview    # serve the production build locally
+npm run dev
 ```
 
 Tests (76-test engine suite — timeline, effects, store, tools, exports):
@@ -30,6 +51,7 @@ npm run test
 
 CutFlow's honest, always-up-to-date status board lives in [`src/features/checklist.ts`](src/features/checklist.ts) — it is rendered in-app and marks every capability as `working`, `partial`, or `not-possible`. Highlights:
 
+- **Built for humans first** — every tool has a real button and a real undo step; the AI panel is optional. The demo timeline shows straight cuts, reverse, speed, titles and captions in one shot.
 - **Multi-track timeline** — video + audio tracks, split/trim/ripple delete, drag-reorder between tracks, snapping, markers, undo/redo, autosave to browser storage.
 - **Speed ramps & freeze frames** — clip speed 0.25x–4x, piecewise time remapping with a graphical ramp editor (ramp-aware split/trim/ripple keep continuity), one-click freeze frames from the preview transport, and true clip reverse (video scrubs frame-by-frame, audio plays a genuinely reversed buffer — preview and export match).
 - **Blend modes & blend transitions** — screen, multiply, overlay, add, soft-light and more via canvas compositing, plus 15 blend-style transitions. The same engine renders preview and export, so what you see is what you get.

@@ -30,3 +30,6 @@ Thumbs.db
 
 # TypeScript build info
 *.tsbuildinfo
+
+# Bundled demo sample (copyrighted source material - local testing only, never publish)
+public/sample-scarlet.mp4

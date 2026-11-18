@@ -19,7 +19,7 @@ export type Action =
   | { type: 'add_track'; track: Partial<Track> & { kind: Track['kind'] }; index?: number }
   | { type: 'remove_track'; trackId: string }
   | { type: 'set_track'; trackId: string; patch: Partial<Pick<Track, 'name' | 'locked' | 'muted' | 'hidden' | 'height'>> }
-  | { type: 'add_clip'; clip: Partial<Clip> & { trackId: string; start: number; duration: number } }
+  | { type: 'add_clip'; clip: Partial<Clip> & { trackId: string; start: number; duration: number }; ripple?: boolean }
   | { type: 'remove_clip'; clipId: string; ripple?: boolean }
   | { type: 'split_clip'; clipId: string; time: number }
   | { type: 'trim_clip'; clipId: string; start?: number; duration?: number; inPoint?: number }
@@ -70,7 +70,7 @@ export const ACTION_SCHEMA: Record<Action['type'], string> = {
   add_track: 'Add a timeline track. kind: video | audio | text. Higher video tracks draw on top.',
   remove_track: 'Delete a track and all clips on it.',
   set_track: 'Change track name/locked/muted/hidden.',
-  add_clip: 'Place media on a track. start/duration are timeline seconds, inPoint is where to start inside the source file.',
+  add_clip: 'Place media on a track. start/duration are timeline seconds, inPoint is where to start inside the source file. ripple: true inserts instead of overwriting (following clips shift right).',
   remove_clip: 'Delete a clip. ripple=true also closes the gap on its track.',
   split_clip: 'Cut one clip into two at a timeline time. Both halves keep playing the same source.',
   trim_clip: 'Change a clip start/duration/inPoint. Trimming the left edge moves inPoint to keep the picture stable.',
@@ -162,6 +162,7 @@ function normalizeClip(p: Project, partial: Partial<Clip> & { trackId: string; s
     motif: partial.motif,
     drawing: partial.drawing,
     speedPoints: partial.speedPoints,
+    reversed: partial.reversed ?? false,
     blendMode: partial.blendMode,
     transitionIn: partial.transitionIn,
     transitionOut: partial.transitionOut,
@@ -238,6 +239,16 @@ export function applyAction(project: Project, action: Action): Project {
         break;
       }
       case 'add_clip': {
+        // Ripple insert: shift everything on the target track that starts at
+        // or after the insert point right by the new clip's duration, so the
+        // new clip lands exactly where asked instead of being clamped into a
+        // far-away gap. Callers must have split any clip SPANNING the point
+        // first (the freeze-frame flow does).
+        if (action.ripple) {
+          const insDur = Math.max(0.04, action.clip.duration);
+          const at = action.clip.start;
+          for (const c of p.clips) if (c.trackId === action.clip.trackId && c.start >= at - 1e-6) c.start += insDur;
+        }
         p.clips.push(normalizeClip(p, action.clip));
         break;
       }
@@ -255,6 +266,9 @@ export function applyAction(project: Project, action: Action): Project {
         const c = clip(action.clipId);
         if (!c) break;
         const t = action.time;
+        // Guard against undefined/NaN times (bad AI or UI input) — a NaN split
+        // would otherwise write a corrupt half-clip into the project.
+        if (!Number.isFinite(t)) break;
         if (t <= c.start + 0.02 || t >= c.start + c.duration - 0.02) break;
         const leftDur = t - c.start;
         const right = JSON.parse(JSON.stringify(c)) as Clip;

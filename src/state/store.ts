@@ -110,6 +110,7 @@ interface State {
   /* media */
   importFiles: (files: File[], opts?: { addToTimeline?: boolean }) => Promise<{ imported: number; skipped: string[]; ids: string[] }>;
   loadDemoTimeline: () => Promise<void>;
+  loadShowcaseDemo: () => Promise<void>;
   removeMedia: (mediaId: string) => void;
   /** Kdenlive-style "Extract audio": decode the video's audio into a new WAV
    * asset + audio-track clip at the same position, and mute the original.
@@ -477,6 +478,49 @@ export const useStore = create<State>()((set, get) => {
       if (audioTrack && audioId) actions.push({ type: 'add_clip', clip: { trackId: audioTrack, mediaId: audioId, start: 0, duration: 5, inPoint: 0 } });
       if (textTrack) actions.push({ type: 'add_text', trackId: textTrack, start: 0, duration: 4, text: 'CutFlow Demo', role: 'title', preset: 'word-pop', style: { fontSize: 0.1, y: 0.12 } });
       if (actions.length) get().commit(actions, 'Load demo timeline');
+    },
+
+    /** Feature-showcase demo built from the bundled real-footage sample
+     * (public/sample-scarlet.mp4, 9:16 vertical with its own audio). Uses the
+     * same public import/probe/commit path as a human drag-and-drop, so it
+     * also exercises the real import pipeline. Falls back to the legacy
+     * synthetic demo if the sample file is not served. */
+    async loadShowcaseDemo() {
+      const p = get().project;
+      const res = await fetch('/sample-scarlet.mp4');
+      if (!res.ok) { await get().loadDemoTimeline(); return; }
+      const blob = await res.blob();
+      const file = new File([blob], 'sample-scarlet.mp4', { type: 'video/mp4' });
+      const id = uid('media');
+      await putBlob(`media_${id}`, file);
+      const meta = await probeMedia(file, 'video');
+      const asset: MediaAsset = {
+        id, name: 'sample-scarlet.mp4', type: 'video',
+        duration: meta.duration, width: meta.width, height: meta.height,
+        hasAudio: meta.hasAudio, blobKey: `media_${id}`,
+        mime: 'video/mp4', size: file.size, source: 'file',
+      };
+      await get().pool.register(asset, file);
+      get().commit([{ type: 'add_media', asset }], 'Add showcase sample');
+      // The sample is vertical: match the canvas so it plays full-frame.
+      get().commit([{ type: 'set_settings', patch: { aspect: '9:16', width: 1080, height: 1920, fps: 30 } }], 'Match sample format');
+
+      const videoTrack = get().project.tracks.find((t) => t.kind === 'video')?.id;
+      const textTrack = get().project.tracks.find((t) => t.kind === 'text')?.id;
+      const actions: Action[] = [];
+      if (videoTrack) {
+        // One clip per showcase section, each demonstrating a different tool:
+        // 1) straight cut · 2) reverse · 3) 1.5x speed · 4) outro.
+        actions.push({ type: 'add_clip', clip: { trackId: videoTrack, mediaId: id, start: 0, duration: 5, inPoint: 0 } });
+        actions.push({ type: 'add_clip', clip: { trackId: videoTrack, mediaId: id, start: 5, duration: 3, inPoint: 24, reversed: true } });
+        actions.push({ type: 'add_clip', clip: { trackId: videoTrack, mediaId: id, start: 8, duration: 3, inPoint: 13, speed: 1.5 } });
+        actions.push({ type: 'add_clip', clip: { trackId: videoTrack, mediaId: id, start: 11, duration: 2.5, inPoint: 18 } });
+      }
+      if (textTrack) {
+        actions.push({ type: 'add_text', trackId: textTrack, start: 0.3, duration: 2.2, text: 'SCARLET WITCH', role: 'title', preset: 'word-pop', style: { fontSize: 0.07, y: 0.12 } });
+        actions.push({ type: 'add_text', trackId: textTrack, start: 11.2, duration: 2.2, text: 'edited in CutFlow — every cut is one undo step', role: 'caption', preset: 'word-pop', style: { fontSize: 0.035, y: 0.86 } });
+      }
+      if (actions.length) get().commit(actions, 'Load showcase timeline');
     },
 
     removeMedia(mediaId) {
