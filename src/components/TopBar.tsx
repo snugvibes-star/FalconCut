@@ -97,6 +97,10 @@ export function TopBar({ leftOpen, rightOpen, onToggleLeft, onToggleRight }: Top
       <header className="relative h-11 shrink-0 flex items-center gap-1 px-2 bg-ink-900 border-b border-line overflow-x-auto">
         {panelToggles}
 
+        {/* Brand mark stays visible on narrow windows too — it is the only place
+            the app is identified once the wordmark is dropped. */}
+        <LogoMark size={18} />
+
         <div className="flex items-center gap-0.5 shrink-0">
           <button className="icon-btn" disabled={!canUndo} onClick={() => useStore.getState().undo()} title={canUndo ? `Undo ${undoLabel} (Ctrl+Z)` : 'Nothing to undo'}><Undo2 size={15} /></button>
           <button className="icon-btn" disabled={!canRedo} onClick={() => useStore.getState().redo()} title={canRedo ? `Redo ${redoLabel} (Ctrl+Shift+Z)` : 'Nothing to redo'}><Redo2 size={15} /></button>

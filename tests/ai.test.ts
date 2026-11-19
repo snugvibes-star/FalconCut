@@ -3,7 +3,7 @@ import { createProject, applyActions, diffProjects } from '../engine';
 import type { MediaAsset, Project } from '../engine/types';
 import { parseAgentReply, validateCalls, extractJSON } from '../ai/protocol';
 import { rulesPlan, planFromReply, buildProjectContext } from '../ai/planner';
-import { hasAI, isLocalEndpoint, providerOf, PROVIDER_PRESETS, COMPATIBLE_PRESETS, OPENROUTER_ENDPOINT, GEMINI_MODEL } from '../ai/client';
+import { hasAI, isLocalEndpoint, providerOf, PROVIDER_PRESETS, COMPATIBLE_PRESETS, OPENROUTER_ENDPOINT, GEMINI_MODEL, geminiUrl, openaiUrl } from '../ai/client';
 
 function base(): Project {
   let p = createProject('Diff test', '16:9');
@@ -130,6 +130,37 @@ describe('AI provider resolution', () => {
       else expect(isLocalEndpoint(preset.endpoint)).toBe(false);
     }
     expect(COMPATIBLE_PRESETS.some((p) => p.label.startsWith('Groq'))).toBe(true);
+  });
+});
+
+describe('endpoint normalisation', () => {
+  const M = 'gemini-3.8-flash';
+
+  it('appends the model action to every shape of Gemini endpoint', () => {
+    const want = `https://generativelanguage.googleapis.com/v1beta/models/${M}:generateContent`;
+    expect(geminiUrl('https://generativelanguage.googleapis.com/v1beta', M)).toBe(want);
+    expect(geminiUrl('https://generativelanguage.googleapis.com/v1beta/', M)).toBe(want);
+    expect(geminiUrl('https://generativelanguage.googleapis.com/v1beta/models', M)).toBe(want);
+    expect(geminiUrl('https://generativelanguage.googleapis.com/v1beta/models/', M)).toBe(want);
+    // A model baked into the URL must lose to the model field.
+    expect(geminiUrl('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash', M)).toBe(want);
+    expect(geminiUrl(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent`, M)).toBe(want);
+    // Query strings are dropped so a pasted ?key= never travels in the URL.
+    expect(geminiUrl(`https://generativelanguage.googleapis.com/v1beta/models/${M}:generateContent?key=abc`, M)).toBe(want);
+  });
+
+  it('never produces a double /models or an empty model segment', () => {
+    const url = geminiUrl('https://generativelanguage.googleapis.com/v1beta/', '');
+    expect(url).toBe(`https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`);
+    expect((url.match(/\/models\//g) ?? []).length).toBe(1);
+  });
+
+  it('accepts a bare base URL for OpenAI-compatible endpoints', () => {
+    expect(openaiUrl('https://api.groq.com/openai/v1')).toBe('https://api.groq.com/openai/v1/chat/completions');
+    expect(openaiUrl('https://api.groq.com/openai/v1/')).toBe('https://api.groq.com/openai/v1/chat/completions');
+    expect(openaiUrl('https://api.openai.com/v1/chat/completions')).toBe('https://api.openai.com/v1/chat/completions');
+    expect(openaiUrl('  https://api.openai.com/v1/chat/completions/  ')).toBe('https://api.openai.com/v1/chat/completions');
+    expect(openaiUrl('')).toBe('');
   });
 });
 

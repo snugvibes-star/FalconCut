@@ -255,8 +255,8 @@ export function SettingsDialog() {
             {provider === 'openrouter'
               ? 'OpenRouter routes one key to many providers. "auto" picks a working model for your credits; press Fetch models to see everything the key can use (free models end in :free).'
               : provider === 'gemini'
-                ? 'Use a key from aistudio.google.com. Paste the full :generateContent URL (preset above) or just …/v1beta/models — the model action is added automatically.'
-                : 'Any server that speaks the OpenAI chat-completions API — not just OpenAI. Pick a vendor below, or paste your own endpoint (vLLM, Azure, a gateway…).'}
+                ? 'Use an API key from aistudio.google.com (keys start with AIza). Any of these endpoint shapes works: …/v1beta, …/v1beta/models, or a full …/models/<model>:generateContent URL — CutFlow builds the model action itself and the Model name field always wins.'
+                : 'Any server that speaks the OpenAI chat-completions API — not just OpenAI. Pick a vendor below, or paste your own endpoint (vLLM, Azure, a gateway…). A bare base URL such as …/v1 is fine: /chat/completions is added when it is missing.'}
           </p>
           {provider === 'openai' && (
             <div className="mt-2 flex flex-wrap gap-1.5">

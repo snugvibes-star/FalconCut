@@ -154,7 +154,7 @@ export const FEATURE_CHECKLIST: FeatureItem[] = [
   { id: 'co-edit-lock', group: 'Productivity', label: 'Clip locking for human/AI co-editing', status: 'working' },
   { id: 'project-file', group: 'Productivity', label: 'Save / open project file', status: 'working' },
   { id: 'stock-media', group: 'Productivity', label: 'Stock media panel: search free stock and import into the project through the same path as local files', status: 'partial', note: 'Archive.org works keyless (search + metadata verified live); Pexels / Pixabay / Freesound need a free personal key stored locally. Some CDN downloads are blocked by CORS in some browsers — the panel shows an honest error with a manual-import fallback instead of faking success' },
-  { id: 'brand-mark', group: 'Productivity', label: 'Brand mark (gradient bird + play + film-strip wing SVG) in the top bar and favicon', status: 'working', note: 'hand-built vector approximation — swap public/icon.svg + LogoMark.tsx paths for the exact asset when available' },
+  { id: 'brand-mark', group: 'Productivity', label: 'Brand mark (golden-eagle app icon) in the top bar, browser tab, iOS home screen, Android/desktop PWA install and the Windows .ico — one artwork, every format', status: 'working', note: 'generated from the designer SVG by scripts/make-icons.mjs into icon-192/512, maskable (safe-zone padded with the icon\'s own background), apple-touch 180, favicon 16/32/48 + multi-size .ico, and icon.svg; palette-quantised above 192px so the PWA install payload stays ~130 kB' },
 ];
 
 export const GROUP_ORDER = [

@@ -170,15 +170,33 @@ export function localProxyAvailable(): Promise<boolean> {
 
 export interface AIResponse { res: Response; viaProxy: boolean }
 
-/** fetch() plus the local-proxy fallback described above. A CORS rejection
- * surfaces as a TypeError before any bytes reach the provider, so replaying the
- * request server-side is safe and cannot double-apply a side effect. */
+/** fetch() plus the local-proxy routing described above.
+ *
+ * When the app is served from its own local server, remote calls go through the
+ * proxy FIRST. Reason: a CORS-blocked provider does not fail fast — the browser
+ * can sit on the request for ~20 s before rejecting, which made "Verify" feel
+ * broken even when it eventually worked. The proxy is same-origin, so it returns
+ * the provider's real answer in one round trip. Local endpoints (Ollama/LM
+ * Studio) always go direct, and any proxy failure still falls back to direct. */
 async function aiRequest(url: string, init: RequestInit, label: string): Promise<AIResponse> {
+  const canProxy = typeof location !== 'undefined'
+    && /^(localhost|127\.0\.0\.1|\[::1\])$/i.test(location.hostname);
+  if (canProxy && (await localProxyAvailable())) {
+    try {
+      return { res: await fetch(`/__ai?url=${encodeURIComponent(url)}`, init), viaProxy: true };
+    } catch (e) {
+      if ((e as Error).name === 'AbortError') throw e;
+      // Health probe answered but the hop failed — try the provider directly.
+    }
+  }
   try {
     return { res: await fetch(url, init), viaProxy: false };
   } catch (e) {
     if ((e as Error).name === 'AbortError') throw e;
     const direct = (e as Error).message;
+    if (isLocalEndpoint(url)) {
+      throw new Error(`Could not reach your local AI server at ${url}: ${direct}. Is it running? Ollama: "ollama serve". LM Studio: start the Local Server tab (port 1234). Then check the port matches.`);
+    }
     if (!(await localProxyAvailable())) {
       throw new Error(`Could not reach ${label}: ${direct}. Check the URL and the key. Providers that block browser requests (e.g. api.openai.com) work when CutFlow is opened from its local server — double-click Start CutFlow.bat.`);
     }
@@ -192,22 +210,60 @@ async function aiRequest(url: string, init: RequestInit, label: string): Promise
 }
 
 export interface ChatMessage { role: 'system' | 'user' | 'assistant'; content: string }
+
+/**
+ * Normalise an OpenAI-compatible endpoint to a usable chat URL. Users paste the
+ * root (`https://api.groq.com/openai/v1`), the base with a slash, or the full
+ * URL; posting to a bare base returns 404 and reads like a bad key. If the path
+ * already contains /chat/completions we keep it verbatim (query and all).
+ */
+export function openaiUrl(endpoint: string): string {
+  const raw = endpoint.trim();
+  if (!raw) return raw;
+  if (/\/chat\/completions(\/|\?|#|$)/i.test(raw)) return raw.replace(/\/+$/, '');
+  return `${raw.replace(/\/+$/, '')}/chat/completions`;
+}
 export interface ChatOptions { json?: boolean; signal?: AbortSignal; temperature?: number; maxTokens?: number }
 
 /** Google Gemini generateContent: build the URL (users may paste either the
  * full `:generateContent` URL or just the `/models` root), send the key via
  * the `x-goog-api-key` header, and map messages onto the Gemini shape. */
-async function geminiComplete(messages: ChatMessage[], opts: ChatOptions, settings: AISettings, signal: AbortSignal | undefined): Promise<string> {
-  let url = settings.endpoint;
-  if (/generateContent/.test(url)) {
-    // The endpoint has a model action baked in. The MODEL FIELD must win —
-    // otherwise users who change the model (e.g. after a retirement like
-    // gemini-2.0-flash) still hit the stale model encoded in the preset URL.
-    url = url.replace(/\/models\/[^/?]+:generateContent/i, `/models/${encodeURIComponent(settings.model)}:generateContent`);
-  } else {
-    // Accept "/models", "/models/" or the API root — append the model action.
-    url = `${url.replace(/\/+$/, '')}/${settings.model}:generateContent`;
+
+/**
+ * Normalise any Gemini endpoint into a working `generateContent` URL.
+ *
+ * Real users paste every shape of this URL, and Google answers all the wrong
+ * ones with a bare 404, which used to look like "the key is broken":
+ *   …/v1beta                              → …/v1beta/models/<m>:generateContent
+ *   …/v1beta/                             → same (trailing slash)
+ *   …/v1beta/models                       → …/v1beta/models/<m>:generateContent
+ *   …/v1beta/models/gemini-2.0-flash      → replaces the model with the field
+ *   …/v1beta/models/gemini-2.0-flash:generateContent → replaces the model
+ *   …?key=…                               → query dropped (key goes in a header)
+ * The MODEL FIELD always wins over a model baked into the pasted URL.
+ */
+export function geminiUrl(endpoint: string, model: string): string {
+  const raw = endpoint.trim();
+  if (!raw) return raw;
+  const modelName = (model.trim() || GEMINI_MODEL);
+  // Drop query/hash: the key travels in a header, and a leftover ?key= would be
+  // forwarded to the local proxy inside the URL.
+  const clean = raw.replace(/[?#].*$/, '');
+  // Full action URL — keep its shape, swap the model.
+  if (/:(stream)?generateContent$/i.test(clean)) {
+    return clean.replace(/\/models\/[^/]+(?=:(?:stream)?generateContent$)/i, `/models/${encodeURIComponent(modelName)}`);
   }
+  const base = clean.replace(/\/+$/, '');
+  const modelsRoot = /\/models$/i.test(base)
+    ? base
+    : /\/models\/[^/]+$/i.test(base)
+      ? base.replace(/\/models\/[^/]+$/i, '/models')
+      : `${base}/models`;
+  return `${modelsRoot}/${encodeURIComponent(modelName)}:generateContent`;
+}
+
+async function geminiComplete(messages: ChatMessage[], opts: ChatOptions, settings: AISettings, signal: AbortSignal | undefined): Promise<string> {
+  const url = geminiUrl(settings.endpoint, settings.model);
   const system = messages.filter((m) => m.role === 'system').map((m) => m.content).join('\n\n');
   const contents = messages
     .filter((m) => m.role !== 'system')
@@ -256,16 +312,33 @@ async function geminiComplete(messages: ChatMessage[], opts: ChatOptions, settin
   }
   if (!res) throw new Error('Gemini request could not be sent.');
   if (!res.ok) {
-    const data = await res.json().catch(() => null) as { error?: { message?: string } } | null;
-    const msg = data?.error?.message ?? '';
-    const hint = res.status === 404 && /model/i.test(msg)
-      ? ' Check the Model name — press "Fetch models" in Settings to list the models this key can actually use.'
+    // Google sends JSON for API errors but plain HTML/text for a wrong route,
+    // and a bare "404" told the user nothing. Always surface something.
+    const text = await res.text().catch(() => '');
+    let msg = '';
+    try {
+      const data = JSON.parse(text) as { error?: { message?: string; status?: string } | string };
+      msg = typeof data.error === 'string' ? data.error : data.error?.message ?? '';
+    } catch {
+      msg = text.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 200);
+    }
+    const path = (() => { try { const u = new URL(url); return u.pathname; } catch { return url; } })();
+    // Google AI Studio keys start with "AIza". A token from somewhere else
+    // (OAuth, Vertex, a copied session id) fails with 400/403 and looks like a
+    // broken app; say so instead of letting the user reinstall their key forever.
+    const keyShape = settings.apiKey.trim() && !/^AIza[0-9A-Za-z_-]{10,}$/.test(settings.apiKey.trim())
+      ? ' Google AI Studio API keys start with "AIza" — this key does not, so it may be an OAuth token or a key from a different Google product.'
+      : '';
+    const hint = res.status === 404
+      ? ` Google has no route at ${path}. Press "Fetch models" in Settings to see the exact model names your key can use, and keep the endpoint as …/v1beta or …/v1beta/models — CutFlow adds /models/<model>:generateContent itself.`
       : res.status === 400 && /api key/i.test(msg)
-        ? ' The API key looks invalid — copy it again from aistudio.google.com.'
-        : res.status === 429
-          ? ' Gemini rate limit or quota reached — wait a moment and retry.'
-          : '';
-    throw new Error(`Gemini returned ${res.status}. ${msg}${hint}`.trim());
+        ? ` The API key looks invalid — copy it again from aistudio.google.com.${keyShape}`
+        : res.status === 403
+          ? ` The key is valid but is not allowed to use this model or API — check key restrictions in Google AI Studio, or pick another model.${keyShape}`
+          : res.status === 429
+            ? ' Gemini rate limit or quota reached — wait a moment and retry.'
+            : keyShape;
+    throw new Error(`Gemini returned ${res.status}${msg ? `. ${msg}` : ''}${hint}`.trim());
   }
   const data = await res.json().catch(() => null) as {
     candidates?: { content?: { parts?: { text?: string; thought?: boolean }[] }; finishReason?: string }[];
@@ -319,9 +392,10 @@ async function openaiComplete(
   }
 
   const dropped: string[] = [];
+  const url = openaiUrl(settings.endpoint);
   for (let attempt = 0; attempt < 4; attempt++) {
     const { res, viaProxy } = await aiRequest(
-      settings.endpoint,
+      url,
       { method: 'POST', headers, body: JSON.stringify(body), signal },
       'the AI endpoint',
     );
@@ -386,16 +460,25 @@ async function openaiComplete(
 export async function listModels(settings: AISettings = loadAISettings(), signal?: AbortSignal): Promise<string[]> {
   if (!hasAI(settings)) throw new Error('Add an API key first (or point the endpoint at a local server) — then Fetch models lists what it can use.');
   if (providerOf(settings) === 'gemini') {
-    const root = settings.endpoint.match(/^https?:\/\/[^/]+\/v1(?:beta)?\/models/i)?.[0]
-      ?? `${GEMINI_ENDPOINT}`;
+    // Always list from the API root: the pasted endpoint may be the base, the
+    // models root, or a full model action URL.
+    const host = (() => { try { return new URL(settings.endpoint).origin; } catch { return ''; } })();
+    const root = /generativelanguage\.googleapis\.com/i.test(settings.endpoint)
+      ? `${host}/v1beta/models`
+      : GEMINI_ENDPOINT;
     const res = (await aiRequest(
       root,
       { headers: settings.apiKey.trim() ? { 'x-goog-api-key': settings.apiKey } : {}, signal },
       'Gemini (model list)',
     )).res;
     if (!res.ok) {
-      const data = await res.json().catch(() => null) as { error?: { message?: string } } | null;
-      throw new Error(`Gemini returned ${res.status} listing models. ${data?.error?.message ?? ''}`.trim());
+      const text = await res.text().catch(() => '');
+      let msg = text.slice(0, 200);
+      try {
+        const data = JSON.parse(text) as { error?: { message?: string } };
+        msg = data.error?.message ?? msg;
+      } catch { /* keep raw */ }
+      throw new Error(`Gemini returned ${res.status} listing models. ${msg}`.trim());
     }
     const data = await res.json().catch(() => null) as { models?: { name?: string; supportedGenerationMethods?: string[] }[] } | null;
     const names = (data?.models ?? [])
@@ -406,13 +489,21 @@ export async function listModels(settings: AISettings = loadAISettings(), signal
     return names;
   }
   // OpenAI-compatible: derive /models from the chat URL's origin (+ base path).
-  const base = settings.endpoint.replace(/\/chat\/completions\/?$/i, '').replace(/\/+$/, '');
+  const base = openaiUrl(settings.endpoint).replace(/\/chat\/completions.*$/i, '').replace(/\/+$/, '');
   const res = (await aiRequest(
     `${base}/models`,
     { headers: settings.apiKey.trim() ? { Authorization: `Bearer ${settings.apiKey}` } : {}, signal },
     `${base}/models`,
   )).res;
-  if (!res.ok) throw new Error(`Listing models returned ${res.status}. Type the model name manually instead.`);
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    let msg = text.slice(0, 200);
+    try {
+      const data = JSON.parse(text) as { error?: { message?: string } | string };
+      msg = typeof data.error === 'string' ? data.error : data.error?.message ?? msg;
+    } catch { /* keep raw */ }
+    throw new Error(`Listing models returned ${res.status}${msg ? `. ${msg}` : ''}. Type the model name manually instead.`);
+  }
   const data = await res.json().catch(() => null) as { data?: { id?: string }[] } | { models?: { name?: string }[] } | null;
   const raw = Array.isArray((data as { data?: { id?: string }[] })?.data) ? (data as { data?: { id?: string }[] }).data!
     : Array.isArray((data as { models?: { name?: string }[] })?.models) ? (data as { models?: { name?: string }[] }).models!.map((m) => ({ id: m.name }))
