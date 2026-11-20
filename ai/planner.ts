@@ -80,11 +80,15 @@ export function planFromReply(reply: AgentReply): Plan {
     params: c.params ?? {},
     why: c.why ?? TOOL_MAP.get(c.tool)?.description ?? '',
   }));
-  return {
-    steps,
-    summary: reply.say?.trim() || (steps.length ? `Plan: ${steps.map((s) => s.tool).join(' → ')}` : 'No edits proposed.'),
-    source: 'ai',
-  };
+  // Never put tool ids in visible text: the card lists the human reasons, the
+  // chat line only says how big the plan is.
+  const say = reply.say?.trim();
+  const summary = say || (steps.length === 1
+    ? `One edit: ${steps[0].why || 'update the timeline'}.`
+    : steps.length
+      ? `${steps.length} edits, in order — review them, then run the plan.`
+      : 'No edits proposed.');
+  return { steps, summary, source: 'ai' };
 }
 
 /* ---- rules-only intent router -------------------------------------------
@@ -98,8 +102,10 @@ interface Intent {
   steps: PlanStep[];
 }
 
-const INTENTS: Intent[] = [
-  { id: '9:16 reframe', test: /\b(tiktok|reels?|shorts?|vertical|9:16|portrait video)\b/i, steps: [{ tool: 'reframe', params: { aspect: '9:16' }, why: 'Vertical frame for TikTok / Reels / Shorts.' }] },
+/** A request about the whole edit, not one property of it. */
+const BIG_EDIT = /\b(whole|entire|full)\s+(video|edit|thing|project)\b|\btrailer\b|\bmusic video\b|\bmontage\b|\bauto[- ]?edit\b|\beverything\b/i;
+
+const INTENTS: Intent[] = [  { id: '9:16 reframe', test: /\b(tiktok|reels?|shorts?|vertical|9:16|portrait video)\b/i, steps: [{ tool: 'reframe', params: { aspect: '9:16' }, why: 'Vertical frame for TikTok / Reels / Shorts.' }] },
   { id: '1:1 reframe', test: /\b(square|1:1)\b/i, steps: [{ tool: 'reframe', params: { aspect: '1:1' }, why: 'Square frame for feed posts.' }] },
   { id: '4:5 reframe', test: /\b(4:5|instagram feed|ig feed)\b/i, steps: [{ tool: 'reframe', params: { aspect: '4:5' }, why: 'Portrait 4:5 frame for Instagram feed.' }] },
   { id: '16:9 reframe', test: /\b(youtube|landscape|widescreen|16:9|horizontal)\b/i, steps: [{ tool: 'reframe', params: { aspect: '16:9' }, why: 'Landscape frame for YouTube.' }] },
@@ -189,6 +195,21 @@ export function rulesPlan(project: Project, request = '', videoType?: string): P
       why: `Drop the first ${seconds}s.`,
     });
     matched.push('trim start');
+  }
+
+  // A request about the whole edit ("cinematic trailer", "edit the whole video")
+  // implies more than one dimension. Add the missing fundamentals so the plan
+  // is a real edit and not one colour call — still the rules engine, still
+  // labelled as such.
+  if (BIG_EDIT.test(q) && steps.length < 4) {
+    const add = (tool: string, why: string) => {
+      if (!steps.some((s) => s.tool === tool)) steps.push({ tool, params: {}, why });
+    };
+    add('apply_color_preset', 'A matching color look across the video.');
+    add('add_transitions', 'Restrained transitions at real scene changes.');
+    add('remove_dead_air', 'Cut silent gaps so the pace matches the style.');
+    add('balance_audio', 'Even, broadcast-safe loudness.');
+    if (!matched.length) matched.push('whole-edit style');
   }
 
   // "Make it better / professional / premium" and anything unrecognised get the

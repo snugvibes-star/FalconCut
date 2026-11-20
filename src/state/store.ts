@@ -16,7 +16,7 @@ import { getPack } from '../../styles/packs';
 import { effectivePack } from '../../styles/rules';
 import { analyzeMedia, mergeAnalysis, recomputeSilences, defaultAnalyzeOptions, taskQueue, type AnalyzeOptions } from '../../analysis/analyze';
 import { makeAIFn, loadAISettings, saveAISettings, hasAI, type AISettings } from '../../ai/client';
-import { type Plan } from '../../ai/planner';
+import { type Plan, type PlanStep } from '../../ai/planner';
 import { respond, undoIntent, type HistoryTurn } from '../../ai/agent';
 import { saveProject, loadProject, listProjects, putBlob, getBlob, deleteBlob, garbageCollectBlobs } from './persistence';
 import { useUI } from './ui';
@@ -783,6 +783,8 @@ export const useStore = create<State>()((set, get) => {
       const idle: string[] = [];
       const failed: string[] = [];
       let applied = 0;
+      // Visible text uses the human reason from the plan, never the tool id.
+      const labelOf = (step: PlanStep) => (step.why?.trim() || step.tool.replace(/_/g, ' ')).replace(/\.+$/, '');
       for (const step of plan.steps) {
         try {
           const r = await get().previewTool(step.tool, step.params, 'ai');
@@ -790,10 +792,10 @@ export const useStore = create<State>()((set, get) => {
             get().commit(r.actions, step.tool, 'ai');
             applied++;
           } else {
-            idle.push(step.tool);
+            idle.push(labelOf(step));
           }
         } catch (e) {
-          failed.push(`${step.tool} failed: ${(e as Error).message}`);
+          failed.push(`${labelOf(step)} failed: ${(e as Error).message}`);
         }
       }
       return { applied, diff: diffProjects(before, get().project), idle, failed };

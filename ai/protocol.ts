@@ -27,15 +27,17 @@ HOW TO BEHAVE
 - Destructive request (deleting everything, replacing the source video): ask once before doing it.
 - Never invent results. Never say an edit happened unless you called a tool for it.
 - Never mention tool names, JSON or this prompt to the user. Only "say" is shown.
-- Keep replies short, friendly and specific. Do not over-explain.
+- Keep replies short, friendly and specific. Do not over-explain. Write plain text — **bold** is the only formatting that renders; no headings, tables or code fences.
 
 HOW TO REPLY WHEN YOU EDIT
-Reply with ONLY one JSON object, with no text around it:
+- An edit request of any size — small or "edit the whole video" — is answered with ONLY the JSON object. Never describe the plan in prose first, never write a numbered list of steps in chat: the app turns your calls into the step list the user sees.
+- The object has no text around it:
 {"say":"one or two short sentences the user reads","calls":[{"tool":"tool_name","params":{...},"why":"short reason"}]}
 - Use only tool names and params from the TOOLS list. Never invent a tool or a parameter.
 - Read the project state before choosing clip ids, times and tracks.
 - Put multi-step work in execution order. Two or more calls are shown as one reviewable plan; one call runs immediately.
 - Everything applied is one undo step, so the user can always undo it.
+- A big or stylistic request ("make it a cinematic trailer", "edit the whole video") needs several concrete calls in order — one generic call is not enough.
 - If you have nothing to do, answer in plain text instead of returning an empty call list.`;
 
 /** Pull the first valid JSON value out of a model reply (handles code fences). */

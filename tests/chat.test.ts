@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { createProject, applyActions } from '../engine';
 import type { MediaAsset, Project } from '../engine/types';
 import { respond, undoIntent } from '../ai/agent';
-import { parseTextRequest, rulesPlan, buildProjectContext } from '../ai/planner';
+import { parseTextRequest, rulesPlan, planFromReply, buildProjectContext } from '../ai/planner';
 import { runTool, TOOL_MAP } from '../tools/registry';
 import { DEFAULT_AI_SETTINGS } from '../ai/client';
 
@@ -70,6 +70,27 @@ describe('chat decides chat vs edit', () => {
     for (const s of turn.plan!.steps) expect(TOOL_MAP.has(s.tool), s.tool).toBe(true);
     // No invented tool names in the visible text either.
     expect(turn.text).not.toMatch(/[a-z]+_[a-z]+/);
+  });
+
+  it('turns a whole-edit style request into a real multi-step plan in rules mode', async () => {
+    const turn = await respond(project(), 'edit this whole video like a cinematic trailer', [], offline);
+    expect(turn.mode).toBe('plan');
+    expect(turn.plan!.steps.length).toBeGreaterThanOrEqual(4);
+    expect(turn.plan!.steps.map((s) => s.tool)).toContain('apply_color_preset');
+    expect(turn.text).toMatch(/built-in rules/i);
+    expect(turn.text).not.toMatch(/[a-z]+_[a-z]+/);
+  });
+
+  it('never shows tool ids when the model omits its own summary', () => {
+    const plan = planFromReply({
+      say: '',
+      calls: [
+        { tool: 'apply_color_preset', params: {}, why: 'Cinematic look across the whole video' },
+        { tool: 'add_hook_title', params: {}, why: 'Big hook in the first 3 seconds' },
+      ],
+    });
+    expect(plan.summary).not.toMatch(/_/);
+    expect(plan.summary).toMatch(/2 edits/);
   });
 });
 

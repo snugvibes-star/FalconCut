@@ -20,6 +20,12 @@ export interface HistoryTurn {
   text: string;
 }
 
+/** A prose reply that is really a plan the model forgot to return as JSON. */
+const PLAN_TALK = /\bhere'?s (my|the) plan\b|\blet me (start|begin|run)\b|\bi'?(ll|will) (start|begin|run)\b|\bstep 1\b|\bplan:|\n\s*1[.)]\s/i;
+
+/** Requests that touch the whole edit, where one generic call is under-delivering. */
+const BIG_EDIT = /\b(whole|entire|full|complete)\s+(video|edit|thing|project)\b|\btrailer\b|\bmusic video\b|\bmontage\b|\bauto[- ]?edit\b|\beverything\b|\bthe whole\b/i;
+
 export interface ChatTurn {
   text: string;
   /** Present only when the assistant really wants to change the project. */
@@ -82,8 +88,7 @@ function rulesTurn(project: Project, text: string): ChatTurn {
   };
 }
 
-/* ---- main entry --------------------------------------------------------- */
-export async function respond(
+/* ---- main entry --------------------------------------------------------- */export async function respond(
   project: Project,
   text: string,
   history: HistoryTurn[] = [],
@@ -121,25 +126,65 @@ export async function respond(
   const trimmed = raw.trim();
   if (!trimmed) throw new Error('The model returned an empty reply. Try again.');
 
-  const looksJson = /^(\{|\[|```)/.test(trimmed);
-  if (!looksJson) return { mode: 'chat', text: trimmed };
+  const parse = (text: string): ChatTurn => {
+    const reply = parseAgentReply(text);
+    const { valid, errors } = validateCalls(reply.calls);
+    const say = reply.say?.trim() ?? '';
 
-  const reply = parseAgentReply(trimmed);
-  const { valid, errors } = validateCalls(reply.calls);
-  const say = reply.say?.trim() ?? '';
+    if (!valid.length) {
+      return {
+        mode: 'chat',
+        text: say || 'I did not find an edit to make. Tell me what to change and I will do it.',
+      };
+    }
 
-  if (!valid.length) {
+    const plan = planFromReply({ ...reply, calls: valid });
+    if (errors.length) {
+      // Say what happened without naming internal tool ids.
+      const n = errors.length;
+      plan.summary = `${plan.summary} ${n} proposed step${n === 1 ? ' was' : 's were'} skipped because ${n === 1 ? 'it does' : 'they do'} not match a real action.`.trim();
+    }
     return {
-      mode: 'chat',
-      text: say || 'I did not find an edit to make. Tell me what to change and I will do it.',
+      mode: valid.length === 1 ? 'action' : 'plan',
+      plan,
+      text: say || plan.summary,
     };
+  };
+
+  const ask = async (extra: WireMessage[]): Promise<string> =>
+    (await chatStream([...messages, ...extra], () => {}, { temperature: settings.temperature, json: true }, settings)).trim();
+
+  // A whole-video / style request deserves real steps. Weak models sometimes
+  // answer it with one generic call, so ask once for the concrete breakdown.
+  const expand = async (turn: ChatTurn): Promise<ChatTurn> => {
+    if (turn.mode !== 'action' || !turn.plan || !BIG_EDIT.test(text)) return turn;
+    const again = (await chatStream(
+      [
+        { role: 'system', content: system },
+        { role: 'user', content: `${text}\n\nThis request covers the whole edit. Break it into at least four concrete, different tool calls in execution order — look, titles, transitions, pacing, audio, captions, reframe — and return the JSON object only.` },
+      ],
+      () => {},
+      { temperature: Math.max(0.5, settings.temperature), json: true },
+      settings,
+    )).trim();
+    if (!/^(\{|\[|```)/.test(again)) return turn;
+    const wider = parse(again);
+    return (wider.plan?.steps.length ?? 0) > turn.plan.steps.length ? wider : turn;
+  };
+
+  if (!/^(\{|\[|```)/.test(trimmed)) {
+    // Models sometimes narrate the plan ("Here's the plan: 1. ...") instead of
+    // returning the calls. Ask once for the same plan as JSON; the live bubble
+    // is replaced by the plan summary, so the narration never survives.
+    if (PLAN_TALK.test(trimmed)) {
+      const again = await ask([
+        { role: 'assistant', content: trimmed.slice(0, 1500) },
+        { role: 'user', content: 'Return that same plan now, as the JSON object only — {"say":"...","calls":[...]} — with no prose and no list.' },
+      ]);
+      if (/^(\{|\[|```)/.test(again)) return expand(parse(again));
+    }
+    return { mode: 'chat', text: trimmed };
   }
 
-  const plan = planFromReply({ ...reply, calls: valid });
-  if (errors.length) plan.summary = `${plan.summary} (${errors.join(' ')})`.trim();
-  return {
-    mode: valid.length === 1 ? 'action' : 'plan',
-    plan,
-    text: say || plan.summary,
-  };
+  return expand(parse(trimmed));
 }

@@ -26,6 +26,21 @@ function DiffView({ diff }: { diff: ProjectDiff }) {
   );
 }
 
+function RichText({ text }: { text: string }) {
+  // Models drift into markdown. Render the one thing that reads well in a
+  // narrow chat column (bold) and drop the syntax instead of showing it.
+  const parts = text.split(/(\*\*[^*]+\*\*|`[^`]+`)/g).filter(Boolean);
+  return (
+    <>
+      {parts.map((part, i) => {
+        if (part.startsWith('**') && part.endsWith('**')) return <strong key={i} className="text-paper font-semibold">{part.slice(2, -2)}</strong>;
+        if (part.startsWith('`') && part.endsWith('`')) return <code key={i} className="rounded bg-ink-850 px-1 font-mono text-[10px]">{part.slice(1, -1)}</code>;
+        return <span key={i}>{part.replace(/\*\*/g, '')}</span>;
+      })}
+    </>
+  );
+}
+
 export function ChatPanel() {
   const chat = useStore((s) => s.chat);
   const plan = useStore((s) => s.plan);
@@ -95,7 +110,7 @@ export function ChatPanel() {
               {m.role === 'user' ? <User size={12} /> : <Bot size={12} />}
             </div>
             <div className={`max-w-[85%] rounded-xl px-2.5 py-1.5 text-xs ${m.role === 'user' ? 'bg-signal/15 text-paper' : m.role === 'system' ? 'bg-heat/10 text-heat-amber' : 'bg-ink-800 text-paper-dim'}`}>
-              <div className="whitespace-pre-wrap">{m.text}</div>
+              <div className="whitespace-pre-wrap"><RichText text={m.text} /></div>
               {m.error && m.retry && (
                 <button
                   className="mt-1.5 flex items-center gap-1 text-[10px] text-paper-faint hover:text-paper"
