@@ -255,7 +255,7 @@ export function SettingsDialog() {
             {provider === 'openrouter'
               ? 'OpenRouter routes one key to many providers. "auto" picks a working model for your credits; press Fetch models to see everything the key can use (free models end in :free).'
               : provider === 'gemini'
-                ? 'Use an API key from aistudio.google.com (keys start with AIza). Any of these endpoint shapes works: …/v1beta, …/v1beta/models, or a full …/models/<model>:generateContent URL — CutFlow builds the model action itself and the Model name field always wins.'
+                ? 'Create a key at aistudio.google.com/apikey. Both formats work: standard keys starting with AIza and the newer authorization keys starting with AQ. Any endpoint shape works too: …/v1beta, …/v1beta/models, or a full …/models/<model>:generateContent URL — CutFlow builds the model action itself and the Model name field always wins.'
                 : 'Any server that speaks the OpenAI chat-completions API — not just OpenAI. Pick a vendor below, or paste your own endpoint (vLLM, Azure, a gateway…). A bare base URL such as …/v1 is fine: /chat/completions is added when it is missing.'}
           </p>
           {provider === 'openai' && (
@@ -294,7 +294,7 @@ export function SettingsDialog() {
           <div className="flex gap-2">
             <input id="ai-key" type={showKey ? 'text' : 'password'} className="field min-w-0" autoComplete="off" spellCheck={false}
               value={draft.apiKey} onChange={(e) => { setDraft({ ...draft, apiKey: e.target.value }); setTestResult(null); setKeyCheck(null); }}
-              placeholder={provider === 'gemini' ? 'AIza… key from aistudio.google.com' : localServer ? 'Not required for local servers' : 'Paste the key from your provider'}
+              placeholder={provider === 'gemini' ? 'AIza… or AQ.… key from aistudio.google.com' : localServer ? 'Not required for local servers' : 'Paste the key from your provider'}
               aria-describedby="ai-key-note" />
             <button type="button" className="icon-btn shrink-0 border border-line rounded-lg w-9"
               title={showKey ? 'Hide the key' : 'Show the key'} aria-label={showKey ? 'Hide API key' : 'Show API key'}
@@ -316,6 +316,18 @@ export function SettingsDialog() {
             <button type="button" className="btn-solid shrink-0 focus-visible:outline focus-visible:outline-2 focus-visible:outline-signal"
               disabled={!draft.apiKey} onClick={() => { setDraft({ ...draft, apiKey: '' }); setKeyCheck(null); }}>Clear</button>
           </div>
+          {provider === 'openai' && /^(AIza|AQ\.)/i.test(draft.apiKey.trim()) && (
+            <p className="mt-1 flex items-start gap-1.5 text-[11px] leading-relaxed text-heat-amber">
+              <ShieldX size={12} className="mt-0.5 shrink-0" />
+              <span>That is a Google Gemini key. Switch Provider to “Google Gemini” — Gemini keys, and especially the newer AQ.… ones, are rejected by OpenAI-compatible endpoints.</span>
+            </p>
+          )}
+          {provider === 'gemini' && /^sk-/i.test(draft.apiKey.trim()) && (
+            <p className="mt-1 flex items-start gap-1.5 text-[11px] leading-relaxed text-heat-amber">
+              <ShieldX size={12} className="mt-0.5 shrink-0" />
+              <span>That looks like an OpenAI-style key (sk-…). Use the OpenAI-compatible provider for it, or paste a Gemini key from aistudio.google.com/apikey.</span>
+            </p>
+          )}
           {keyCheck && (
             <p role="status" className={`mt-1 flex items-start gap-1.5 text-[11px] leading-relaxed ${
               keyCheck.state === 'ok' ? 'text-heat-green' : keyCheck.state === 'bad' ? 'text-heat' : 'text-paper-dim'

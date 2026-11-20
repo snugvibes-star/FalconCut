@@ -3,6 +3,7 @@ import { createProject, applyActions, diffProjects } from '../engine';
 import type { MediaAsset, Project } from '../engine/types';
 import { parseAgentReply, validateCalls, extractJSON } from '../ai/protocol';
 import { rulesPlan, planFromReply, buildProjectContext } from '../ai/planner';
+import { TOOL_MAP } from '../tools/registry';
 import { hasAI, isLocalEndpoint, providerOf, PROVIDER_PRESETS, COMPATIBLE_PRESETS, OPENROUTER_ENDPOINT, GEMINI_MODEL, geminiUrl, openaiUrl } from '../ai/client';
 
 function base(): Project {
@@ -169,6 +170,32 @@ describe('planner', () => {
     const plan = rulesPlan(base());
     expect(plan.source).toBe('rules');
     expect(plan.steps.map((s) => s.tool)).toEqual(['auto_edit', 'auto_fix']);
+  });
+
+  it('rules-only chat understands common edit requests', () => {
+    const tools = (q: string) => rulesPlan(base(), q).steps.map((s) => s.tool);
+
+    // Pacing + captions + vertical, the classic TikTok ask.
+    expect(tools('make this a fast paced tiktok with captions')).toEqual(
+      expect.arrayContaining(['reframe', 'remove_dead_air', 'add_captions']),
+    );
+    const vertical = rulesPlan(base(), 'make this a fast paced tiktok with captions').steps
+      .find((s) => s.tool === 'reframe');
+    expect(vertical?.params.aspect).toBe('9:16');
+
+    // Audio.
+    expect(tools('the audio is noisy and too quiet')).toEqual(expect.arrayContaining(['cleanup_audio', 'balance_audio']));
+    // Cleanup + title.
+    expect(tools('remove the ums and add a hook title')).toEqual(expect.arrayContaining(['remove_fillers', 'add_hook_title']));
+    // Language capture.
+    const tr = rulesPlan(base(), 'translate the captions to Spanish').steps.find((s) => s.tool === 'translate_captions');
+    expect(String(tr?.params.language ?? '').toLowerCase()).toBe('spanish');
+    // Vague request still runs the full pipeline rather than proposing nothing.
+    expect(tools('make it professional')).toEqual(['auto_edit', 'auto_fix']);
+    // Nothing invented: every proposed tool must exist in the registry.
+    for (const q of ['tiktok captions', 'fix the quality', 'music and b-roll', 'a/b test', 'multi cam']) {
+      for (const t of tools(q)) expect(TOOL_MAP.has(t), `${t} is not a real tool`).toBe(true);
+    }
   });
 
   it('builds context with tools and project info', () => {

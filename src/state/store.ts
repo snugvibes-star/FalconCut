@@ -16,7 +16,8 @@ import { getPack } from '../../styles/packs';
 import { effectivePack } from '../../styles/rules';
 import { analyzeMedia, mergeAnalysis, recomputeSilences, defaultAnalyzeOptions, taskQueue, type AnalyzeOptions } from '../../analysis/analyze';
 import { makeAIFn, loadAISettings, saveAISettings, hasAI, type AISettings } from '../../ai/client';
-import { makePlan, type Plan } from '../../ai/planner';
+import { type Plan } from '../../ai/planner';
+import { respond, undoIntent, type HistoryTurn } from '../../ai/agent';
 import { saveProject, loadProject, listProjects, putBlob, getBlob, deleteBlob, garbageCollectBlobs } from './persistence';
 import { useUI } from './ui';
 
@@ -37,6 +38,9 @@ export interface ChatMessage {
   at: number;
   plan?: Plan;
   diff?: ProjectDiff;
+  /** A failure the user can retry — never a fake assistant reply. */
+  error?: boolean;
+  retry?: string;
 }
 
 export interface AgentSession {
@@ -142,6 +146,7 @@ interface State {
   /* AI */
   setAISettings: (patch: Partial<AISettings>) => void;
   sendChat: (text: string) => Promise<void>;
+  executePlan: (plan: Plan) => Promise<{ applied: number; diff: ProjectDiff; idle: string[]; failed: string[] }>;
   approvePlan: () => Promise<void>;
   rejectPlan: () => void;
   clearChat: () => void;
@@ -675,47 +680,158 @@ export const useStore = create<State>()((set, get) => {
     },
 
     async sendChat(text) {
-      const userMsg: ChatMessage = { id: uid('msg'), role: 'user', text, at: Date.now() };
+      const clean = text.trim();
+      if (!clean) return;
+      const userMsg: ChatMessage = { id: uid('msg'), role: 'user', text: clean, at: Date.now() };
       set((s) => ({ chat: [...s.chat, userMsg], aiBusy: true, plan: null }));
+
+      // "undo that" is deterministic — never send it to a model.
+      const intent = undoIntent(clean);
+      if (intent) {
+        const label = intent === 'undo' ? get().undoLabel : get().redoLabel;
+        if (intent === 'undo') get().undo(); else get().redo();
+        set((s) => ({
+          aiBusy: false,
+          chat: [...s.chat, {
+            id: uid('msg'), role: 'assistant' as const,
+            text: label
+              ? (intent === 'undo' ? 'Undone — the last edit has been reverted.' : 'Redone — the last edit is back.')
+              : `Nothing to ${intent}.`,
+            at: Date.now(),
+          }],
+        }));
+        return;
+      }
+
+      // The model sees the conversation, not just the last sentence.
+      const history: HistoryTurn[] = get().chat
+        .slice(0, -1)
+        .filter((m) => m.role !== 'system' && m.text.trim())
+        .slice(-20)
+        .map((m) => ({ role: m.role as 'user' | 'assistant', text: m.text }));
+
+      let live: string | null = null;
+      const onDelta = (delta: string) => {
+        const id = live;
+        if (!id) {
+          live = uid('msg');
+          set((s) => ({ chat: [...s.chat, { id: live as string, role: 'assistant', text: delta, at: Date.now() }] }));
+        } else {
+          set((s) => ({ chat: s.chat.map((m) => (m.id === id ? { ...m, text: m.text + delta } : m)) }));
+        }
+      };
+
       try {
-        const plan = await makePlan(get().project, text, get().aiSettings);
-        const reply: ChatMessage = { id: uid('msg'), role: 'assistant', text: plan.summary, at: Date.now(), plan };
-        set((s) => ({ chat: [...s.chat, reply], plan, aiBusy: false }));
+        const turn = await respond(get().project, clean, history, get().aiSettings, onDelta);
+
+        // Conversation: plain text, no plan, no tools.
+        if (turn.mode === 'chat' || !turn.plan) {
+          const reply: ChatMessage = { id: live ?? uid('msg'), role: 'assistant', text: turn.text, at: Date.now() };
+          set((s) => ({
+            chat: live ? s.chat.map((m) => (m.id === live ? reply : m)) : [...s.chat, reply],
+            aiBusy: false,
+            plan: null,
+          }));
+          return;
+        }
+
+        // One clear edit: do it now, then confirm in one sentence.
+        if (turn.mode === 'action') {
+          const res = await get().executePlan(turn.plan);
+          const idle = res.idle.length
+            ? ` Nothing changed for ${res.idle.join(', ')} — that needs analysed media; run Analyze on the clip first.`
+            : '';
+          const failed = res.failed.length ? ` ${res.failed.join(' ')}` : '';
+          const fromRules = /^Matched your request|^Built-in rules/i.test(turn.text);
+          const detail = res.diff.identical
+            ? 'The project was already in that state — nothing changed.'
+            : (res.applied && turn.text && !fromRules ? turn.text : `Done — ${res.diff.summary.toLowerCase()}.`);
+          const reply: ChatMessage = { id: live ?? uid('msg'), role: 'assistant', text: `${detail}${idle}${failed}`, at: Date.now(), diff: res.diff };
+          set((s) => ({
+            chat: live ? s.chat.map((m) => (m.id === live ? reply : m)) : [...s.chat, reply],
+            aiBusy: false,
+            plan: null,
+          }));
+          return;
+        }
+
+        // Real multi-step plan. It is shown for review because it changes a lot.
+        const reply: ChatMessage = { id: live ?? uid('msg'), role: 'assistant', text: turn.text, at: Date.now(), plan: turn.plan };
+        set((s) => ({
+          chat: live ? s.chat.map((m) => (m.id === live ? reply : m)) : [...s.chat, reply],
+          aiBusy: false,
+          plan: turn.plan,
+        }));
         if (get().autopilot && get().session?.connected) await get().approvePlan();
       } catch (e) {
-        const err: ChatMessage = { id: uid('msg'), role: 'system', text: `AI error: ${(e as Error).message}`, at: Date.now() };
-        set((s) => ({ chat: [...s.chat, err], aiBusy: false }));
+        // Honest failure with a retry button — never a fabricated reply.
+        const err: ChatMessage = {
+          id: uid('msg'), role: 'system',
+          text: (e as Error).message || 'The AI request failed. Check the endpoint and key, then retry.',
+          at: Date.now(), error: true, retry: clean,
+        };
+        set((s) => ({
+          chat: live ? s.chat.map((m) => (m.id === live ? err : m)) : [...s.chat, err],
+          aiBusy: false,
+        }));
       }
+    },
+
+    async executePlan(plan) {
+      get().snapshot('Before AI run', 'ai');
+      const before = get().project;
+      const idle: string[] = [];
+      const failed: string[] = [];
+      let applied = 0;
+      for (const step of plan.steps) {
+        try {
+          const r = await get().previewTool(step.tool, step.params, 'ai');
+          if (r.actions.length) {
+            get().commit(r.actions, step.tool, 'ai');
+            applied++;
+          } else {
+            idle.push(step.tool);
+          }
+        } catch (e) {
+          failed.push(`${step.tool} failed: ${(e as Error).message}`);
+        }
+      }
+      return { applied, diff: diffProjects(before, get().project), idle, failed };
     },
 
     async approvePlan() {
       const plan = get().plan;
       if (!plan || get().planRunning) return;
       set({ planRunning: true });
-      get().snapshot('Before AI run', 'ai');
-      const before = get().project;
-      const all: Action[] = [];
-      const steps: string[] = [];
-      for (const step of plan.steps) {
-        try {
-          const r = await get().previewTool(step.tool, step.params, 'ai');
-          if (r.actions.length) {
-            get().commit(r.actions, step.tool, 'ai');
-            all.push(...r.actions);
-            steps.push(`${step.tool}: ${r.summary}`);
-          }
-        } catch (e) {
-          steps.push(`${step.tool} failed: ${(e as Error).message}`);
-        }
+      try {
+        const res = await get().executePlan(plan);
+        // A step that produces no actions is usually waiting for analysis (no
+        // transcript → no captions, no silences → no dead-air cuts). Say so
+        // instead of quietly reporting a smaller number.
+        const idleNote = res.idle.length
+          ? ` ${res.idle.length === 1 ? 'One step made' : `${res.idle.length} steps made`} no changes (${res.idle.join(', ')}) — they need analysed media: run Analyze on the clip first (transcript, silences and beats).`
+          : '';
+        const failNote = res.failed.length ? ` ${res.failed.join(' ')}` : '';
+        const done: ChatMessage = {
+          id: uid('msg'), role: 'assistant',
+          text: res.applied
+            ? res.diff.identical
+              ? `Ran ${res.applied} step${res.applied === 1 ? '' : 's'} — the project was already in that state, so nothing changed.${idleNote}${failNote}`
+              : `Applied ${res.applied} step${res.applied === 1 ? '' : 's'}. ${res.diff.summary}${idleNote}${failNote}`
+            : `No changes were made.${idleNote}${failNote}`,
+          at: Date.now(), diff: res.diff,
+        };
+        set((s) => ({ chat: [...s.chat, done], plan: null, planRunning: false }));
+      } catch (e) {
+        set((s) => ({
+          chat: [...s.chat, {
+            id: uid('msg'), role: 'system' as const,
+            text: `Could not run the plan: ${(e as Error).message}`,
+            at: Date.now(), error: true,
+          }],
+          planRunning: false,
+        }));
       }
-      const diff = diffProjects(before, get().project);
-      const done: ChatMessage = {
-        id: uid('msg'), role: 'assistant',
-        text: `Applied ${steps.length} step${steps.length === 1 ? '' : 's'}. ${diff.summary}`,
-        at: Date.now(), diff,
-      };
-      set((s) => ({ chat: [...s.chat, done], plan: null, planRunning: false }));
-      void all;
     },
 
     rejectPlan() {

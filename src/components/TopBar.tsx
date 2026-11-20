@@ -1,11 +1,12 @@
 import { useState } from 'react';
 import {
   Undo2, Redo2, Wand2, Plug, Download, Settings, FolderOpen, Plus, Command, Bot, Check, Loader2,
-  PanelLeft, PanelRight, MoreVertical,
+  PanelLeft, PanelRight, MoreVertical, Sparkles, MonitorDown,
 } from 'lucide-react';
 import { useStore } from '../state/store';
 import { useUI, type Workspace } from '../state/ui';
 import { useMediaQuery } from '../hooks/useMediaQuery';
+import { useInstallPrompt } from '../hooks/useInstallPrompt';
 import { ASPECT_SIZES, type Aspect } from '../../engine';
 import { LogoMark } from './brand/LogoMark';
 
@@ -39,6 +40,21 @@ export function TopBar({ leftOpen, rightOpen, onToggleLeft, onToggleRight }: Top
   const workspace = useUI((s) => s.workspace);
   const ui = useUI();
   const isMobile = useMediaQuery('(max-width: 1023px)');
+  const { canInstall, installed, install } = useInstallPrompt();
+
+  /** One-click install when the browser offers it; otherwise explain the
+   *  browser's own menu entry instead of pretending a button worked. */
+  const installApp = async () => {
+    setMoreOpen(false);
+    const outcome = await install();
+    if (outcome === 'accepted') {
+      ui.toast('Installing CutFlow — the app icon will appear on your home screen or desktop.', 'success');
+    } else if (outcome === 'dismissed') {
+      ui.toast('Install cancelled.', 'info');
+    } else {
+      ui.toast('Open your browser menu and choose “Install app” or “Add to Home screen”. The icon comes from /icon-192.png and /icon-512.png.', 'info');
+    }
+  };
 
   const rename = (name: string) => {
     useStore.getState().commit([{ type: 'rename_project', name: name || 'Untitled project' }], 'Rename project');
@@ -163,6 +179,9 @@ export function TopBar({ leftOpen, rightOpen, onToggleLeft, onToggleRight }: Top
           <>
             <div className="fixed inset-0 z-40" onClick={() => setMoreOpen(false)} />
             <div className="cf-more-menu">
+              <button className="cf-menu-item" onClick={() => { setMoreOpen(false); ui.setRightTab('ai'); if (!rightOpen) onToggleRight(); }}>
+                <Sparkles size={15} /> Chat with AI
+              </button>
               <button className="cf-menu-item" onClick={() => openDialog('connect')}>
                 <Plug size={15} /> {session?.connected ? 'Agent live' : 'Connect agent'}
               </button>
@@ -177,6 +196,9 @@ export function TopBar({ leftOpen, rightOpen, onToggleLeft, onToggleRight }: Top
               </button>
               <button className="cf-menu-item" onClick={() => openDialog('settings')}>
                 <Settings size={15} /> Settings
+              </button>
+              <button className="cf-menu-item" onClick={() => void installApp()}>
+                <MonitorDown size={15} /> {installed ? 'Installed — how to re-add the icon' : 'Install app'}
               </button>
               <div className="divider my-1" />
               <button
@@ -289,6 +311,15 @@ export function TopBar({ leftOpen, rightOpen, onToggleLeft, onToggleRight }: Top
       </button>
 
       <button
+        className="btn-ghost"
+        onClick={() => { ui.setRightTab('ai'); if (!rightOpen) onToggleRight(); }}
+        title="Chat with AI — describe the edit you want and review the plan (works with or without a key)"
+      >
+        <Sparkles size={15} />
+        <span className="hidden lg:block">Ask AI</span>
+      </button>
+
+      <button
         className={`btn-ghost relative ${session?.connected ? 'text-heat-green' : ''}`}
         onClick={() => ui.open('connect')}
         title={session?.connected ? 'Agent connected — manage session' : 'Connect an external agent'}
@@ -306,6 +337,12 @@ export function TopBar({ leftOpen, rightOpen, onToggleLeft, onToggleRight }: Top
       <button className="btn-ghost" onClick={() => ui.open('settings')} title="AI & analysis settings"><Settings size={15} /></button>
 
       <div className="h-5 w-px bg-line" />
+
+      {canInstall && !installed && (
+        <button className="btn-ghost" onClick={() => void installApp()} title="Install CutFlow as an app — the app icon is added to your desktop / home screen">
+          <MonitorDown size={15} /><span className="hidden lg:block">Install</span>
+        </button>
+      )}
 
       <button className="btn-solid" onClick={() => ui.open('export')} title="Export (Ctrl+E)"><Download size={15} /><span className="hidden lg:block">Export</span></button>
 

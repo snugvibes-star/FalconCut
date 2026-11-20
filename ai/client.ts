@@ -225,9 +225,24 @@ export function openaiUrl(endpoint: string): string {
 }
 export interface ChatOptions { json?: boolean; signal?: AbortSignal; temperature?: number; maxTokens?: number }
 
-/** Google Gemini generateContent: build the URL (users may paste either the
- * full `:generateContent` URL or just the `/models` root), send the key via
- * the `x-goog-api-key` header, and map messages onto the Gemini shape. */
+/**
+ * Plain-language note about the credential shape. There are now TWO valid
+ * Google key formats — standard keys (`AIza…`) and the newer authorization
+ * keys (`AQ.…`) that AI Studio issues by default — so a "wrong prefix" warning
+ * would be false for most users. Only call out values that are clearly not
+ * Gemini API keys at all.
+ */
+function geminiKeyNote(key: string): string {
+  const k = (key || '').trim();
+  if (!k) return '';
+  if (/^AQ\./i.test(k)) {
+    return ' AQ.… is the newer AI Studio authorization key — it is valid, but only on the native Gemini endpoint (Provider "Google Gemini"), not on the OpenAI-compatible one.';
+  }
+  if (/^AIza/i.test(k)) return '';
+  if (/^sk-/i.test(k)) return ' That looks like an OpenAI-style key (sk-…) — switch Provider to the OpenAI-compatible option to use it.';
+  if (/^(ya29\.|1\/\/)/.test(k)) return ' That looks like an OAuth token, not an API key — create a Gemini API key at aistudio.google.com/apikey.';
+  return '';
+}
 
 /**
  * Normalise any Gemini endpoint into a working `generateContent` URL.
@@ -263,7 +278,7 @@ export function geminiUrl(endpoint: string, model: string): string {
 }
 
 async function geminiComplete(messages: ChatMessage[], opts: ChatOptions, settings: AISettings, signal: AbortSignal | undefined): Promise<string> {
-  const url = geminiUrl(settings.endpoint, settings.model);
+  let url = geminiUrl(settings.endpoint, settings.model);
   const system = messages.filter((m) => m.role === 'system').map((m) => m.content).join('\n\n');
   const contents = messages
     .filter((m) => m.role !== 'system')
@@ -285,14 +300,25 @@ async function geminiComplete(messages: ChatMessage[], opts: ChatOptions, settin
   const dropped: string[] = [];
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   if (settings.apiKey.trim()) headers['x-goog-api-key'] = settings.apiKey;
+  let usedQueryKey = false;
   let res: Response | null = null;
-  for (let attempt = 0; attempt < 3; attempt++) {
+  for (let attempt = 0; attempt < 4; attempt++) {
     res = (await aiRequest(
       url,
       { method: 'POST', headers, body: JSON.stringify(payload), signal },
       'the Gemini endpoint',
     )).res;
     if (res.ok) break;
+    // Google accepts the key two ways. A few newer authorization keys (AQ.…)
+    // are refused in the header on some projects; when the header attempt is
+    // rejected as unauthenticated, retry once with ?key= (and WITHOUT the
+    // header, or Google replies "Multiple authentication credentials received").
+    if ((res.status === 401 || res.status === 403) && !usedQueryKey && settings.apiKey.trim()) {
+      usedQueryKey = true;
+      delete headers['x-goog-api-key'];
+      url += `${url.includes('?') ? '&' : '?'}key=${encodeURIComponent(settings.apiKey.trim())}`;
+      continue;
+    }
     const text = await res.clone().text().catch(() => '');
     const lower = text.toLowerCase();
     const retryable = res.status === 400;
@@ -323,21 +349,17 @@ async function geminiComplete(messages: ChatMessage[], opts: ChatOptions, settin
       msg = text.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 200);
     }
     const path = (() => { try { const u = new URL(url); return u.pathname; } catch { return url; } })();
-    // Google AI Studio keys start with "AIza". A token from somewhere else
-    // (OAuth, Vertex, a copied session id) fails with 400/403 and looks like a
-    // broken app; say so instead of letting the user reinstall their key forever.
-    const keyShape = settings.apiKey.trim() && !/^AIza[0-9A-Za-z_-]{10,}$/.test(settings.apiKey.trim())
-      ? ' Google AI Studio API keys start with "AIza" — this key does not, so it may be an OAuth token or a key from a different Google product.'
-      : '';
     const hint = res.status === 404
       ? ` Google has no route at ${path}. Press "Fetch models" in Settings to see the exact model names your key can use, and keep the endpoint as …/v1beta or …/v1beta/models — CutFlow adds /models/<model>:generateContent itself.`
       : res.status === 400 && /api key/i.test(msg)
-        ? ` The API key looks invalid — copy it again from aistudio.google.com.${keyShape}`
-        : res.status === 403
-          ? ` The key is valid but is not allowed to use this model or API — check key restrictions in Google AI Studio, or pick another model.${keyShape}`
-          : res.status === 429
-            ? ' Gemini rate limit or quota reached — wait a moment and retry.'
-            : keyShape;
+        ? ` The key was rejected. Copy it again from aistudio.google.com/apikey — both key types work here: standard keys (AIza…) and the newer authorization keys (AQ.…). If you just created the key, give it a minute to activate.${geminiKeyNote(settings.apiKey)}`
+        : res.status === 401
+          ? ` The key was not accepted as an API key.${/access_token_type_unsupported|multiple authentication/i.test(msg) ? ' Google saw the wrong credential type — CutFlow sends it as an API key, so this usually means the value is an OAuth token rather than a key.' : ''}${geminiKeyNote(settings.apiKey)} Copy a Gemini API key from aistudio.google.com/apikey.`
+          : res.status === 403
+            ? ` The key is valid but is not allowed to use this model or API — check key restrictions in Google AI Studio, or pick another model.${geminiKeyNote(settings.apiKey)}`
+            : res.status === 429
+              ? ' Gemini rate limit or quota reached — wait a moment and retry.'
+              : geminiKeyNote(settings.apiKey);
     throw new Error(`Gemini returned ${res.status}${msg ? `. ${msg}` : ''}${hint}`.trim());
   }
   const data = await res.json().catch(() => null) as {
@@ -360,6 +382,88 @@ export async function chatComplete(messages: ChatMessage[], opts: ChatOptions = 
   const provider = providerOf(settings);
   if (provider === 'gemini') return geminiComplete(messages, opts, settings, opts.signal);
   return openaiComplete(messages, opts, settings, provider === 'openrouter', opts.signal);
+}
+
+/**
+ * Streaming chat for the OpenAI-compatible family (OpenAI, OpenRouter,
+ * Ollama, LM Studio, gateways). Gemini streams a different shape, so it uses
+ * the normal (non-streaming) call and delivers the whole reply at once.
+ *
+ * Returns the full text. If streaming is not supported by the endpoint, it
+ * falls back to the regular call — but only while nothing has been shown yet,
+ * so the user never sees the same sentence twice.
+ */
+export async function chatStream(
+  messages: ChatMessage[],
+  onDelta: (delta: string) => void,
+  opts: ChatOptions = {},
+  settings: AISettings = loadAISettings(),
+): Promise<string> {
+  const provider = providerOf(settings);
+  if (provider === 'gemini') {
+    const text = await chatComplete(messages, opts, settings);
+    if (text) onDelta(text);
+    return text;
+  }
+
+  let full = '';
+  try {
+    const body: Record<string, unknown> = {
+      model: settings.model,
+      messages,
+      temperature: opts.temperature ?? settings.temperature,
+      stream: true,
+    };
+    if (opts.maxTokens) body.max_tokens = opts.maxTokens;
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (settings.apiKey.trim()) headers.Authorization = `Bearer ${settings.apiKey}`;
+    if (provider === 'openrouter') {
+      headers['HTTP-Referer'] = typeof location !== 'undefined' ? location.origin : 'https://cutflow.app';
+      headers['X-Title'] = 'CutFlow';
+    }
+    const { res } = await aiRequest(
+      openaiUrl(settings.endpoint),
+      { method: 'POST', headers, body: JSON.stringify(body), signal: opts.signal },
+      'the AI endpoint',
+    );
+    if (!res.ok || !res.body) throw new Error(`stream unavailable (${res.status})`);
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let sse = false;
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() ?? '';
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed.startsWith('data:')) continue;
+        sse = true;
+        const data = trimmed.slice(5).trim();
+        if (!data || data === '[DONE]') continue;
+        try {
+          const parsed = JSON.parse(data) as { choices?: { delta?: { content?: string } }[] };
+          const delta = parsed.choices?.[0]?.delta?.content;
+          if (typeof delta === 'string' && delta) {
+            full += delta;
+            onDelta(delta);
+          }
+        } catch { /* keep-alive or split frame */ }
+      }
+    }
+    // Some local servers answer with one plain JSON body even when asked to
+    // stream; if nothing came through, use the regular path.
+    if (full.trim() || sse) return full;
+    throw new Error('empty stream');
+  } catch {
+    if (full.trim()) return full;
+    const text = await chatComplete(messages, opts, settings);
+    if (text) onDelta(text);
+    return text;
+  }
 }
 
 /** OpenAI-compatible chat/completions (OpenAI, OpenRouter, LM Studio, Ollama…).
@@ -440,7 +544,7 @@ async function openaiComplete(
     }
 
     const hint = res.status === 401 || res.status === 403
-      ? ' Check the API key (and that it has access to this model).'
+      ? ` Check the API key (and that it has access to this model).${/googleapis\.com/i.test(url) && /^AQ\./i.test(settings.apiKey.trim()) ? ' AQ.… keys are Gemini authorization keys: they work only with Provider "Google Gemini" (native API), not the OpenAI-compatible endpoint.' : ''}`
       : res.status === 402
         ? ' The provider says the account has no credits — add credits or use a free model.'
         : res.status === 429
@@ -466,11 +570,19 @@ export async function listModels(settings: AISettings = loadAISettings(), signal
     const root = /generativelanguage\.googleapis\.com/i.test(settings.endpoint)
       ? `${host}/v1beta/models`
       : GEMINI_ENDPOINT;
-    const res = (await aiRequest(
+    const res0 = (await aiRequest(
       root,
       { headers: settings.apiKey.trim() ? { 'x-goog-api-key': settings.apiKey } : {}, signal },
       'Gemini (model list)',
     )).res;
+    // Same header-vs-query key fallback as generateContent (see geminiComplete).
+    const res = !res0.ok && (res0.status === 401 || res0.status === 403) && settings.apiKey.trim()
+      ? (await aiRequest(
+        `${root}?key=${encodeURIComponent(settings.apiKey.trim())}`,
+        { headers: {}, signal },
+        'Gemini (model list)',
+      )).res
+      : res0;
     if (!res.ok) {
       const text = await res.text().catch(() => '');
       let msg = text.slice(0, 200);
@@ -478,7 +590,7 @@ export async function listModels(settings: AISettings = loadAISettings(), signal
         const data = JSON.parse(text) as { error?: { message?: string } };
         msg = data.error?.message ?? msg;
       } catch { /* keep raw */ }
-      throw new Error(`Gemini returned ${res.status} listing models. ${msg}`.trim());
+      throw new Error(`Gemini returned ${res.status} listing models. ${msg}${geminiKeyNote(settings.apiKey)}`.trim());
     }
     const data = await res.json().catch(() => null) as { models?: { name?: string; supportedGenerationMethods?: string[] }[] } | null;
     const names = (data?.models ?? [])

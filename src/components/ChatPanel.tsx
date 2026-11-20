@@ -55,7 +55,7 @@ export function ChatPanel() {
     else ui.toast('Nothing to revert', 'info');
   };
 
-  const suggestions = ['Make this a fast-paced TikTok', 'Remove dead air and add captions', 'Clean up the audio and add a hook title'];
+  const suggestions = ['Make this a fast-paced TikTok with captions', 'Remove the pauses and filler words', 'Clean up the audio and add a hook title'];
 
   return (
     <div className="flex flex-col h-full">
@@ -74,14 +74,14 @@ export function ChatPanel() {
             <Settings2 size={13} />
           </button>
         </div>
-        <div className="text-[10px] text-paper-faint mt-1">{autopilot ? 'Autopilot: plans run automatically' : 'Review mode: you approve each plan'}{session?.connected ? ' · agent live' : ''}</div>
+        <div className="text-[10px] text-paper-faint mt-1">{autopilot ? 'Autopilot on: a connected agent may apply its own plans' : 'Review mode: every plan waits for your OK'}{session?.connected ? ' · agent live' : ''}</div>
       </div>
 
       <div className="flex-1 min-h-0 overflow-y-auto p-2.5 space-y-2.5">
         {chat.length === 0 && (
           <div className="text-center py-6">
             <Bot size={26} className="mx-auto mb-2 text-mind opacity-70" />
-            <p className="text-xs text-paper-dim mb-3">Tell the AI what you want. It plans tool calls you can review — the editing skill is built into CutFlow, so even a small model works.</p>
+            <p className="text-xs text-paper-dim mb-3">Chat or give an edit instruction. Small changes run immediately; big changes appear as a plan you can review. Works without a key in rules mode.</p>
             <div className="space-y-1">
               {suggestions.map((sug) => (
                 <button key={sug} className="w-full text-left text-[11px] text-paper-dim hover:text-paper bg-ink-850 hover:bg-ink-800 border border-line rounded-lg px-2.5 py-1.5" onClick={() => setText(sug)}>{sug}</button>
@@ -96,6 +96,15 @@ export function ChatPanel() {
             </div>
             <div className={`max-w-[85%] rounded-xl px-2.5 py-1.5 text-xs ${m.role === 'user' ? 'bg-signal/15 text-paper' : m.role === 'system' ? 'bg-heat/10 text-heat-amber' : 'bg-ink-800 text-paper-dim'}`}>
               <div className="whitespace-pre-wrap">{m.text}</div>
+              {m.error && m.retry && (
+                <button
+                  className="mt-1.5 flex items-center gap-1 text-[10px] text-paper-faint hover:text-paper"
+                  onClick={() => void useStore.getState().sendChat(m.retry as string)}
+                  title="Send the same message again"
+                >
+                  <RotateCcw size={10} /> Retry
+                </button>
+              )}
               {m.diff && <DiffView diff={m.diff} />}
               {m.diff && !m.diff.identical && (
                 <button className="mt-1.5 flex items-center gap-1 text-[10px] text-paper-faint hover:text-heat" onClick={revertRun}><RotateCcw size={10} /> Revert this run</button>
@@ -104,14 +113,14 @@ export function ChatPanel() {
           </div>
         ))}
 
-        {plan && !planRunning && (
+        {plan && plan.steps.length > 1 && !planRunning && (
           <div className="rounded-xl border border-mind/40 bg-mind/5 p-2.5 animate-fade-in">
-            <div className="flex items-center gap-1.5 text-xs text-mind font-medium mb-1.5"><Sparkles size={13} /> Plan ({plan.source === 'ai' ? 'AI' : 'rules'}) · {plan.steps.length} steps</div>
+            <div className="flex items-center gap-1.5 text-xs text-mind font-medium mb-1.5"><Sparkles size={13} /> Plan · {plan.steps.length} steps</div>
             <ol className="space-y-1 mb-2">
               {plan.steps.map((st, i) => (
                 <li key={i} className="text-[11px] text-paper-dim flex gap-1.5">
                   <span className="text-paper-faint font-mono">{i + 1}.</span>
-                  <span><span className="font-mono text-signal">{st.tool}</span>{st.why ? <span className="text-paper-faint"> — {st.why}</span> : null}</span>
+                  <span>{st.why || 'Edit the timeline'}</span>
                 </li>
               ))}
             </ol>

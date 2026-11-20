@@ -76,6 +76,10 @@ made.push(await png(48, 'favicon-48.png'));
 made.push(await png(32, 'favicon-32.png'));
 made.push(await png(16, 'favicon-16.png'));
 made.push(await padded(512, 'icon-512-maskable.png', 404));
+/* Android builds the adaptive icon from the 192 variant on most densities, so
+ * a maskable 192 is required too — with only a 512 maskable, launchers fall
+ * back to the plain "any" icon and shrink it inside a white circle. */
+made.push(await padded(192, 'icon-192-maskable.png', 150));
 made.push(await padded(180, 'apple-touch-icon.png', 166));
 
 /* Multi-size .ico with PNG payloads (Vista+). Windows shortcuts and browsers

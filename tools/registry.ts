@@ -15,6 +15,8 @@ import { zoomOnEmphasis, reframe, addTransitions, snapToBeats, addMotif } from '
 import { addMusic, balanceAudio, cleanupAudio } from './audioTools';
 import { applyColorPreset, addBrollSlots, autoBroll } from './lookTools';
 import { autoEdit, autoFix, smartCutdown, abVariants, autoMulticam } from './autoEdit';
+import { addText } from './textTools';
+import { editTimeline } from './timelineTools';
 
 export interface ParamSpec { type: 'string' | 'number' | 'boolean' | 'enum'; desc: string; default?: unknown; enum?: string[]; optional?: boolean }
 
@@ -28,6 +30,34 @@ export interface ToolDef {
 }
 
 export const TOOLS: ToolDef[] = [
+  {
+    name: 'add_text',
+    description: 'Add a text/title clip to the timeline. Use for "add text", "add a title", labels, quotes. Position it top, center or bottom; choose weight and colour.',
+    params: {
+      text: { type: 'string', desc: 'The exact words to show.' },
+      position: { type: 'enum', desc: 'Where the text sits in the frame.', enum: ['top', 'center', 'bottom'], default: 'center', optional: true },
+      bold: { type: 'boolean', desc: 'Bold weight.', default: false, optional: true },
+      color: { type: 'string', desc: 'Colour name (white, red, yellow…) or #RRGGBB.', optional: true },
+      size: { type: 'number', desc: 'Font size as a fraction of frame height (0.03–0.16).', default: 0.085, optional: true },
+      start: { type: 'number', desc: 'Timeline start in seconds.', default: 0, optional: true },
+      duration: { type: 'number', desc: 'How long it stays on screen, seconds.', optional: true },
+    },
+    example: { input: { text: 'Welcome', position: 'top', bold: true }, why: 'Open the video with a bold welcome title.' },
+    roles: ['story', 'captions'],
+    run: (c, p) => addText(c, p),
+  },
+  {
+    name: 'timeline_edit',
+    description: 'Change one clip on the timeline: move it, trim its start or end, split it, delete it, mute/unmute it, or change its speed. Read the TIMELINE block for the exact clip_id.',
+    params: {
+      clip_id: { type: 'string', desc: 'The clip_id from the TIMELINE block.' },
+      operation: { type: 'enum', desc: 'What to do.', enum: ['move', 'trim_start', 'trim_end', 'split', 'delete', 'speed', 'mute', 'unmute'] },
+      value: { type: 'number', desc: 'New start / new duration / split time in seconds, or speed multiplier, depending on the operation.', optional: true },
+    },
+    example: { input: { clip_id: 'clip_abc', operation: 'trim_start', value: 5 }, why: 'Drop the first five seconds of dead time.' },
+    roles: ['story', 'motion', 'sound'],
+    run: (c, p) => editTimeline(c, p),
+  },
   {
     name: 'remove_dead_air',
     description: 'Cut silent pauses longer than max_pause_ms. Keeps breathing room, never cuts mid-word, adds tiny audio crossfades. Use when the video feels slow.',

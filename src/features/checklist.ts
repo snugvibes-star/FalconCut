@@ -1,6 +1,6 @@
 /**
  * Engineering status board for CutFlow capabilities — what the browser
- * build can actually do today. Grounded in tools/registry.ts (21 AI tools),
+ * build can actually do today. Grounded in tools/registry.ts (24 AI tools),
  * engine/effects.ts, engine/types.ts, engine/captions.ts, engine/generators.ts,
  * engine/motifs.ts, analysis/whisper.worker.ts and exporter/*. Keep honest.
  */
@@ -118,6 +118,8 @@ export const FEATURE_CHECKLIST: FeatureItem[] = [
   { id: 'stem-separation', group: 'Audio', label: 'Music stem separation (vocals / drums / bass)', status: 'not-possible', note: 'no in-browser model' },
 
   // ── AI automation ──────────────────────────────────────────────────────────
+  { id: 'ai-chat', group: 'AI automation', label: 'Conversational assistant: chat answers without a plan, small edits run immediately, multi-step work appears as a reviewable plan, full conversation history, streaming replies (OpenAI-compatible providers), Retry on failure, "undo that"', status: 'working', note: 'needs an AI key for free-form chat; without a key the honest rules assistant answers and handles clear edit instructions; Gemini replies arrive complete (its stream format differs)' },
+  { id: 'ai-clip-tools', group: 'AI automation', label: 'AI can add text/titles and move, trim, split, delete, mute or change the speed of a named clip (real clip ids are in its context)', status: 'working', note: 'every operation is one undo step; masks, chroma key and keyframing are not yet exposed as AI tools' },
   { id: 'auto-edit', group: 'AI automation', label: 'One-click auto edit pipeline (per video type)', status: 'working', note: 'with an AI model connected (Google Gemini or OpenAI-compatible) the pipeline is planned by the model; without a key the built-in rules pipeline runs on-device — both are one undo step' },
   { id: 'dead-air-cut', group: 'AI automation', label: 'Cut dead air / fillers / retakes', status: 'working' },
   { id: 'smart-cutdown', group: 'AI automation', label: 'Smart cutdown — short-clip candidates with hook scores', status: 'working' },

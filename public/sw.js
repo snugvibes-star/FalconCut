@@ -6,7 +6,7 @@
  *  - the editor itself never needs the network for media: blobs live in
  *    IndexedDB, so a fully loaded project keeps working offline.
  */
-const VERSION = 'cutflow-v2';
+const VERSION = 'cutflow-v3';
 const SHELL = `${VERSION}-shell`;
 const RUNTIME = `${VERSION}-runtime`;
 const SHELL_ASSETS = [
@@ -15,6 +15,7 @@ const SHELL_ASSETS = [
   '/manifest.webmanifest',
   '/icon.svg',
   '/icon-192.png',
+  '/icon-192-maskable.png',
   '/icon-512.png',
   '/icon-512-maskable.png',
   '/apple-touch-icon.png',

@@ -41,7 +41,7 @@ Dev workflow (hot reload at `http://localhost:5173`):
 npm run dev
 ```
 
-Tests (76-test engine suite — timeline, effects, store, tools, exports):
+Tests (99-test suite — timeline, effects, store, tools, chat, assets, exports):
 
 ```bash
 npm run test
@@ -62,8 +62,8 @@ CutFlow's honest, always-up-to-date status board lives in [`src/features/checkli
 - **Export** — MP4 (H.264 + AAC) via WebCodecs when available, WebM (VP9/Opus) otherwise, audio-only WAV, current-frame PNG, animated GIF of a marked section, and `.srt` subtitles.
 - **Stock media panel** — search and import free stock media (Archive.org works keyless; Pexels/Pixabay/Freesound use a free personal key stored locally).
 - **Keyboard shortcuts** — Premiere-style edit keys (V select, C razor, I/O zone, Ctrl+K add-edit-all…) plus a full cheatsheet in the command palette.
-- **Optional AI planning** — connect an AI agent for one-click auto edits, dead-air cutting, smart cutdowns, A/B variants, auto b-roll, and beat-snapped assembly. Without a key, every tool still works from buttons via local rules. Model settings support OpenAI, OpenRouter and Google Gemini (native protocol) plus any OpenAI-compatible or local endpoint, with a **Fetch models** button that lists the models your key can actually use and a **Test connection** button that sends one tiny real request with the values in the form.
-- **PWA — installable on every device** — install CutFlow as an app on Windows, macOS, Linux, Android (Chrome) and iOS (Safari 16.4+). A service worker caches the app shell, so an installed editor keeps working offline — media lives in IndexedDB on the device either way.
+- **Optional AI assistant** — the chat behaves like an assistant, not a plan machine: greetings and questions get plain answers, small edits ("add a bold Welcome title", "trim the first 5 seconds") run immediately and are confirmed in one sentence, and only genuinely multi-step work ("edit this whole video like a cinematic trailer") appears as a reviewable plan. It reads the live project — clip ids, tracks, timings, transcript and quality report — before acting, keeps the conversation as context, streams replies, and every applied edit is one undo step ("undo that" works). Failures show the real reason with a Retry button; it never shows raw JSON or invents a success. Model settings support OpenAI, OpenRouter and Google Gemini (native protocol) plus any OpenAI-compatible or local endpoint, with a **Fetch models** button that lists the models your key can actually use and a **Test connection** button that sends one tiny real request with the values in the form.
+- **PWA — installable on every device** — install CutFlow as an app on Windows, macOS, Linux, Android (Chrome) and iOS (Safari 16.4+). A service worker caches the app shell, so an installed editor keeps working offline — media lives in IndexedDB on the device either way. The installed icon is the real CutFlow artwork, including 192/512 maskable variants for Android's adaptive shape.
 
 Honest limits worth knowing: no 3D camera space, no optical-flow frame blending, no true motion blur on animated transforms, no Lottie/AE animation import, no shape masks or rotoscoping, no music stem separation, no direct publishing to YouTube/TikTok. The checklist file is the source of truth.
 
@@ -82,6 +82,10 @@ AI is **fully optional** — all core editing works without any key. If you want
 2. Paste the key (leave it empty for a local server — that's supported).
 3. **Verify** (shield button beside the key) sends one tiny request and tells you whether this key is valid for this endpoint — before you save anything.
 4. **Test connection** does the same through the full agent path; **Fetch models** lists the models your key can actually use.
+
+**Google key formats:** AI Studio now issues two kinds of API key, and **both are valid** — standard keys starting with `AIza…` and the newer authorization keys starting with `AQ.…`. Paste either one with Provider set to *Google Gemini*; CutFlow sends it the way Google expects (`x-goog-api-key`, then retries with `?key=` if the project requires it). `AQ.…` keys only work on the native Gemini endpoint, not on the OpenAI-compatible `/openai/` path, so the dialog warns if the provider and key type disagree. If a key fails, the error names the real reason (bad key, restricted key, wrong model, quota) instead of guessing from the prefix.
+
+**How the chat behaves:** the assistant decides per message. Conversation → a normal reply, no plan and no tools. A clear small edit → the tool runs immediately and you get a one-sentence confirmation. A large or multi-part request → a short plan generated for that request, which you can Run or Reject. With no key, the built-in rules engine still handles clear instructions and says so honestly; it never pretends to be a language model.
 
 **Why OpenAI used to fail in the browser:** `api.openai.com` refuses browser cross-origin requests, and no client-side code can work around that. When CutFlow runs from its own local server (`Start CutFlow.bat`, `npm run serve` or `npm run dev`) those calls are proxied through the same origin — bound to loopback only, with a header allowlist, and your key still goes straight to the provider. The dialog shows whether the proxy is active.
 
@@ -104,6 +108,8 @@ CutFlow targets modern browsers. **Chromium-based browsers (Chrome, Edge) are re
 - **MP4 export unavailable** — your browser doesn't expose an H.264 encoder through WebCodecs. Use **WebM** export instead (works everywhere; convert with any tool afterward).
 - **Large-file playback stutter** — very large videos are decoded on demand; give the timeline a moment after loading before expecting smooth playback. Scrub once through the section you want to preview.
 - **CORS-blocked stock downloads** — some stock CDNs block direct browser downloads. The stock panel shows an honest error; download the file manually and import it as a local file instead.
+- **The installed icon is blank, generic or the old logo** — the browser caches a PWA's icon at install time, so an app installed before the artwork changed keeps the old one. Uninstall the app, clear the site's storage for `localhost:4173` if you want a clean slate, then open the URL and install again (address-bar install icon, or ⋮ → *Install CutFlow*). The manifest serves `icon-192.png`, `icon-192-maskable.png`, `icon-512.png` and `icon-512-maskable.png`; the service worker version is bumped (`cutflow-v3`) so the new shell is picked up on the next launch. If your browser offers no install entry, use its menu → *Install app* / *Add to Home screen* — CutFlow's own Install button says so when the browser has not offered a prompt.
+- **Opening the installed app shows “site can't be reached”** — the PWA is served from your own machine, so the local server must be running. Use `Start CutFlow.bat` (it starts the server and opens the app); the installed icon then launches the full editor with no address bar.
 
 ## Contributing
 
