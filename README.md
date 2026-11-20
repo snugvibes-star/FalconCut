@@ -23,7 +23,9 @@ Privacy-first by design: media never leaves the device — no uploads, no accoun
 
 > **Why double-clicking `dist/index.html` doesn't work:** a web app cannot run from `file://` — ES modules, service workers and IndexedDB all require an `http(s)` origin. That's a browser security rule, not an app bug. CutFlow ships a launcher that gives it a real localhost origin, and from there the browser installs it as a **PWA with a desktop/home-screen icon** that opens standalone and works offline.
 
-**Windows — one double-click:** run **`Start CutFlow.bat`**. First run installs dependencies and builds (about a minute), then opens `http://localhost:4173`.
+**Windows - one double-click:** run **`Start CutFlow.bat`**. First run installs dependencies and builds (about a minute), then opens `http://localhost:4173` in a Chrome/Edge app window (no address bar).
+
+**Windows desktop icon (recommended):** right-click **`Install CutFlow.ps1`** → *Run with PowerShell* (or run `powershell -ExecutionPolicy Bypass -File ".\Install CutFlow.ps1"`). It creates **CutFlow shortcuts on the Desktop and in the Start Menu**, using `public/cutflow.ico` (real artwork, 16–256 px) and launching through a hidden `Start CutFlow.vbs`, so clicking the icon starts the server and opens the editor in its own window - the same behaviour as the other app icons on your desktop. The shortcut is a normal Windows `.lnk`; delete it to uninstall.
 
 Or manually, on any OS:
 
@@ -109,7 +111,7 @@ CutFlow targets modern browsers. **Chromium-based browsers (Chrome, Edge) are re
 - **Large-file playback stutter** — very large videos are decoded on demand; give the timeline a moment after loading before expecting smooth playback. Scrub once through the section you want to preview.
 - **CORS-blocked stock downloads** — some stock CDNs block direct browser downloads. The stock panel shows an honest error; download the file manually and import it as a local file instead.
 - **The installed icon is blank, generic or the old logo** — the browser caches a PWA's icon at install time, so an app installed before the artwork changed keeps the old one. Uninstall the app, clear the site's storage for `localhost:4173` if you want a clean slate, then open the URL and install again (address-bar install icon, or ⋮ → *Install CutFlow*). The manifest serves `icon-192.png`, `icon-192-maskable.png`, `icon-512.png` and `icon-512-maskable.png`; the service worker version is bumped (`cutflow-v3`) so the new shell is picked up on the next launch. If your browser offers no install entry, use its menu → *Install app* / *Add to Home screen* — CutFlow's own Install button says so when the browser has not offered a prompt.
-- **Opening the installed app shows “site can't be reached”** — the PWA is served from your own machine, so the local server must be running. Use `Start CutFlow.bat` (it starts the server and opens the app); the installed icon then launches the full editor with no address bar.
+- **Opening the installed app shows "site can't be reached"** - the PWA is served from your own machine, so the local server must be running. Use `Start CutFlow.bat` or the desktop shortcut from `Install CutFlow.ps1` (both start the server and open the app); the installed icon then launches the full editor with no address bar.
 
 ## Contributing
 

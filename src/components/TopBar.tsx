@@ -167,13 +167,15 @@ export function TopBar({ leftOpen, rightOpen, onToggleLeft, onToggleRight }: Top
           {(Object.keys(ASPECT_SIZES) as Aspect[]).map((a) => <option key={a} value={a}>{a}</option>)}
         </select>
 
-        <button className="btn-signal shrink-0" onClick={autoEdit} disabled={busy} title="One-click professional edit using the active style pack (no AI key needed)">
-          {busy ? <Loader2 size={15} className="animate-spin" /> : <Wand2 size={15} />}
-        </button>
+        <div className="sticky right-0 flex items-center gap-1 bg-ink-900 pl-1 shrink-0">
+          <button className="btn-signal shrink-0" onClick={autoEdit} disabled={busy} title="One-click professional edit using the active style pack (no AI key needed)">
+            {busy ? <Loader2 size={15} className="animate-spin" /> : <Wand2 size={15} />}
+          </button>
 
-        <button className="btn-solid shrink-0" onClick={() => ui.open('export')} title="Export (Ctrl+E)"><Download size={15} /></button>
+          <button className="btn-solid shrink-0" onClick={() => ui.open('export')} title="Export (Ctrl+E)"><Download size={15} /></button>
 
-        <button className="icon-btn shrink-0" onClick={() => setMoreOpen(true)} title="More actions"><MoreVertical size={16} /></button>
+          <button className="icon-btn shrink-0" onClick={() => setMoreOpen(true)} title="More actions"><MoreVertical size={16} /></button>
+        </div>
 
         {moreOpen && (
           <>
@@ -271,10 +273,11 @@ export function TopBar({ leftOpen, rightOpen, onToggleLeft, onToggleRight }: Top
         <button className="icon-btn" disabled={!canRedo} onClick={() => useStore.getState().redo()} title={canRedo ? `Redo ${redoLabel} (Ctrl+Shift+Z)` : 'Nothing to redo'}><Redo2 size={15} /></button>
       </div>
 
-      {/* CENTER — workspace page switcher (Resolve-style). A real flex item
-          (not absolute) so it can never overlap the left/right clusters. */}
-      <div className="flex-1 flex justify-center min-w-0 self-stretch">
-        <nav className="flex items-stretch min-w-0">
+      {/* CENTER — workspace switcher. A real flex item (not absolute) so it can
+          never overlap the left/right clusters; below 1280px the pages become a
+          select, because five text tabs do not fit next to the tool cluster. */}
+      <div className="flex-1 flex justify-center min-w-0 self-stretch overflow-hidden">
+        <nav className="hidden xl:flex items-stretch min-w-0" aria-label="Workspace">
           {WORKSPACES.map((w) => {
             const active = workspace === w.id;
             return (
@@ -290,6 +293,15 @@ export function TopBar({ leftOpen, rightOpen, onToggleLeft, onToggleRight }: Top
             );
           })}
         </nav>
+        <select
+          className="xl:hidden field w-auto max-w-[132px] my-auto py-0.5 text-[11px] uppercase tracking-wide cursor-pointer"
+          value={workspace}
+          onChange={(e) => ui.setWorkspace(e.target.value as Workspace)}
+          title="Workspace"
+          aria-label="Workspace"
+        >
+          {WORKSPACES.map((w) => <option key={w.id} value={w.id}>{w.label}</option>)}
+        </select>
       </div>
 
       {/* RIGHT — canvas + tools + agent + projects + export */}

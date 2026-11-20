@@ -32,15 +32,26 @@ if "%NEEDS_BUILD%"=="1" (
 rem Start the server detached (no console window left behind).
 powershell -NoProfile -WindowStyle Hidden -Command "Start-Process -WindowStyle Hidden -FilePath node -ArgumentList 'scripts/serve.mjs' -WorkingDirectory '%CD%'"
 
-rem Give the server a moment, then open the app.
+rem Give the server a moment, then open the app. Chrome/Edge get an app window
+rem (no address bar, own taskbar entry) so it behaves like an installed app.
 timeout /t 2 /nobreak >nul
-start "" "http://localhost:4173"
+set "APPURL=http://localhost:4173"
+set "BROWSER="
+if exist "%ProgramFiles%\Google\Chrome\Application\chrome.exe" set "BROWSER=%ProgramFiles%\Google\Chrome\Application\chrome.exe"
+if not defined BROWSER if exist "%ProgramFiles(x86)%\Google\Chrome\Application\chrome.exe" set "BROWSER=%ProgramFiles(x86)%\Google\Chrome\Application\chrome.exe"
+if not defined BROWSER if exist "%LocalAppData%\Google\Chrome\Application\chrome.exe" set "BROWSER=%LocalAppData%\Google\Chrome\Application\chrome.exe"
+if not defined BROWSER if exist "%ProgramFiles%\Microsoft\Edge\Application\msedge.exe" set "BROWSER=%ProgramFiles%\Microsoft\Edge\Application\msedge.exe"
+if not defined BROWSER if exist "%ProgramFiles(x86)%\Microsoft\Edge\Application\msedge.exe" set "BROWSER=%ProgramFiles(x86)%\Microsoft\Edge\Application\msedge.exe"
+if defined BROWSER goto appwindow
+start "" "%APPURL%"
+goto opened
+:appwindow
+start "" "%BROWSER%" --app=%APPURL% --window-size=1440,960
+:opened
 
 echo.
 echo CutFlow is running at http://localhost:4173
-echo To get a desktop icon: click the install icon in the address bar
-echo (or browse menu - "Install CutFlow"). It then opens standalone and
-echo works offline.
+echo For a permanent desktop icon, run "Install CutFlow.ps1" once.
 echo.
 echo To stop the server later, open Task Manager and end the "node" process,
 echo or run: taskkill /IM node.exe /F
