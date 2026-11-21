@@ -5,6 +5,7 @@ import { useStore } from '../state/store';
 import { useUI } from '../state/ui';
 import { activeClips, projectDuration } from '../../engine';
 import { toggleMarkerLoop } from '../features/zoneLoop';
+import { copySelection, cutSelection, duplicateSelection, pasteClipboard } from '../features/clipClipboard';
 
 function isTyping(el: EventTarget | null): boolean {
   const t = el as HTMLElement | null;
@@ -50,6 +51,32 @@ export function useKeyboard() {
       if (mod && e.key.toLowerCase() === 'z') { e.preventDefault(); e.shiftKey ? s.redo() : s.undo(); return; }
       if (mod && e.key.toLowerCase() === 'y') { e.preventDefault(); s.redo(); return; }
       if (mod && e.key.toLowerCase() === 'a') { e.preventDefault(); s.select(s.project.clips.map((c) => c.id)); return; }
+
+      // ---- clipboard: copy / cut / paste / duplicate -------------------------
+      if (mod && e.key.toLowerCase() === 'c') {
+        e.preventDefault();
+        const n = copySelection();
+        ui.toast(n ? `${n} clip${n > 1 ? 's' : ''} copied — Ctrl+V pastes at the playhead` : 'Select a clip to copy', n ? 'success' : 'info');
+        return;
+      }
+      if (mod && e.key.toLowerCase() === 'x') {
+        e.preventDefault();
+        const n = cutSelection();
+        ui.toast(n ? `${n} clip${n > 1 ? 's' : ''} cut — Ctrl+V pastes at the playhead` : 'Select a clip to cut', n ? 'success' : 'info');
+        return;
+      }
+      if (mod && e.key.toLowerCase() === 'v') {
+        e.preventDefault();
+        const n = pasteClipboard(s.playhead);
+        ui.toast(n ? `Pasted ${n} clip${n > 1 ? 's' : ''} at the playhead` : 'Clipboard is empty — copy a clip first', n ? 'success' : 'info');
+        return;
+      }
+      if (mod && e.key.toLowerCase() === 'd') {
+        e.preventDefault();
+        const n = duplicateSelection();
+        ui.toast(n ? `Duplicated ${n} clip${n > 1 ? 's' : ''}` : 'Select a clip to duplicate', n ? 'success' : 'info');
+        return;
+      }
 
       switch (e.key) {
         case ' ': {
@@ -153,6 +180,15 @@ export function useKeyboard() {
             : activeClips(s.project, t).find((c) => c.kind === 'media' && t > c.start + 0.05 && t < c.start + c.duration - 0.05);
           if (target) { s.commit([{ type: 'split_clip', clipId: target.id, time: t }], 'Split clip'); ui.toast('Split at playhead'); }
           else ui.toast('Move the playhead inside a clip to split', 'info');
+          break;
+        }
+        case 'n':
+        case 'N': {
+          // N: toggle magnetic snapping (persisted).
+          e.preventDefault();
+          const next = !ui.snap;
+          ui.setSnap(next);
+          ui.toast(next ? 'Snapping on' : 'Snapping off — hold Alt while dragging to bypass it either way');
           break;
         }
         case 'm':

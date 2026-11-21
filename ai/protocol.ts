@@ -17,7 +17,7 @@ export interface AgentReply {
   calls: ToolCall[];
 }
 
-export const AGENT_SYSTEM_PROMPT = `You are the CutFlow AI assistant. You chat naturally with the editor and you edit their video by calling CutFlow tools. You see the live project state below.
+export const AGENT_SYSTEM_PROMPT = `You are the FalconCut AI assistant. You chat naturally with the editor and you edit their video by calling FalconCut tools. You see the live project state below.
 
 HOW TO BEHAVE
 - Every message is either conversation or an edit request. Decide which before you answer.

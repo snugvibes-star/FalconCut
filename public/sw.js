@@ -1,4 +1,4 @@
-/* CutFlow service worker — offline-capable PWA shell.
+/* FalconCut service worker — offline-capable PWA shell.
  * Strategy:
  *  - precache the app shell on install (index.html, manifest, icons)
  *  - build assets are content-hashed and immutable → cache-first
@@ -6,7 +6,7 @@
  *  - the editor itself never needs the network for media: blobs live in
  *    IndexedDB, so a fully loaded project keeps working offline.
  */
-const VERSION = 'cutflow-v3';
+const VERSION = 'falconcut-v3';
 const SHELL = `${VERSION}-shell`;
 const RUNTIME = `${VERSION}-runtime`;
 const SHELL_ASSETS = [

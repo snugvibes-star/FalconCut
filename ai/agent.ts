@@ -46,7 +46,7 @@ const GREETING = /^(hi|hello|hey|hiya|yo|hola|namaste|salam|assalam|good (mornin
 const CAPS = /\b(what can you do|what do you do|who are you|what are you|your (features|abilities)|how do i use|how does this work)\b/i;
 const THANKS = /^(thanks|thank you|thx|cheers|nice|cool|great|perfect|awesome)\b/i;
 
-const RULES_NOTE = 'I am CutFlow’s built-in assistant, and no AI key is connected yet, so I follow the rules engine instead of a language model.';
+const RULES_NOTE = 'I am FalconCut’s built-in assistant, and no AI key is connected yet, so I follow the rules engine instead of a language model.';
 
 const HELP_TEXT = [
   RULES_NOTE,

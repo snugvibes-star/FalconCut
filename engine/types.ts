@@ -1,5 +1,5 @@
 /**
- * CutFlow project schema. The ENTIRE project is this one JSON document.
+ * FalconCut project schema. The ENTIRE project is this one JSON document.
  * Any AI can read it, and every change happens through engine/actions.ts.
  * All times are seconds. Timeline time = position in the final video.
  * Source time (inPoint) = position inside the original media file.
@@ -237,6 +237,8 @@ export interface Track {
   locked: boolean;
   muted: boolean;
   hidden: boolean;
+  /** Solo this track's audio: when any track of a kind is soloed, only soloed tracks of that kind are heard. */
+  solo?: boolean;
   height?: number;
 }
 

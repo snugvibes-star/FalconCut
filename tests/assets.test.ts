@@ -90,7 +90,7 @@ describe('shipped assets (publish guard)', () => {
     }
     // The shell version must be bumped whenever the precache list changes, or
     // users keep the old manifest and the old home-screen icon forever.
-    expect(sw).toMatch(/const VERSION = 'cutflow-v\d+'/);
+    expect(sw).toMatch(/const VERSION = 'falconcut-v\d+'/);
   });
 
   it('shortcut icons resolve too', () => {

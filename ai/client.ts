@@ -7,7 +7,7 @@
  *   response shape — a Gemini key does NOT work through the OpenAI shape).
  *
  * Transport: requests go direct first. Some providers (api.openai.com) refuse
- * browser CORS, which client code cannot fix — when CutFlow is served from its
+ * browser CORS, which client code cannot fix — when FalconCut is served from its
  * own local server, the request is transparently replayed through the
  * same-origin /__ai proxy (see server/aiProxy.mjs). Without that server it
  * stays direct and the error message explains why.
@@ -92,7 +92,7 @@ export const DEFAULT_AI_SETTINGS: AISettings = {
   temperature: 0.4,
 };
 
-const LS_KEY = 'cutflow.ai.settings';
+const LS_KEY = 'falconcut.ai.settings';
 
 export function loadAISettings(): AISettings {
   try {
@@ -150,7 +150,7 @@ export function providerOf(s: AISettings): AIProvider {
  *
  * Some providers — api.openai.com above all — reject browser requests with a
  * CORS error, which no client-side code can work around. When the app is served
- * by CutFlow's own local server (`Start CutFlow.bat`, `npm run serve`,
+ * by FalconCut's own local server (`Start FalconCut.bat`, `npm run serve`,
  * `npm run dev`), the same origin exposes POST /__ai?url=… and forwards the call
  * server-side. We probe once, cache the answer, and every request then falls
  * back to it automatically on a network-level failure only.
@@ -162,7 +162,7 @@ export function localProxyAvailable(): Promise<boolean> {
   if (!/^(localhost|127\.0\.0\.1|\[::1\])$/i.test(location.hostname)) return Promise.resolve(false);
   if (!proxyProbe) {
     proxyProbe = fetch('/__ai', { method: 'GET', headers: { Accept: 'application/json' } })
-      .then(async (r) => (r.ok ? (await r.json() as { proxy?: string } | null)?.proxy === 'cutflow-local' : false))
+      .then(async (r) => (r.ok ? (await r.json() as { proxy?: string } | null)?.proxy === 'falconcut-local' : false))
       .catch(() => false);
   }
   return proxyProbe;
@@ -198,7 +198,7 @@ async function aiRequest(url: string, init: RequestInit, label: string): Promise
       throw new Error(`Could not reach your local AI server at ${url}: ${direct}. Is it running? Ollama: "ollama serve". LM Studio: start the Local Server tab (port 1234). Then check the port matches.`);
     }
     if (!(await localProxyAvailable())) {
-      throw new Error(`Could not reach ${label}: ${direct}. Check the URL and the key. Providers that block browser requests (e.g. api.openai.com) work when CutFlow is opened from its local server — double-click Start CutFlow.bat.`);
+      throw new Error(`Could not reach ${label}: ${direct}. Check the URL and the key. Providers that block browser requests (e.g. api.openai.com) work when FalconCut is opened from its local server — double-click Start FalconCut.bat.`);
     }
     try {
       return { res: await fetch(`/__ai?url=${encodeURIComponent(url)}`, init), viaProxy: true };
@@ -350,11 +350,11 @@ async function geminiComplete(messages: ChatMessage[], opts: ChatOptions, settin
     }
     const path = (() => { try { const u = new URL(url); return u.pathname; } catch { return url; } })();
     const hint = res.status === 404
-      ? ` Google has no route at ${path}. Press "Fetch models" in Settings to see the exact model names your key can use, and keep the endpoint as …/v1beta or …/v1beta/models — CutFlow adds /models/<model>:generateContent itself.`
+      ? ` Google has no route at ${path}. Press "Fetch models" in Settings to see the exact model names your key can use, and keep the endpoint as …/v1beta or …/v1beta/models — FalconCut adds /models/<model>:generateContent itself.`
       : res.status === 400 && /api key/i.test(msg)
         ? ` The key was rejected. Copy it again from aistudio.google.com/apikey — both key types work here: standard keys (AIza…) and the newer authorization keys (AQ.…). If you just created the key, give it a minute to activate.${geminiKeyNote(settings.apiKey)}`
         : res.status === 401
-          ? ` The key was not accepted as an API key.${/access_token_type_unsupported|multiple authentication/i.test(msg) ? ' Google saw the wrong credential type — CutFlow sends it as an API key, so this usually means the value is an OAuth token rather than a key.' : ''}${geminiKeyNote(settings.apiKey)} Copy a Gemini API key from aistudio.google.com/apikey.`
+          ? ` The key was not accepted as an API key.${/access_token_type_unsupported|multiple authentication/i.test(msg) ? ' Google saw the wrong credential type — FalconCut sends it as an API key, so this usually means the value is an OAuth token rather than a key.' : ''}${geminiKeyNote(settings.apiKey)} Copy a Gemini API key from aistudio.google.com/apikey.`
           : res.status === 403
             ? ` The key is valid but is not allowed to use this model or API — check key restrictions in Google AI Studio, or pick another model.${geminiKeyNote(settings.apiKey)}`
             : res.status === 429
@@ -418,8 +418,8 @@ export async function chatStream(
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
     if (settings.apiKey.trim()) headers.Authorization = `Bearer ${settings.apiKey}`;
     if (provider === 'openrouter') {
-      headers['HTTP-Referer'] = typeof location !== 'undefined' ? location.origin : 'https://cutflow.app';
-      headers['X-Title'] = 'CutFlow';
+      headers['HTTP-Referer'] = typeof location !== 'undefined' ? location.origin : 'https://falconcut.app';
+      headers['X-Title'] = 'FalconCut';
     }
     const { res } = await aiRequest(
       openaiUrl(settings.endpoint),
@@ -491,8 +491,8 @@ async function openaiComplete(
   if (settings.apiKey.trim()) headers.Authorization = `Bearer ${settings.apiKey}`;
   if (openrouter) {
     // Optional attribution headers OpenRouter uses for app ranking; harmless.
-    headers['HTTP-Referer'] = typeof location !== 'undefined' ? location.origin : 'https://cutflow.app';
-    headers['X-Title'] = 'CutFlow';
+    headers['HTTP-Referer'] = typeof location !== 'undefined' ? location.origin : 'https://falconcut.app';
+    headers['X-Title'] = 'FalconCut';
   }
 
   const dropped: string[] = [];
@@ -552,7 +552,7 @@ async function openaiComplete(
           : (res.status === 404 || res.status === 400)
             ? ' If this mentions an unknown model, press "Fetch models" in Settings to list the models this endpoint offers.'
             : '';
-    const route = viaProxy ? ' (sent through your local CutFlow proxy)' : '';
+    const route = viaProxy ? ' (sent through your local FalconCut proxy)' : '';
     throw new Error(`AI endpoint returned ${res.status}${route}. ${msg}${hint}`.trim());
   }
   throw new Error('The endpoint kept rejecting optional parameters. Try a different model, or press "Fetch models" in Settings.');

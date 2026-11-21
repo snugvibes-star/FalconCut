@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Play, Pause, SkipBack, SkipForward, ChevronsLeft, ChevronsRight, Grid3x3, Maximize2, Minimize2, Theater, Repeat, PenLine, Camera } from 'lucide-react';
+import { Play, Pause, SkipBack, SkipForward, ChevronsLeft, ChevronsRight, Grid3x3, Maximize2, Minimize2, Theater, Repeat, PenLine, Camera, Download, Crop } from 'lucide-react';
 import { useStore } from '../state/store';
 import { useUI } from '../state/ui';
 import { renderFrame, drawSafeZones, projectDuration, activeClips, getMedia, type Action } from '../../engine';
@@ -7,6 +7,7 @@ import { toggleMarkerLoop } from '../features/zoneLoop';
 import { projectPNG } from '../../exporter/artifacts';
 import { getBlob } from '../state/persistence';
 import { OverlayEditor } from './preview/OverlayEditor';
+import { CropOverlay } from './preview/CropOverlay';
 import { DrawBar } from './preview/DrawBar';
 
 function timecode(t: number, fps: number): string {
@@ -32,6 +33,7 @@ export function Preview() {
   const frameTick = useStore((s) => s.frameTick);
   const pool = useStore((s) => s.pool);
   const focusMode = useUI((s) => s.focusMode);
+  const tool = useUI((s) => s.draw.tool);
   const railVisible = useUI((s) => s.railVisible);
   const setRailVisible = useUI((s) => s.setRailVisible);
   const zoneLoop = useStore((s) => !!s.zone?.loop);
@@ -45,6 +47,28 @@ export function Preview() {
   const [box, setBox] = useState({ w: 0, h: 0 });
   const [full, setFull] = useState(false);
   const [capturing, setCapturing] = useState(false);
+
+  /** Lossless PNG export of the exact rendered frame at the playhead. */
+  const saveFrame = async () => {
+    const s = useStore.getState();
+    s.pause();
+    setCapturing(true);
+    try {
+      const blob = await projectPNG(s.project, s.playhead, getBlob);
+      const name = `falconcut-frame-${s.playhead.toFixed(2).replace('.', '_')}s.png`;
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = name;
+      a.click();
+      URL.revokeObjectURL(url);
+      useUI.getState().toast(`Frame saved as PNG (${s.project.settings.width}×${s.project.settings.height})`, 'success');
+    } catch (e) {
+      useUI.getState().toast(e instanceof Error ? e.message : 'Frame export failed', 'error');
+    } finally {
+      setCapturing(false);
+    }
+  };
 
   /** Freeze frame: render the EXACT frame at the playhead (full resolution,
    * same renderFrame as export), import it as an image and drop a 2s clip at
@@ -105,7 +129,7 @@ export function Preview() {
       if (e.key !== 'Escape') return;
       const ui = useUI.getState();
       if (Object.values(ui.dialogs).some(Boolean)) return;
-      if (document.querySelector('[data-cutflow-menu]')) return;
+      if (document.querySelector('[data-falconcut-menu]')) return;
       if (useStore.getState().selection.length) return; // global handler clears selection first
       useUI.getState().toggleFocusMode();
     };
@@ -190,8 +214,8 @@ export function Preview() {
               style={{ width: dispW, height: dispH }}
             >
               <canvas ref={canvasRef} className="block w-full h-full" style={{ imageRendering: 'auto' }} />
-              <OverlayEditor scale={scale} />
-              <DrawBar />
+              {tool === 'crop' ? <CropOverlay scale={scale} /> : <OverlayEditor scale={scale} />}
+              {tool !== 'crop' && <DrawBar />}
             </div>
           </div>
         ) : (
@@ -251,6 +275,30 @@ export function Preview() {
           title={capturing ? 'Capturing frame…' : 'Freeze frame — insert the current frame as a 2s still at the playhead'}
         >
           <Camera size={16} />
+        </button>
+        <button
+          className="icon-btn"
+          onClick={() => void saveFrame()}
+          disabled={capturing || !hasContent}
+          title={capturing ? 'Capturing frame…' : 'Save current frame as PNG (lossless, full project resolution)'}
+        >
+          <Download size={16} />
+        </button>
+        <button
+          className={`icon-btn ${tool === 'crop' ? 'text-signal' : ''}`}
+          onClick={() => {
+            const ui = useUI.getState();
+            const next = ui.draw.tool === 'crop' ? 'select' : 'crop';
+            useStore.getState().pause();
+            if (next === 'crop' && !useStore.getState().selection.length) {
+              ui.toast('Select a video or image clip on the timeline first, then drag the crop box', 'info');
+            }
+            ui.setDrawTool(next);
+          }}
+          disabled={!hasContent}
+          title={tool === 'crop' ? 'Finish cropping' : 'Crop — isolate a region without re-encoding (non-destructive)'}
+        >
+          <Crop size={16} />
         </button>
         <button
           className={`icon-btn ${focusMode ? 'text-signal' : ''}`}

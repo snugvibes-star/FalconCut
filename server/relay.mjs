@@ -1,5 +1,5 @@
 /**
- * CutFlow agent relay (Phase 9). A tiny, local-first WebSocket message router
+ * FalconCut agent relay (Phase 9). A tiny, local-first WebSocket message router
  * that pairs ONE editor tab ("host") with ONE external agent ("agent") by a
  * shared session token, and forwards JSON requests/responses/events between
  * them. It is deliberately dumb:
@@ -82,15 +82,15 @@ function attach(sessions, token, role, conn) {
 
 function connectPage(token, wsUrl) {
   const safe = String(token).replace(/[<>&"]/g, '');
-  return `<!doctype html><html><head><meta charset="utf-8"><title>Connect to CutFlow</title>
+  return `<!doctype html><html><head><meta charset="utf-8"><title>Connect to FalconCut</title>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <style>body{font-family:system-ui,sans-serif;background:#07090F;color:#E6E9F0;max-width:640px;margin:40px auto;padding:0 20px;line-height:1.6}code{background:#161B26;padding:2px 6px;border-radius:6px}h1{font-size:22px}.box{background:#11151F;border:1px solid #232A38;border-radius:12px;padding:16px;margin:16px 0}</style>
 </head><body>
-<h1>Connect an agent to CutFlow</h1>
+<h1>Connect an agent to FalconCut</h1>
 <p>This one-time session links an external agent to the editor tab that created it. The token grants access to <strong>only the project open in that tab</strong>, expires when the tab closes, and can be revoked there with one click. Video files never leave the browser.</p>
 <div class="box"><p>WebSocket URL:<br><code>${wsUrl}</code></p><p>Session token:<br><code>${safe}</code></p></div>
 <p>Point your agent at the WebSocket URL with <code>?token=${safe}&amp;role=agent</code>, or run the MCP bridge:</p>
-<div class="box"><code>CUTFLOW_RELAY=${wsUrl} CUTFLOW_TOKEN=${safe} node server/cutflow-mcp.mjs</code></div>
+<div class="box"><code>FALCONCUT_RELAY=${wsUrl} FALCONCUT_TOKEN=${safe} node server/falconcut-mcp.mjs</code></div>
 </body></html>`;
 }
 
@@ -113,7 +113,7 @@ export function createRelay({ host = '127.0.0.1', port = 8787 } = {}) {
     }
     if (url.pathname === '/') {
       res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
-      res.end('CutFlow relay. See /connect?token=... to pair an agent. Health: /health\n');
+      res.end('FalconCut relay. See /connect?token=... to pair an agent. Health: /health\n');
       return;
     }
     res.writeHead(404, { 'Content-Type': 'text/plain' });
@@ -164,7 +164,7 @@ if (isMain) {
   const host = process.env.HOST || '127.0.0.1';
   const relay = createRelay({ host, port });
   relay.listen().then((addr) => {
-    console.log(`CutFlow relay listening on ws://${addr.address}:${addr.port} (HTTP http://${addr.address}:${addr.port})`);
+    console.log(`FalconCut relay listening on ws://${addr.address}:${addr.port} (HTTP http://${addr.address}:${addr.port})`);
     console.log('Local-first: bound to', addr.address, '. Set HOST=0.0.0.0 only if you intend LAN access.');
   });
   const shutdown = () => relay.close().then(() => process.exit(0));

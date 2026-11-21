@@ -2,7 +2,7 @@ import { Type, AlignLeft } from 'lucide-react';
 import { useStore } from '../../state/store';
 import { useUI } from '../../state/ui';
 import { commit, Section, Hint } from './shared';
-import { CUTFLOW_MIME } from '../MediaTab';
+import { FALCONCUT_MIME } from '../MediaTab';
 import type { TextData } from '../../../engine';
 
 const fmtTime = (t: number) => {
@@ -54,7 +54,7 @@ export function TextTab() {
                 key={p.id}
                 draggable
                 onDragStart={(e) => {
-                  e.dataTransfer.setData(CUTFLOW_MIME, JSON.stringify({ kind: 'text', preset: p.params }));
+                  e.dataTransfer.setData(FALCONCUT_MIME, JSON.stringify({ kind: 'text', preset: p.params }));
                   e.dataTransfer.effectAllowed = 'copy';
                 }}
                 onClick={() => addText(p.params.role)}

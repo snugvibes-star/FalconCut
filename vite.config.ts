@@ -20,7 +20,7 @@ function aiProxy() {
       void handleAIProxy(req as never, res);
     });
   };
-  return { name: 'cutflow-ai-proxy', configureServer: attach, configurePreviewServer: attach };
+  return { name: 'falconcut-ai-proxy', configureServer: attach, configurePreviewServer: attach };
 }
 
 export default defineConfig({

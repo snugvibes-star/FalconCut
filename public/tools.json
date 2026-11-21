@@ -1,11 +1,11 @@
 {
-  "name": "cutflow",
+  "name": "falconcut",
   "version": "1.0.0",
-  "description": "AI-native, privacy-first video editor. The editing skill lives in the system (analysis, rules, tools, quality checks), not in the model — so even a weak model produces professional edits by calling these tools.",
+  "description": "A modern video editor built for human creators and AI agents. Create, edit, automate, and export videos with a powerful professional editing workflow.",
   "privacy": "Everything runs in the browser. Your videos never leave this device. No account, no upload.",
   "access": {
     "inPage": {
-      "where": "window.cutflow",
+      "where": "window.falconcut",
       "methods": [
         "listTools()",
         "getProject()",
@@ -26,7 +26,7 @@
       "note": "A session token grants access to the current project only, expires when the tab closes, and is revocable with one click."
     },
     "mcp": {
-      "where": "node server/cutflow-mcp.mjs",
+      "where": "node server/falconcut-mcp.mjs",
       "note": "MCP stdio bridge that forwards to the relay."
     }
   },
@@ -37,6 +37,100 @@
     "noKey": "With no AI key, every tool still works from buttons, including one-click Auto edit (rules only)."
   },
   "tools": [
+    {
+      "name": "add_text",
+      "description": "Add a text/title clip to the timeline. Use for \"add text\", \"add a title\", labels, quotes. Position it top, center or bottom; choose weight and colour.",
+      "params": {
+        "text": {
+          "type": "string",
+          "description": "The exact words to show."
+        },
+        "position": {
+          "type": "enum",
+          "description": "Where the text sits in the frame.",
+          "default": "center",
+          "enum": [
+            "top",
+            "center",
+            "bottom"
+          ],
+          "optional": true
+        },
+        "bold": {
+          "type": "boolean",
+          "description": "Bold weight.",
+          "default": false,
+          "optional": true
+        },
+        "color": {
+          "type": "string",
+          "description": "Colour name (white, red, yellow…) or #RRGGBB.",
+          "optional": true
+        },
+        "size": {
+          "type": "number",
+          "description": "Font size as a fraction of frame height (0.03–0.16).",
+          "default": 0.085,
+          "optional": true
+        },
+        "start": {
+          "type": "number",
+          "description": "Timeline start in seconds.",
+          "default": 0,
+          "optional": true
+        },
+        "duration": {
+          "type": "number",
+          "description": "How long it stays on screen, seconds.",
+          "optional": true
+        }
+      },
+      "example": {
+        "input": {
+          "text": "Welcome",
+          "position": "top",
+          "bold": true
+        },
+        "why": "Open the video with a bold welcome title."
+      }
+    },
+    {
+      "name": "timeline_edit",
+      "description": "Change one clip on the timeline: move it, trim its start or end, split it, delete it, mute/unmute it, or change its speed. Read the TIMELINE block for the exact clip_id.",
+      "params": {
+        "clip_id": {
+          "type": "string",
+          "description": "The clip_id from the TIMELINE block."
+        },
+        "operation": {
+          "type": "enum",
+          "description": "What to do.",
+          "enum": [
+            "move",
+            "trim_start",
+            "trim_end",
+            "split",
+            "delete",
+            "speed",
+            "mute",
+            "unmute"
+          ]
+        },
+        "value": {
+          "type": "number",
+          "description": "New start / new duration / split time in seconds, or speed multiplier, depending on the operation.",
+          "optional": true
+        }
+      },
+      "example": {
+        "input": {
+          "clip_id": "clip_abc",
+          "operation": "trim_start",
+          "value": 5
+        },
+        "why": "Drop the first five seconds of dead time."
+      }
+    },
     {
       "name": "remove_dead_air",
       "description": "Cut silent pauses longer than max_pause_ms. Keeps breathing room, never cuts mid-word, adds tiny audio crossfades. Use when the video feels slow.",
@@ -357,7 +451,7 @@
     },
     {
       "name": "auto_edit",
-      "description": "Run the FULL recommended pipeline for a video type: balance audio, cut dead air/retakes/fillers, captions, zooms, transitions, color, hook, b-roll slots, music if present, then self-fix. One undo step. Works without any AI.",
+      "description": "Run the FULL recommended pipeline for a video type: balance audio, cut dead air/retakes/fillers, captions, zooms, transitions, color, hook, b-roll slots, music if present, then self-fix. One undo step. When an AI model is connected (Settings → AI) the pipeline is planned for the video type; otherwise the built-in rules pipeline runs on-device.",
       "params": {
         "video_type": {
           "type": "enum",

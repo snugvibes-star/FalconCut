@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll } from 'vitest';
 import {
   createProject, applyAction, applyActions, uid, projectDuration, sourceTimeOf, avgSpeed, strokeBounds,
-  History, renderFrame, evalKeyframes, buildCues, defaultTextStyle, ACTION_SCHEMA, clearGenCache,
+  History, renderFrame, evalKeyframes, buildCues, defaultTextStyle, defaultTransform, ACTION_SCHEMA, clearGenCache,
 } from '../engine';
 import type { Action } from '../engine/actions';
 import type { MediaAsset, Project } from '../engine/types';
@@ -285,7 +285,7 @@ describe('renderer determinism', () => {
 
   it('renders text and motifs without a resolver', () => {
     let p = baseProject();
-    p = applyAction(p, { type: 'add_text', start: 0, duration: 3, text: 'HELLO CUTFLOW', preset: 'word-pop' });
+    p = applyAction(p, { type: 'add_text', start: 0, duration: 3, text: 'HELLO FALCONCUT', preset: 'word-pop' });
     p = applyAction(p, { type: 'add_motif', start: 0, duration: 3, motif: { type: 'ring-progress', params: { value: 80 } } });
     const c = new FakeOffscreen(640, 360);
     renderFrame(p, 1, c.getContext() as any, null);
@@ -318,5 +318,83 @@ describe('captions', () => {
       const lines = Math.ceil(c.text.length / 22);
       expect(lines).toBeLessThanOrEqual(2);
     }
+  });
+});
+
+describe('region crop / extraction', () => {
+  it('renderer consumes cropL/R/T/B: only the selected source rect is drawn', () => {
+    let p = baseProject(); // generator 640×360, project 1920×1080
+    const id = p.clips[0].id;
+    p = applyAction(p, { type: 'set_transform', clipId: id, patch: { cropL: 0.25, cropR: 0.25, cropT: 0.1, cropB: 0.2 } });
+    FakeOffscreen.all = [];
+    clearGenCache();
+    const c = new FakeOffscreen(p.settings.width, p.settings.height);
+    renderFrame(p, 2, c.getContext() as any, null);
+    const draws = c.ctx.ops.filter((o) => o.startsWith('drawImage'));
+    expect(draws.length).toBeGreaterThan(0);
+    // sx = 0.25*640 = 160, sy = 0.1*360 = 36, sw = 0.5*640 = 320, sh = 0.7*360 = 252
+    const src = draws[0].split('(')[1].split(')')[0].split(',').map(Number);
+    expect(src[0]).toBeCloseTo(160);
+    expect(src[1]).toBeCloseTo(36);
+    expect(src[2]).toBeCloseTo(320);
+    expect(src[3]).toBeCloseTo(252);
+    // Nothing outside the region is sampled: no draw starts at the uncropped origin.
+    expect(draws.some((d) => d.startsWith('drawImage(0.000,0.000'))).toBe(false);
+  });
+
+  it('crop is non-destructive and undoable (source reference preserved)', () => {
+    let p = baseProject();
+    const id = p.clips[0].id;
+    const mediaId = p.clips[0].mediaId;
+    const h = new History(p);
+    h.apply([{ type: 'set_transform', clipId: id, patch: { cropL: 0.2, cropR: 0.3, cropT: 0, cropB: 0 } }], 'Crop region');
+    const cropped = h.current.clips.find((c) => c.id === id)!;
+    expect(cropped.transform.cropL).toBeCloseTo(0.2);
+    expect(cropped.mediaId).toBe(mediaId); // same source, never re-encoded
+    h.undo();
+    const restored = h.current.clips.find((c) => c.id === id)!;
+    expect(restored.transform.cropL).toBe(0);
+    expect(restored.transform.cropR).toBe(0);
+  });
+
+  it('extract-as-new-clip: new independent clip + track, original untouched', () => {
+    let p = baseProject();
+    const src = p.clips[0];
+    const newTrack = uid('trk');
+    p = applyActions(p, [
+      { type: 'add_track', track: { id: newTrack, kind: 'video', name: 'V2' }, index: 0 },
+      {
+        type: 'add_clip',
+        clip: {
+          trackId: newTrack, mediaId: src.mediaId, start: src.start, duration: src.duration,
+          inPoint: src.inPoint, fit: 'fill',
+          transform: { ...defaultTransform(), cropL: 0.1, cropR: 0.1, cropT: 0.2, cropB: 0.2 },
+        },
+      },
+    ]);
+    const original = p.clips.find((c) => c.id === src.id)!;
+    const extracted = p.clips.find((c) => c.trackId === newTrack)!;
+    expect(extracted).toBeTruthy();
+    expect(extracted.mediaId).toBe(original.mediaId); // same source media
+    expect(extracted.transform.cropL).toBeCloseTo(0.1);
+    expect(extracted.transform.cropT).toBeCloseTo(0.2);
+    expect(original.transform.cropL).toBe(0); // original not modified
+    expect(p.tracks.find((t) => t.id === newTrack)?.kind).toBe('video');
+  });
+
+  it('auto-create-track + move is one undoable group with a shared track id', () => {
+    let p = baseProject();
+    const clip = p.clips[0];
+    const newTrack = uid('trk');
+    const h = new History(p);
+    h.apply([
+      { type: 'add_track', track: { id: newTrack, kind: 'video', name: 'V2' }, index: 0 },
+      { type: 'move_clip', clipId: clip.id, start: 2, trackId: newTrack },
+    ], 'Drop on new track');
+    expect(h.depth).toBe(1);
+    expect(h.current.clips.find((c) => c.id === clip.id)!.trackId).toBe(newTrack);
+    h.undo();
+    expect(h.current.tracks.some((t) => t.id === newTrack)).toBe(false);
+    expect(h.current.clips.find((c) => c.id === clip.id)!.trackId).toBe(p.tracks[0].id);
   });
 });

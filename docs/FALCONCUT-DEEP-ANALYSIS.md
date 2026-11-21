@@ -1,4 +1,4 @@
-# CutFlow — Deep Analysis, Retention & "Make It a Real App" Plan
+# FalconCut — Deep Analysis, Retention & "Make It a Real App" Plan
 
 **Date:** 2026‑11‑16
 **Scope:** static read of the whole repo + live end‑to‑end testing of the running app in headless Chrome (CDP), plus unit tests and the production build.
@@ -26,11 +26,11 @@
 * **Static audit:** every source file read; three parallel deep‑dives (engine/exporter, UI/PWA, QA/release).
 * **Unit tests:** `npm test` → **75/76 pass**, 9.97 s.
 * **Production build:** `npm run build` → fails at `tsc -b` (2 errors).
-* **Live E2E (headless Chrome 157 via CDP, 1600×1000):** fresh profile, IndexedDB wiped, real file‑input import of a real MP4 + generated PNG + generated WAV, then 18 checks through the app's own store surface (`window.cutflow`) and UI clicks.
+* **Live E2E (headless Chrome 157 via CDP, 1600×1000):** fresh profile, IndexedDB wiped, real file‑input import of a real MP4 + generated PNG + generated WAV, then 18 checks through the app's own store surface (`window.falconcut`) and UI clicks.
 * **Renderer probes:** deterministic `renderFrame` calls with a synthetic resolver (solid gray frames) to isolate compositing from decode timing.
-* **Artifacts:** screenshots, a JSON result matrix (`feature-test-v3-results.json`), and the harness scripts are in `…\default-workspace\cutflow-qa\`.
+* **Artifacts:** screenshots, a JSON result matrix (`feature-test-v3-results.json`), and the harness scripts are in `…\default-workspace\falconcut-qa\`.
 
-Harness: `cutflow-qa/feature-test-v3.mjs` (E2E), `cutflow-qa/eval.mjs` (single expression against the live page), `cutflow-qa/diag.mjs` (boot diagnostics).
+Harness: `falconcut-qa/feature-test-v3.mjs` (E2E), `falconcut-qa/eval.mjs` (single expression against the live page), `falconcut-qa/diag.mjs` (boot diagnostics).
 
 ---
 
@@ -52,7 +52,7 @@ Harness: `cutflow-qa/feature-test-v3.mjs` (E2E), `cutflow-qa/eval.mjs` (single e
 
 | Result | Detail |
 |---|---|
-| Boot + agent API | shell renders, `window.cutflow` present |
+| Boot + agent API | shell renders, `window.falconcut` present |
 | Import 3 files via Media panel | media=3, clips=3 in **879 ms** |
 | Analysis of every asset | video/image/audio all get `analysis.byMedia` entries |
 | Playback | playhead 0.09 → 1.73 s over 1.8 s (≈real time); pause holds |
@@ -112,15 +112,15 @@ Additional measured defect: **preview black after reload** — canvas mean luma 
 2. `checklist.ts` marks **"scopes working"** and **"preview customization working"** — plausible, but the preview itself can be black on load (§4), which undermines both.
 3. `llms.txt`/`ExportDialog` promise "MP4 · H.264" at any resolution — the level caps (4.0/3.1) make 4K fail, and the probe is 720p.
 4. `ExportDialog` says WebM real‑time capture is the fallback — that path produces black video today.
-5. `public/llms.txt` describes `window.cutflow.applyTool` etc. correctly, but the app can't be reached at all if a syntax error lands in a component (no CI gate).
+5. `public/llms.txt` describes `window.falconcut.applyTool` etc. correctly, but the app can't be reached at all if a syntax error lands in a component (no CI gate).
 
-**Feature surface vs CapCut/Premiere** — the honest position is: CutFlow has **breadth in AI automation** (better than both), **parity in basic editing**, **a real gap in polish/depth** (transitions, effects library, templates, color depth, audio depth, performance).
+**Feature surface vs CapCut/Premiere** — the honest position is: FalconCut has **breadth in AI automation** (better than both), **parity in basic editing**, **a real gap in polish/depth** (transitions, effects library, templates, color depth, audio depth, performance).
 
 ---
 
 ## 7. Retention: why users would leave, and what actually keeps them
 
-Retention in a consumer editor is not driven by feature count. It is driven by five loops. Here is CutFlow's position on each:
+Retention in a consumer editor is not driven by feature count. It is driven by five loops. Here is FalconCut's position on each:
 
 ### 7.1 Time‑to‑first‑win (strong idea, weak execution)
 The winning flow is: *open → import → "Auto edit" → preview → export → share*. It exists (`auto_edit`, 25 actions, one undo) and needs **no AI key**. But:
@@ -146,10 +146,10 @@ Projects persist (verified across reload), but:
 * no quota/storage warnings;
 * no cloud, no sync, no co‑editing (fine — but then backups must be excellent).
 
-**Lever:** `.cutflow` bundle export/import (project + media), quota meter, "download backup" nudge, and export‑before‑reset.
+**Lever:** `.falconcut` bundle export/import (project + media), quota meter, "download backup" nudge, and export‑before‑reset.
 
 ### 7.5 Habit & identity
-No template library, no brand kit, no asset/music library, no presets that make the second video faster than the first. Every CapCut session is faster because of templates/trends/favorites. CutFlow has styles packs (`styles/packs.ts`, `styles/rules.ts`) but not a browsable template gallery.
+No template library, no brand kit, no asset/music library, no presets that make the second video faster than the first. Every CapCut session is faster because of templates/trends/favorites. FalconCut has styles packs (`styles/packs.ts`, `styles/rules.ts`) but not a browsable template gallery.
 **Lever:** 20–30 editable viral templates (hook + captions + zooms + music + transitions) + brand kit + "apply my look" + per‑platform presets. This is what turns a tool into a habit.
 
 **Retention scorecard (my assessment):**
@@ -189,7 +189,7 @@ Ordering rule: **trust → speed → social parity → depth → moat.** Anythin
 13. **Mobile/PWA:** installable, touch gestures (pinch zoom, long‑press menu), share sheet target, responsive timeline.
 14. **Speed pass:** WebGL2 effect chain (vignette/blur/chroma/curves/LUT/grain), hardware encoder preference, frame cache, decode in a worker. Target 2–4× faster than real time at 1080p.
 
-**Why:** these are the features that make CapCut win on phones. CutFlow can match them in the browser and beat them on privacy + no watermark + no account.
+**Why:** these are the features that make CapCut win on phones. FalconCut can match them in the browser and beat them on privacy + no watermark + no account.
 
 ### P2 — Beat Premiere on depth (4–8 weeks)
 15. Real transition library (30+) as shader passes; in/out/combo semantics; apply‑to‑all; easing.
@@ -214,7 +214,7 @@ Ordering rule: **trust → speed → social parity → depth → moat.** Anythin
 ## 9. "Make it feel like a real app" — concrete checklist
 
 ### 9.1 Installable PWA (this is what "like an app" means on the web)
-* `public/manifest.webmanifest`: `name`, `short_name`, `start_url: "/"`, `scope: "/"`, `display: "standalone"`, `theme_color` (use the real background `#101012`, not `#07090F`), `background_color`, `icons` 192/512 + `maskable`, `screenshots`, `categories`, `shortcuts` (New project, Import, Auto edit), `share_target` (accept video/audio), `file_handlers` for `.cutflow`.
+* `public/manifest.webmanifest`: `name`, `short_name`, `start_url: "/"`, `scope: "/"`, `display: "standalone"`, `theme_color` (use the real background `#101012`, not `#07090F`), `background_color`, `icons` 192/512 + `maskable`, `screenshots`, `categories`, `shortcuts` (New project, Import, Auto edit), `share_target` (accept video/audio), `file_handlers` for `.falconcut`.
 * Real `public/icon.svg` + PNG fallbacks + `apple-touch-icon`; fix `index.html:5,9` (both currently 404).
 * `vite-plugin-pwa` (Workbox): precache the app shell, runtime‑cache hashed assets and fonts, offline fallback page, update toast ("New version — reload"), and `registerSW` in `src/main.tsx`.
 * `beforeinstallprompt` → Install button in `TopBar` and the mobile "More" menu; standalone‑mode CSS; `display-mode: standalone` handling.
@@ -226,11 +226,11 @@ Electron is the safer choice than Tauri because you get a known Chromium with We
 * `base: './'` or a custom protocol (absolute `/assets/...` breaks under `file://`), and make `fetch('/tone.wav')` relative.
 * IndexedDB origin changes → existing browser projects are invisible. Ship project **export/import bundles** first, then migrate.
 * `will-download` handler / native save dialog; `showSaveFilePicker` in the web path.
-* Close guard while `saveStatus !== 'saved'`; single‑instance lock; native menu; `.cutflow` file association; auto‑update + code signing.
+* Close guard while `saveStatus !== 'saved'`; single‑instance lock; native menu; `.falconcut` file association; auto‑update + code signing.
 * Don't fork the renderer — reuse the exact same `dist/` build.
 
 ### 9.3 Publishing to GitHub `main` (prepared, not executed — per your instruction)
-When you decide to publish: `git init -b main`; `.gitignore` (`node_modules/`, `dist/`, `tsconfig.tsbuildinfo`, `editor-qa.png`, `qa/`); one squashed "Initial public release v1.0.0" commit; tag `v1.0.0`. Add: README (pitch, GIF from `editor-qa.png`, quickstart, honest limits, agent API), `LICENSE` (MIT or Apache‑2.0), CI (`npm ci && npm run build && npm test` on Node 22), Pages workflow with `base: '/cutflow/'` + `404.html`, `SECURITY.md` (AI keys in `localStorage`, relay token in URL), `engines.node >= 22`, `.nvmrc`. Scrub `CUTFLOW-MASTER-PROMPT.md` and `docs/kdenlive-filter-map.md` (internal paths/methodology) and add provenance for `public/testvideo.mp4` + `tone.wav` (licensing), delete the unused `tone2.wav`.
+When you decide to publish: `git init -b main`; `.gitignore` (`node_modules/`, `dist/`, `tsconfig.tsbuildinfo`, `editor-qa.png`, `qa/`); one squashed "Initial public release v1.0.0" commit; tag `v1.0.0`. Add: README (pitch, GIF from `editor-qa.png`, quickstart, honest limits, agent API), `LICENSE` (MIT or Apache‑2.0), CI (`npm ci && npm run build && npm test` on Node 22), Pages workflow with `base: '/falconcut/'` + `404.html`, `SECURITY.md` (AI keys in `localStorage`, relay token in URL), `engines.node >= 22`, `.nvmrc`. Scrub `FALCONCUT-MASTER-PROMPT.md` and `docs/kdenlive-filter-map.md` (internal paths/methodology) and add provenance for `public/testvideo.mp4` + `tone.wav` (licensing), delete the unused `tone2.wav`.
 
 ---
 
@@ -264,7 +264,7 @@ npm test
 npm run build
 
 # dev app + headless Chrome (port 9224), then:
-node C:\Users\Nexus Computer\OneDrive\Documents\deepseek-harness\default-workspace\cutflow-qa\feature-test-v3.mjs http://127.0.0.1:5173
+node C:\Users\Nexus Computer\OneDrive\Documents\deepseek-harness\default-workspace\falconcut-qa\feature-test-v3.mjs http://127.0.0.1:5173
 ```
 
 `feature-test-v3-results.json` holds the pass/fail matrix used in §4; `01-empty-state.png` … `06-export.png` are the captured screenshots.

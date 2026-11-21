@@ -35,7 +35,7 @@ interface StockItem {
   provider: Provider;
 }
 
-const KEYS_STORAGE = 'cutflow.stockKeys';
+const KEYS_STORAGE = 'falconcut.stockKeys';
 const loadKeys = (): Record<string, string> => {
   try { return JSON.parse(localStorage.getItem(KEYS_STORAGE) || '{}'); } catch { return {}; }
 };

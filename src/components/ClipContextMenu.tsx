@@ -5,10 +5,12 @@
 import { useEffect, useRef } from 'react';
 import {
   Scissors, Copy, Trash2, Lock, Unlock, Volume2, VolumeX, ArrowLeftToLine,
-  ArrowRightToLine, FastForward, Tag, Flag, Maximize, AudioLines,
+  ArrowRightToLine, FastForward, Tag, Flag, Maximize, AudioLines, ClipboardPaste,
+  ChevronUp, ChevronDown, ListChecks, Headphones,
 } from 'lucide-react';
 import { useStore } from '../state/store';
 import { useUI } from '../state/ui';
+import { clipboardCount, pasteClipboard } from '../features/clipClipboard';
 import type { Clip } from '../../engine';
 
 export interface CtxMenuState {
@@ -17,6 +19,8 @@ export interface CtxMenuState {
   y: number;
   /** Clip under the cursor, or null = empty timeline space. */
   clipId: string | null;
+  /** Track under the cursor (track header or empty lane), when known. */
+  trackId?: string | null;
 }
 
 const LABEL_COLORS: { key: string; css: string }[] = [
@@ -50,6 +54,12 @@ export function ClipContextMenu({ menu, onClose }: { menu: CtxMenuState; onClose
 
   const s = useStore.getState();
   const clip: Clip | undefined = menu.clipId ? s.project.clips.find((c) => c.id === menu.clipId) : undefined;
+  const track = menu.trackId ? s.project.tracks.find((t) => t.id === menu.trackId) : undefined;
+  const sameKind = track ? s.project.tracks.map((t, i) => ({ t, i })).filter((x) => x.t.kind === track.kind) : [];
+  const trackPos = track ? sameKind.findIndex((x) => x.t.id === track.id) : -1;
+  const canMoveUp = trackPos > 0;
+  const canMoveDown = trackPos >= 0 && trackPos < sameKind.length - 1;
+  const trackClips = track ? s.project.clips.filter((c) => c.trackId === track.id) : [];
 
   const run = (fn: () => void) => () => { fn(); onClose(); };
   const commit = (actions: Parameters<typeof s.commit>[0], label: string) => s.commit(actions, label, 'human');
@@ -57,7 +67,7 @@ export function ClipContextMenu({ menu, onClose }: { menu: CtxMenuState; onClose
   // position: keep inside the viewport
   const W = 210;
   const left = Math.min(menu.x, window.innerWidth - W - 8);
-  const top = Math.min(menu.y, window.innerHeight - (clip ? 330 : 120) - 8);
+  const top = Math.min(menu.y, window.innerHeight - (clip ? 330 : track ? 280 : 220) - 8);
 
   const Item = ({ icon: Icon, label, onClick, danger, disabled, title }: {
     icon: typeof Scissors; label: string; onClick: () => void; danger?: boolean; disabled?: boolean; title?: string;
@@ -76,7 +86,7 @@ export function ClipContextMenu({ menu, onClose }: { menu: CtxMenuState; onClose
   return (
     <div
       ref={ref}
-      data-cutflow-menu=""
+      data-falconcut-menu=""
       className="fixed z-[100] min-w-[210px] panel !rounded-lg p-1 shadow-panel animate-fade-in"
       style={{ left, top }}
       onContextMenu={(e) => e.preventDefault()}
@@ -157,19 +167,48 @@ export function ClipContextMenu({ menu, onClose }: { menu: CtxMenuState; onClose
           <Item icon={Trash2} label="Delete" danger
             onClick={run(() => commit([{ type: 'remove_clip', clipId: clip.id }], 'Delete clip'))} />
         </>
+      ) : track ? (
+        <>
+          <div className="px-2.5 pt-1 pb-1.5 text-[10px] text-paper-faint truncate border-b border-line mb-1">
+            {track.name} · {track.kind === 'text' ? 'text' : track.kind}
+          </div>
+          <Item icon={ChevronUp} label="Move track up" disabled={!canMoveUp}
+            title="Reorder this track above the previous track of the same kind"
+            onClick={run(() => commit([{ type: 'move_track', trackId: track.id, toIndex: sameKind[trackPos - 1].i }], 'Move track up'))} />
+          <Item icon={ChevronDown} label="Move track down" disabled={!canMoveDown}
+            title="Reorder this track below the next track of the same kind"
+            onClick={run(() => commit([{ type: 'move_track', trackId: track.id, toIndex: sameKind[trackPos + 1].i }], 'Move track down'))} />
+          <div className="h-px bg-line my-1" />
+          <Item icon={ListChecks} label={`Select all ${trackClips.length} clip${trackClips.length === 1 ? '' : 's'} on this track`}
+            disabled={!trackClips.length}
+            onClick={run(() => s.select(trackClips.map((c) => c.id)))} />
+          <Item icon={Headphones} label={track.solo ? 'Solo off' : 'Solo track'}
+            disabled={track.kind === 'text'}
+            title={track.kind === 'text' ? 'Text tracks carry no audio' : 'Only this track of its kind plays'}
+            onClick={run(() => commit([{ type: 'set_track', trackId: track.id, patch: { solo: !track.solo } }], track.solo ? 'Solo off' : 'Solo track'))} />
+          <Item icon={track.locked ? Unlock : Lock} label={track.locked ? 'Unlock track' : 'Lock track'}
+            onClick={run(() => commit([{ type: 'set_track', trackId: track.id, patch: { locked: !track.locked } }], track.locked ? 'Unlock track' : 'Lock track'))} />
+          <div className="h-px bg-line my-1" />
+          <Item icon={Trash2} label={`Delete track${trackClips.length ? ` and ${trackClips.length} clip${trackClips.length === 1 ? '' : 's'}` : ''}`} danger
+            title="Removes the track and everything on it — undo brings it back"
+            onClick={run(() => commit([{ type: 'remove_track', trackId: track.id }], 'Delete track'))} />
+        </>
       ) : (
         <>
+          <Item icon={ClipboardPaste} label="Paste at playhead" disabled={!clipboardCount()}
+            title="Paste the copied clips at the playhead (Ctrl+V)"
+            onClick={run(() => pasteClipboard(s.playhead))} />
           <Item icon={Flag} label="Add marker at playhead"
             onClick={run(() => commit([{ type: 'add_marker', marker: { time: s.playhead, label: `M${s.project.markers.length + 1}`, color: '#4C9AFF' } }], 'Add marker'))} />
           <Item icon={Maximize} label="Zoom to fit"
             onClick={run(() => {
               // same math the toolbar button uses is inside Timeline; approximate via store zoom if available
-              const ev = new CustomEvent('cutflow:zoom-to-fit');
+              const ev = new CustomEvent('falconcut:zoom-to-fit');
               window.dispatchEvent(ev);
             })} />
           <div className="h-px bg-line my-1" />
           <div className="px-2.5 py-1 text-[10px] text-paper-faint">
-            Drag media/text/stickers from the left panel onto the timeline.
+            Drag on empty space to marquee-select · drag media/text/stickers from the left panel.
           </div>
         </>
       )}

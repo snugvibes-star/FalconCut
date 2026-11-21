@@ -4,7 +4,7 @@ import { defaultTransform } from '../../../engine';
 import { useStore } from '../../state/store';
 import { useUI } from '../../state/ui';
 import { commit, Section, Hint } from './shared';
-import { CUTFLOW_MIME } from '../MediaTab';
+import { FALCONCUT_MIME } from '../MediaTab';
 
 const EMOJIS = [
   '😀','😂','🥲','😍','😎','🤯','🥳','😴','🤔','🫠','😤','😱',
@@ -64,7 +64,7 @@ export function StickersTab() {
           {EMOJIS.map((e) => (
             <button key={e} draggable
               onDragStart={(ev) => {
-                ev.dataTransfer.setData(CUTFLOW_MIME, JSON.stringify({ kind: 'sticker', value: e }));
+                ev.dataTransfer.setData(FALCONCUT_MIME, JSON.stringify({ kind: 'sticker', value: e }));
                 ev.dataTransfer.effectAllowed = 'copy';
               }}
               className="aspect-square flex items-center justify-center rounded-md text-lg cursor-grab active:cursor-grabbing hover:bg-ink-750 border border-transparent hover:border-line transition-colors select-none"

@@ -48,7 +48,7 @@ export function TopBar({ leftOpen, rightOpen, onToggleLeft, onToggleRight }: Top
     setMoreOpen(false);
     const outcome = await install();
     if (outcome === 'accepted') {
-      ui.toast('Installing CutFlow — the app icon will appear on your home screen or desktop.', 'success');
+      ui.toast('Installing FalconCut — the app icon will appear on your home screen or desktop.', 'success');
     } else if (outcome === 'dismissed') {
       ui.toast('Install cancelled.', 'info');
     } else {
@@ -225,7 +225,7 @@ export function TopBar({ leftOpen, rightOpen, onToggleLeft, onToggleRight }: Top
       {/* LEFT — app mark, project name, autosave, undo/redo */}
       <div className="flex items-center gap-2 pr-1">
         <LogoMark size={20} />
-        <span className="cf-brand font-display font-semibold text-[13px] tracking-tight hidden sm:block">CutFlow</span>
+        <span className="cf-brand font-display font-semibold text-[13px] tracking-tight hidden sm:block">FalconCut</span>
       </div>
 
       <div className="h-5 w-px bg-line" />
@@ -351,7 +351,7 @@ export function TopBar({ leftOpen, rightOpen, onToggleLeft, onToggleRight }: Top
       <div className="h-5 w-px bg-line" />
 
       {canInstall && !installed && (
-        <button className="btn-ghost" onClick={() => void installApp()} title="Install CutFlow as an app — the app icon is added to your desktop / home screen">
+        <button className="btn-ghost" onClick={() => void installApp()} title="Install FalconCut as an app — the app icon is added to your desktop / home screen">
           <MonitorDown size={15} /><span className="hidden lg:block">Install</span>
         </button>
       )}

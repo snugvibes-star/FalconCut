@@ -1,5 +1,5 @@
 @echo off
-rem CutFlow launcher - double-click this file.
+rem FalconCut launcher - double-click this file.
 rem Why not index.html: a web app cannot run from file:// (ES modules, service
 rem workers and IndexedDB need an http origin). This starts the local server,
 rem opens the app in your browser, and from there you can install it as an app.
@@ -50,8 +50,8 @@ start "" "%BROWSER%" --app=%APPURL% --window-size=1440,960
 :opened
 
 echo.
-echo CutFlow is running at http://localhost:4173
-echo For a permanent desktop icon, run "Install CutFlow.ps1" once.
+echo FalconCut is running at http://localhost:4173
+echo For a permanent desktop icon, run "Install FalconCut.ps1" once.
 echo.
 echo To stop the server later, open Task Manager and end the "node" process,
 echo or run: taskkill /IM node.exe /F

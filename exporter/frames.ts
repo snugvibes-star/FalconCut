@@ -28,7 +28,7 @@ export async function prepareExportFonts(project: Project, signal?: AbortSignal)
   }
   if (project.clips.some((c) => c.motif)) {
     for (const family of ['Inter Variable', 'Space Grotesk Variable'])
-      for (const weight of [500, 600, 700, 800]) loads.set(`${weight} 48px "${family}"`, 'CutFlow 0123456789');
+      for (const weight of [500, 600, 700, 800]) loads.set(`${weight} 48px "${family}"`, 'FalconCut 0123456789');
   }
   await abortable(Promise.all([...loads].map(([font, text]) => document.fonts.load(font, text))), signal);
   await abortable(document.fonts.ready, signal);

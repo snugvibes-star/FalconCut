@@ -54,7 +54,7 @@ export default function App() {
     return (
       <div className="h-full flex items-center justify-center bg-ink-950">
         <div className="text-center">
-          <div className="font-display text-2xl font-semibold text-signal mb-2">CutFlow</div>
+          <div className="font-display text-2xl font-semibold text-signal mb-2">FalconCut</div>
           <div className="text-paper-dim text-sm">Loading your workspace…</div>
         </div>
       </div>

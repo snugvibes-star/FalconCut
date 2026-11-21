@@ -1,5 +1,5 @@
 /**
- * Engineering status board for CutFlow capabilities — what the browser
+ * Engineering status board for FalconCut capabilities — what the browser
  * build can actually do today. Grounded in tools/registry.ts (24 AI tools),
  * engine/effects.ts, engine/types.ts, engine/captions.ts, engine/generators.ts,
  * engine/motifs.ts, analysis/whisper.worker.ts and exporter/*. Keep honest.
@@ -19,7 +19,12 @@ export const FEATURE_CHECKLIST: FeatureItem[] = [
   // ── Editing core ───────────────────────────────────────────────────────────
   { id: 'multi-track-timeline', group: 'Editing core', label: 'Multi-track timeline (video + audio tracks)', status: 'working' },
   { id: 'split-trim', group: 'Editing core', label: 'Split, trim, ripple delete', status: 'working' },
-  { id: 'drag-reorder', group: 'Editing core', label: 'Drag clips between tracks and reorder', status: 'working' },
+  { id: 'drag-reorder', group: 'Editing core', label: 'Drag clips between compatible tracks (video↔video, audio↔audio) by pointer; track kind/lock enforced', status: 'working' },
+  { id: 'auto-create-track-on-drag', group: 'Editing core', label: 'Auto-create a new track when dragging a clip past the top or bottom of the timeline (matching kind, one undo step with the move)', status: 'working', note: 'ghost lane appears past the edge; add_track + move_clip share a generated id so undo removes both' },
+  { id: 'non-destructive-crop', group: 'Editing core', label: 'Visual crop workspace: drag the source-frame box + handles to keep only a chosen region; render-time crop (no re-encode until export)', status: 'working', note: 'commits set_transform cropL/R/T/B consumed by both preview renderFrame and the exporter — lossless source pixels inside the box' },
+  { id: 'clip-clipboard', group: 'Editing core', label: 'Copy / cut / paste / duplicate clips (Ctrl+C / X / V / D) with effects, keyframes and fades preserved', status: 'working' },
+  { id: 'marquee-select', group: 'Editing core', label: 'Rubber-band marquee selection by dragging empty timeline space', status: 'working' },
+  { id: 'track-solo-reorder', group: 'Editing core', label: 'Track solo, track reorder and delete from the track context menu; N toggles snapping (Alt bypasses)', status: 'working' },
   { id: 'markers', group: 'Editing core', label: 'Timeline markers', status: 'working' },
   { id: 'snapping', group: 'Editing core', label: 'Snapping to clip edges / playhead', status: 'working' },
   { id: 'undo-redo', group: 'Editing core', label: 'Undo / redo history', status: 'working' },
@@ -36,7 +41,7 @@ export const FEATURE_CHECKLIST: FeatureItem[] = [
   { id: 'extract-audio', group: 'Editing core', label: 'Extract audio from video (Kdenlive-style detach: new WAV asset + audio clip, original muted)', status: 'working', note: 'verified live; requires a decodable audio track (AC3 files must be converted first)' },
   { id: 'first-run-demo', group: 'Editing core', label: 'First-run demo timeline (one click: sample video + music + title in a single undo step)', status: 'working', note: 'button on the empty canvas state' },
   { id: 'keyboard-cheatsheet', group: 'Editing core', label: 'Keyboard cheatsheet inside the command palette', status: 'working' },
-  { id: 'agent-api-validation', group: 'Editing core', label: 'External agent API validates actions before applying (window.cutflow.applyActions rejects invalid action groups)', status: 'working' },
+  { id: 'agent-api-validation', group: 'Editing core', label: 'External agent API validates actions before applying (window.falconcut.applyActions rejects invalid action groups)', status: 'working' },
   { id: 'responsive-layout', group: 'Editing core', label: 'Responsive layout (collapsible panels below 1024px, resizable widths)', status: 'partial', note: 'panels collapse to overlays, tool strips scroll internally, Color page stacks on narrow screens (preview no longer collapses at 360px); dense NLE is desktop-first' },
 
   // ── Transform & animation ──────────────────────────────────────────────────
@@ -97,7 +102,7 @@ export const FEATURE_CHECKLIST: FeatureItem[] = [
 
   // ── Masks & keying ─────────────────────────────────────────────────────────
   { id: 'chroma-key', group: 'Masks & keying', label: 'Chroma key (green screen)', status: 'working' },
-  { id: 'shape-masks', group: 'Masks & keying', label: 'Shape masks on clips', status: 'not-possible', note: 'not implemented' },
+  { id: 'shape-masks', group: 'Masks & keying', label: 'Shape masks on clips (ellipse / polygon / feather / invert)', status: 'not-possible', note: 'rectangle region crop + extract exists (non-destructive-crop); arbitrary shape masks and feathering are not implemented' },
   { id: 'rotoscope', group: 'Masks & keying', label: 'Rotoscoping / puppet pin', status: 'not-possible', note: 'too slow for real-time browser perf' },
   { id: 'fusion-nodes', group: 'Masks & keying', label: 'Node-based compositor', status: 'not-possible', note: 'out of scope for browser app' },
 
@@ -152,7 +157,7 @@ export const FEATURE_CHECKLIST: FeatureItem[] = [
   { id: 'resizable-timeline', group: 'Productivity', label: 'Resizable bottom timeline editor — drag handle between preview and timeline plus Small / Medium / Large presets', status: 'working', note: 'pointer-capture drag, height persists across reloads (cutflow.ui.prefs)' },
   { id: 'ai-providers', group: 'Productivity', label: 'AI settings: an OpenAI-compatible protocol (any vendor — OpenAI, Groq, Together, Mistral, DeepSeek, Fireworks, Perplexity — plus local Ollama / LM Studio, which need no key) with one-tap vendor presets, OpenRouter and Google Gemini native; a shield Verify button beside the key field that says whether THIS key works with THIS endpoint, Fetch models (lists the models your key can actually use), real Test connection with inline result, an explicit connection-proxy status line, and a gear in the AI panel to reopen settings anytime', status: 'working', note: 'requests go direct first and are replayed through a same-origin local proxy (/__ai) when a provider blocks browser CORS — that is what makes api.openai.com work, with loopback-only binding and an allowlist of forwarded headers. The model FIELD always wins over a model baked into the endpoint URL; retired Gemini models auto-upgrade on load; requests retry without parameters a model rejects (max_tokens→max_completion_tokens, temperature, response_format, responseMimeType) so Test connection works across providers. Keys stay in localStorage' },
   { id: 'pwa', group: 'Productivity', label: 'PWA: installable on desktop and mobile (Android/Chrome, iOS 16.4+/Safari add-to-home), offline app shell via service worker, standalone display', status: 'working', note: 'media lives in IndexedDB, so an installed editor keeps editing offline; AI features need the network by nature' },
-  { id: 'windows-desktop-icon', group: 'Productivity', label: 'Windows desktop app icon: Install CutFlow.ps1 creates Desktop + Start Menu shortcuts with the real artwork (public/cutflow.ico, 16-256 px); clicking one starts the local server and opens the editor in its own Chrome/Edge window', status: 'working', note: 'the shortcut launches Start CutFlow.vbs, so no console window flashes; Chrome or Edge app mode is used when either is installed, otherwise the default browser opens' },
+  { id: 'windows-desktop-icon', group: 'Productivity', label: 'Windows desktop app icon: Install FalconCut.ps1 creates Desktop + Start Menu shortcuts with the real artwork (public/falconcut.ico, 16-256 px); clicking one starts the local server and opens the editor in its own Chrome/Edge window', status: 'working', note: 'the shortcut launches Start FalconCut.vbs, so no console window flashes; Chrome or Edge app mode is used when either is installed, otherwise the default browser opens' },
   { id: 'in-page-api', group: 'Productivity', label: 'In-page scripting API for agents', status: 'working' },
   { id: 'co-edit-lock', group: 'Productivity', label: 'Clip locking for human/AI co-editing', status: 'working' },
   { id: 'project-file', group: 'Productivity', label: 'Save / open project file', status: 'working' },

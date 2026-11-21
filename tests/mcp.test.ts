@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { createRelay } from '../server/relay.mjs';
 
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
-const mcpPath = path.join(root, 'server', 'cutflow-mcp.mjs');
+const mcpPath = path.join(root, 'server', 'falconcut-mcp.mjs');
 
 let relay: any;
 let port = 0;
@@ -61,7 +61,7 @@ beforeAll(async () => {
   });
 
   child = spawn(process.execPath, [mcpPath], {
-    env: { ...process.env, CUTFLOW_RELAY: `ws://127.0.0.1:${port}/ws`, CUTFLOW_TOKEN: token },
+    env: { ...process.env, FALCONCUT_RELAY: `ws://127.0.0.1:${port}/ws`, FALCONCUT_TOKEN: token },
     stdio: ['pipe', 'pipe', 'pipe'],
   });
   child.stdout!.on('data', (d) => {
@@ -90,7 +90,7 @@ afterAll(async () => {
 describe('MCP bridge over the relay', () => {
   it('initializes with server info and tool capability', async () => {
     const res = await rpc('initialize', { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'test', version: '1' } });
-    expect(res.result.serverInfo.name).toBe('cutflow');
+    expect(res.result.serverInfo.name).toBe('falconcut');
     expect(res.result.capabilities.tools).toBeTruthy();
     child.stdin!.write(JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized' }) + '\n');
   });

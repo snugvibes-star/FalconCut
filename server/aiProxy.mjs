@@ -1,7 +1,7 @@
 /**
  * Local AI proxy. Some providers — notably api.openai.com — refuse browser
  * CORS requests on POST /chat/completions, so a purely client-side app cannot
- * call them. When CutFlow is served from localhost (Start CutFlow.bat or
+ * call them. When FalconCut is served from localhost (Start FalconCut.bat or
  * `npm run serve`/`npm run dev`), chat requests to those hosts are routed
  * through this same-origin endpoint and forwarded server-side, where CORS
  * does not apply.
@@ -46,7 +46,7 @@ export async function handleAIProxy(req, res) {
   // origin can proxy. GET *with* ?url forwards a read-only request (e.g. the
   // /models list) the same way.
   if (!target) {
-    if (req.method === 'GET') { send(200, JSON.stringify({ ok: true, proxy: 'cutflow-local' })); return; }
+    if (req.method === 'GET') { send(200, JSON.stringify({ ok: true, proxy: 'falconcut-local' })); return; }
     send(400, JSON.stringify({ error: { message: 'Missing ?url= target.' } }));
     return;
   }

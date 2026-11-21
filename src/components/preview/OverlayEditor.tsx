@@ -244,6 +244,7 @@ export function OverlayEditor({ scale }: { scale: number }) {
     (e.currentTarget as HTMLCanvasElement).setPointerCapture(e.pointerId);
     const p = toProject(e);
     const d = useUI.getState().draw;
+    if (d.tool === 'crop') return; // handled by CropOverlay
 
     if (d.tool !== 'select') {
       if (d.tool === 'eraser') { dragRef.current = { mode: 'erase' }; eraseAt(p.x, p.y); redraw(); return; }

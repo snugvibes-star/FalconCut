@@ -56,8 +56,8 @@ export function ConnectDialog() {
         </div>
         <details className="rounded-lg border border-line p-3">
           <summary className="cursor-pointer text-paper-dim">MCP client configuration</summary>
-          <p className="text-paper-faint my-2">Run <code>node server/cutflow-mcp.mjs</code> from this project folder with these environment variables.</p>
-          <pre className="text-[11px] whitespace-pre-wrap break-all bg-ink-950 rounded p-2">{`CUTFLOW_RELAY=${session.relayUrl}\nCUTFLOW_TOKEN=${session.token}`}</pre>
+          <p className="text-paper-faint my-2">Run <code>node server/falconcut-mcp.mjs</code> from this project folder with these environment variables.</p>
+          <pre className="text-[11px] whitespace-pre-wrap break-all bg-ink-950 rounded p-2">{`FALCONCUT_RELAY=${session.relayUrl}\nFALCONCUT_TOKEN=${session.token}`}</pre>
         </details>
         <label className="flex items-center gap-2 text-paper-dim"><input type="checkbox" className="accent-mind" checked={autopilot} onChange={(e) => useStore.getState().setAutopilot(e.target.checked)} /> Autopilot: allow agent edits</label>
         <p className="text-paper-faint">Turn Autopilot off to pause remote writes while allowing previews. Closing this dialog keeps the connection alive. Closing the tab or switching projects revokes it.</p>
@@ -68,7 +68,7 @@ export function ConnectDialog() {
         </div>
       </>}
       {error && <p role="alert" className="text-heat">{error}</p>}
-      <div className="border-t border-line pt-3 text-paper-faint">No relay needed for in-page agents: <code className="text-pulse">window.cutflow</code>. Tool definitions are available at <a href="/tools.json" target="_blank" rel="noreferrer" className="text-pulse underline">/tools.json</a>.</div>
+      <div className="border-t border-line pt-3 text-paper-faint">No relay needed for in-page agents: <code className="text-pulse">window.falconcut</code>. Tool definitions are available at <a href="/tools.json" target="_blank" rel="noreferrer" className="text-pulse underline">/tools.json</a>.</div>
     </div>
   </Dialog>;
 }

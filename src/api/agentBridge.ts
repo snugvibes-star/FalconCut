@@ -1,7 +1,7 @@
 /**
  * Browser side of the agent relay (Phase 9/11). The editor tab connects OUT
  * to the relay as the "host"; an external agent joins with the same token.
- * Incoming requests are dispatched to the SAME in-page API (window.cutflow)
+ * Incoming requests are dispatched to the SAME in-page API (window.falconcut)
  * the built-in chat uses, so an external agent and a human share one engine.
  *
  * The bridge only ever touches the project open in this tab. It exposes a
@@ -9,7 +9,7 @@
  * change events are throttled so the agent sees a live but calm timeline.
  */
 import { useStore, type AgentSession } from '../state/store';
-import { createCutflowAPI, type CutflowAPI } from './cutflow';
+import { createFalconCutAPI, type FalconCutAPI } from './falconcut';
 
 export interface BridgeStatus { relayConnected: boolean; agentPresent: boolean }
 export interface BridgeHandlers {
@@ -39,7 +39,7 @@ export const BRIDGE_METHODS = [
   'getPlayhead', 'setPlayhead', 'runTool', 'applyTool', 'applyActions', 'undo', 'redo',
 ] as const;
 
-async function dispatch(api: CutflowAPI, method: string, params: any): Promise<unknown> {
+async function dispatch(api: FalconCutAPI, method: string, params: any): Promise<unknown> {
   switch (method) {
     case 'listTools': return api.listTools();
     case 'toolsPrompt': return api.toolsPrompt();
@@ -68,7 +68,7 @@ export function connectAgentBridge(s: AgentSession, h: BridgeHandlers = {}): Bri
       throw new Error('Session expired or revoked.');
     }
   };
-  const api = createCutflowAPI(authorize);
+  const api = createFalconCutAPI(authorize);
   let ws: WebSocket | null = null;
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   let pendingEvent: ReturnType<typeof setTimeout> | null = null;

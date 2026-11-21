@@ -1,12 +1,26 @@
-# CutFlow
+# FalconCut
 
-**A premium video editor for humans — with AI as an optional assistant, not a requirement.**
+**Edit with Creativity. Create with AI.**
 
-CutFlow edits professional vertical and horizontal video in your browser. Manual editing is the primary path: every cut, speed ramp, reverse, grade, LUT, title, transition and export is one real button (each = one undo step), preview and export use the exact same engine, and nothing waits on a model. AI is a second pair of hands — connect a key and it can plan edits, cut dead air and write captions; without a key, **every feature still works from buttons via local rules**.
+A modern video editor built for human creators and AI agents. Create, edit, automate, and export videos with a powerful professional editing workflow.
+
+Manual editing is the primary path: every cut, speed ramp, reverse, grade, LUT, title, transition and export is one real button (each = one undo step), preview and export use the exact same engine, and nothing waits on a model. AI is a second pair of hands — connect a key and it can plan edits, cut dead air and write captions; without a key, **every feature still works from buttons via local rules**.
 
 Privacy-first by design: media never leaves the device — no uploads, no account, no backend.
 
-<!-- TODO: screenshot -->
+## Screenshots
+
+**Editor — media panel, preview, multi-track timeline and inspector**
+
+![FalconCut editor](docs/screenshots/editor.png)
+
+**Captions and the optional AI assistant**
+
+![FalconCut captions and AI](docs/screenshots/ai-captions.png)
+
+**Color workspace with live scopes**
+
+![FalconCut color grading](docs/screenshots/color-grading.png)
 
 ## Why it's fast and premium
 
@@ -21,11 +35,11 @@ Privacy-first by design: media never leaves the device — no uploads, no accoun
 
 **Requirements:** Node.js 18+ and a Chromium-based browser (Chrome or Edge) for the best experience (see [Browser requirements](#browser-requirements)).
 
-> **Why double-clicking `dist/index.html` doesn't work:** a web app cannot run from `file://` — ES modules, service workers and IndexedDB all require an `http(s)` origin. That's a browser security rule, not an app bug. CutFlow ships a launcher that gives it a real localhost origin, and from there the browser installs it as a **PWA with a desktop/home-screen icon** that opens standalone and works offline.
+> **Why double-clicking `dist/index.html` doesn't work:** a web app cannot run from `file://` — ES modules, service workers and IndexedDB all require an `http(s)` origin. That's a browser security rule, not an app bug. FalconCut ships a launcher that gives it a real localhost origin, and from there the browser installs it as a **PWA with a desktop/home-screen icon** that opens standalone and works offline.
 
-**Windows - one double-click:** run **`Start CutFlow.bat`**. First run installs dependencies and builds (about a minute), then opens `http://localhost:4173` in a Chrome/Edge app window (no address bar).
+**Windows - one double-click:** run **`Start FalconCut.bat`**. First run installs dependencies and builds (about a minute), then opens `http://localhost:4173` in a Chrome/Edge app window (no address bar).
 
-**Windows desktop icon (recommended):** right-click **`Install CutFlow.ps1`** → *Run with PowerShell* (or run `powershell -ExecutionPolicy Bypass -File ".\Install CutFlow.ps1"`). It creates **CutFlow shortcuts on the Desktop and in the Start Menu**, using `public/cutflow.ico` (real artwork, 16–256 px) and launching through a hidden `Start CutFlow.vbs`, so clicking the icon starts the server and opens the editor in its own window - the same behaviour as the other app icons on your desktop. The shortcut is a normal Windows `.lnk`; delete it to uninstall.
+**Windows desktop icon (recommended):** right-click **`Install FalconCut.ps1`** → *Run with PowerShell* (or run `powershell -ExecutionPolicy Bypass -File ".\Install FalconCut.ps1"`). It creates **FalconCut shortcuts on the Desktop and in the Start Menu**, using `public/falconcut.ico` (real artwork, 16–256 px) and launching through a hidden `Start FalconCut.vbs`, so clicking the icon starts the server and opens the editor in its own window - the same behaviour as the other app icons on your desktop. The shortcut is a normal Windows `.lnk`; delete it to uninstall.
 
 Or manually, on any OS:
 
@@ -35,7 +49,7 @@ npm run build      # type-check + production build to dist/
 npm run serve      # static server at http://localhost:4173
 ```
 
-**Install the app icon:** open the URL in Chrome or Edge → click the **install icon** in the address bar (or ⋮ → *Install CutFlow*). Android: ⋮ → *Add to Home screen*. iOS 16.4+ Safari: Share → *Add to Home Screen*. Launching the icon opens CutFlow standalone with no address bar, and the shell loads offline — projects and media live in local IndexedDB.
+**Install the app icon:** open the URL in Chrome or Edge → click the **install icon** in the address bar (or ⋮ → *Install FalconCut*). Android: ⋮ → *Add to Home screen*. iOS 16.4+ Safari: Share → *Add to Home Screen*. Launching the icon opens FalconCut standalone with no address bar, and the shell loads offline — projects and media live in local IndexedDB.
 
 Dev workflow (hot reload at `http://localhost:5173`):
 
@@ -43,7 +57,7 @@ Dev workflow (hot reload at `http://localhost:5173`):
 npm run dev
 ```
 
-Tests (99-test suite — timeline, effects, store, tools, chat, assets, exports):
+Tests (108-test suite — timeline, effects, store, tools, chat, assets, exports, region crop):
 
 ```bash
 npm run test
@@ -51,10 +65,11 @@ npm run test
 
 ## Features
 
-CutFlow's honest, always-up-to-date status board lives in [`src/features/checklist.ts`](src/features/checklist.ts) — it is rendered in-app and marks every capability as `working`, `partial`, or `not-possible`. Highlights:
+FalconCut's honest, always-up-to-date status board lives in [`src/features/checklist.ts`](src/features/checklist.ts) — it is rendered in-app and marks every capability as `working`, `partial`, or `not-possible`. Highlights:
 
 - **Built for humans first** — every tool has a real button and a real undo step; the AI panel is optional. The demo timeline shows straight cuts, reverse, speed, titles and captions in one shot.
-- **Multi-track timeline** — video + audio tracks, split/trim/ripple delete, drag-reorder between tracks, snapping, markers, undo/redo, autosave to browser storage.
+- **Multi-track timeline** — video + audio tracks, split/trim/ripple delete, drag clips between compatible tracks, drag past the top/bottom edge to auto-create a matching track (one undo step), configurable snapping (magnetic edges/playhead/markers, `N` toggles, `Alt` bypasses), marquee select, copy/cut/paste/duplicate, track solo/reorder/delete, undo/redo, autosave to browser storage.
+- **Region crop & extraction** — select a clip, open the crop tool, and draw the exact area to keep (draggable box + corner/edge handles, live X/Y/W/H, numeric fields, aspect-ratio lock). **Apply Crop** crops the clip non-destructively; **Extract as New Clip** leaves the original untouched and adds an independent clip (same source, same timing) on a free video track. Cropping is a render-time source rectangle shared by preview and export — no re-encode, no resolution change, source pixels preserved. Current-frame PNG export and freeze frames are lossless too.
 - **Speed ramps & freeze frames** — clip speed 0.25x–4x, piecewise time remapping with a graphical ramp editor (ramp-aware split/trim/ripple keep continuity), one-click freeze frames from the preview transport, and true clip reverse (video scrubs frame-by-frame, audio plays a genuinely reversed buffer — preview and export match).
 - **Blend modes & blend transitions** — screen, multiply, overlay, add, soft-light and more via canvas compositing, plus 15 blend-style transitions. The same engine renders preview and export, so what you see is what you get.
 - **Drawing & direct manipulation** — 12 draw tools (brush, pen, arrow, shapes, stickers…) as independent editable overlay layers; drag-move, corner-resize, rotate, and inline text edit directly on the preview.
@@ -65,9 +80,9 @@ CutFlow's honest, always-up-to-date status board lives in [`src/features/checkli
 - **Stock media panel** — search and import free stock media (Archive.org works keyless; Pexels/Pixabay/Freesound use a free personal key stored locally).
 - **Keyboard shortcuts** — Premiere-style edit keys (V select, C razor, I/O zone, Ctrl+K add-edit-all…) plus a full cheatsheet in the command palette.
 - **Optional AI assistant** — the chat behaves like an assistant, not a plan machine: greetings and questions get plain answers, small edits ("add a bold Welcome title", "trim the first 5 seconds") run immediately and are confirmed in one sentence, and only genuinely multi-step work ("edit this whole video like a cinematic trailer") appears as a reviewable plan. It reads the live project — clip ids, tracks, timings, transcript and quality report — before acting, keeps the conversation as context, streams replies, and every applied edit is one undo step ("undo that" works). Failures show the real reason with a Retry button; it never shows raw JSON or invents a success. Model settings support OpenAI, OpenRouter and Google Gemini (native protocol) plus any OpenAI-compatible or local endpoint, with a **Fetch models** button that lists the models your key can actually use and a **Test connection** button that sends one tiny real request with the values in the form.
-- **PWA — installable on every device** — install CutFlow as an app on Windows, macOS, Linux, Android (Chrome) and iOS (Safari 16.4+). A service worker caches the app shell, so an installed editor keeps working offline — media lives in IndexedDB on the device either way. The installed icon is the real CutFlow artwork, including 192/512 maskable variants for Android's adaptive shape.
+- **PWA — installable on every device** — install FalconCut as an app on Windows, macOS, Linux, Android (Chrome) and iOS (Safari 16.4+). A service worker caches the app shell, so an installed editor keeps working offline — media lives in IndexedDB on the device either way. The installed icon is the real FalconCut artwork, including 192/512 maskable variants for Android's adaptive shape.
 
-Honest limits worth knowing: no 3D camera space, no optical-flow frame blending, no true motion blur on animated transforms, no Lottie/AE animation import, no shape masks or rotoscoping, no music stem separation, no direct publishing to YouTube/TikTok. The checklist file is the source of truth.
+Honest limits worth knowing: no 3D camera space, no optical-flow frame blending, no true motion blur on animated transforms, no Lottie/AE animation import, region extraction is rectangle-only for now (no elliptical/polygon masks, feathering or rotoscoping), no music stem separation, no direct publishing to YouTube/TikTok. The checklist file is the source of truth.
 
 ## Optional AI setup
 
@@ -85,11 +100,11 @@ AI is **fully optional** — all core editing works without any key. If you want
 3. **Verify** (shield button beside the key) sends one tiny request and tells you whether this key is valid for this endpoint — before you save anything.
 4. **Test connection** does the same through the full agent path; **Fetch models** lists the models your key can actually use.
 
-**Google key formats:** AI Studio now issues two kinds of API key, and **both are valid** — standard keys starting with `AIza…` and the newer authorization keys starting with `AQ.…`. Paste either one with Provider set to *Google Gemini*; CutFlow sends it the way Google expects (`x-goog-api-key`, then retries with `?key=` if the project requires it). `AQ.…` keys only work on the native Gemini endpoint, not on the OpenAI-compatible `/openai/` path, so the dialog warns if the provider and key type disagree. If a key fails, the error names the real reason (bad key, restricted key, wrong model, quota) instead of guessing from the prefix.
+**Google key formats:** AI Studio now issues two kinds of API key, and **both are valid** — standard keys starting with `AIza…` and the newer authorization keys starting with `AQ.…`. Paste either one with Provider set to *Google Gemini*; FalconCut sends it the way Google expects (`x-goog-api-key`, then retries with `?key=` if the project requires it). `AQ.…` keys only work on the native Gemini endpoint, not on the OpenAI-compatible `/openai/` path, so the dialog warns if the provider and key type disagree. If a key fails, the error names the real reason (bad key, restricted key, wrong model, quota) instead of guessing from the prefix.
 
 **How the chat behaves:** the assistant decides per message. Conversation → a normal reply, no plan and no tools. A clear small edit → the tool runs immediately and you get a one-sentence confirmation. A large or multi-part request → a short plan generated for that request, which you can Run or Reject. With no key, the built-in rules engine still handles clear instructions and says so honestly; it never pretends to be a language model.
 
-**Why OpenAI used to fail in the browser:** `api.openai.com` refuses browser cross-origin requests, and no client-side code can work around that. When CutFlow runs from its own local server (`Start CutFlow.bat`, `npm run serve` or `npm run dev`) those calls are proxied through the same origin — bound to loopback only, with a header allowlist, and your key still goes straight to the provider. The dialog shows whether the proxy is active.
+**Why OpenAI used to fail in the browser:** `api.openai.com` refuses browser cross-origin requests, and no client-side code can work around that. When FalconCut runs from its own local server (`Start FalconCut.bat`, `npm run serve` or `npm run dev`) those calls are proxied through the same origin — bound to loopback only, with a header allowlist, and your key still goes straight to the provider. The dialog shows whether the proxy is active.
 
 **Keys are stored in your browser's `localStorage` only.** They are never sent anywhere except to the provider you choose, and never committed anywhere.
 
@@ -103,15 +118,15 @@ AI is **fully optional** — all core editing works without any key. If you want
 
 ## Browser requirements
 
-CutFlow targets modern browsers. **Chromium-based browsers (Chrome, Edge) are recommended** — they expose WebCodecs with H.264, enabling fast, frame-accurate **MP4 export**. Firefox and Safari fall back to **WebM** export (VP9/Opus). Older or restricted browsers may still work for editing but with reduced export options.
+FalconCut targets modern browsers. **Chromium-based browsers (Chrome, Edge) are recommended** — they expose WebCodecs with H.264, enabling fast, frame-accurate **MP4 export**. Firefox and Safari fall back to **WebM** export (VP9/Opus). Older or restricted browsers may still work for editing but with reduced export options.
 
 ## Troubleshooting
 
 - **MP4 export unavailable** — your browser doesn't expose an H.264 encoder through WebCodecs. Use **WebM** export instead (works everywhere; convert with any tool afterward).
 - **Large-file playback stutter** — very large videos are decoded on demand; give the timeline a moment after loading before expecting smooth playback. Scrub once through the section you want to preview.
 - **CORS-blocked stock downloads** — some stock CDNs block direct browser downloads. The stock panel shows an honest error; download the file manually and import it as a local file instead.
-- **The installed icon is blank, generic or the old logo** — the browser caches a PWA's icon at install time, so an app installed before the artwork changed keeps the old one. Uninstall the app, clear the site's storage for `localhost:4173` if you want a clean slate, then open the URL and install again (address-bar install icon, or ⋮ → *Install CutFlow*). The manifest serves `icon-192.png`, `icon-192-maskable.png`, `icon-512.png` and `icon-512-maskable.png`; the service worker version is bumped (`cutflow-v3`) so the new shell is picked up on the next launch. If your browser offers no install entry, use its menu → *Install app* / *Add to Home screen* — CutFlow's own Install button says so when the browser has not offered a prompt.
-- **Opening the installed app shows "site can't be reached"** - the PWA is served from your own machine, so the local server must be running. Use `Start CutFlow.bat` or the desktop shortcut from `Install CutFlow.ps1` (both start the server and open the app); the installed icon then launches the full editor with no address bar.
+- **The installed icon is blank, generic or the old logo** — the browser caches a PWA's icon at install time, so an app installed before the artwork changed keeps the old one. Uninstall the app, clear the site's storage for `localhost:4173` if you want a clean slate, then open the URL and install again (address-bar install icon, or ⋮ → *Install FalconCut*). The manifest serves `icon-192.png`, `icon-192-maskable.png`, `icon-512.png` and `icon-512-maskable.png`; the service worker version is bumped (`falconcut-v3`) so the new shell is picked up on the next launch. If your browser offers no install entry, use its menu → *Install app* / *Add to Home screen* — FalconCut's own Install button says so when the browser has not offered a prompt.
+- **Opening the installed app shows "site can't be reached"** - the PWA is served from your own machine, so the local server must be running. Use `Start FalconCut.bat` or the desktop shortcut from `Install FalconCut.ps1` (both start the server and open the app); the installed icon then launches the full editor with no address bar.
 
 ## Contributing
 
@@ -119,7 +134,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md). Keep `npm run test` green and keep featu
 
 ## License
 
-[MIT](LICENSE) — © 2026 CutFlow contributors.
+[MIT](LICENSE) — © 2026 FalconCut contributors.
 
 ## Tech stack
 

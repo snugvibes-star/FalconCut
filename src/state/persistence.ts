@@ -6,19 +6,22 @@
 import { openDB, type DBSchema, type IDBPDatabase } from 'idb';
 import type { Project } from '../../engine/types';
 
-interface CutFlowDB extends DBSchema {
+interface FalconCutDB extends DBSchema {
   blobs: { key: string; value: Blob };
   projects: { key: string; value: Project; indexes: { updatedAt: number } };
 }
 
+/* Storage identity is intentionally the pre-rename id: it is never shown in
+ * the UI, and changing it would orphan every project and media blob already
+ * saved on this device. */
 const DB_NAME = 'cutflow';
 const DB_VERSION = 1;
 
-let dbPromise: Promise<IDBPDatabase<CutFlowDB>> | null = null;
+let dbPromise: Promise<IDBPDatabase<FalconCutDB>> | null = null;
 
-function db(): Promise<IDBPDatabase<CutFlowDB>> {
+function db(): Promise<IDBPDatabase<FalconCutDB>> {
   if (!dbPromise) {
-    dbPromise = openDB<CutFlowDB>(DB_NAME, DB_VERSION, {
+    dbPromise = openDB<FalconCutDB>(DB_NAME, DB_VERSION, {
       upgrade(d) {
         if (!d.objectStoreNames.contains('blobs')) d.createObjectStore('blobs');
         if (!d.objectStoreNames.contains('projects')) {

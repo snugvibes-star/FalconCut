@@ -481,7 +481,7 @@ export const useStore = create<State>()((set, get) => {
       const actions: Action[] = [];
       if (videoTrack && videoId) actions.push({ type: 'add_clip', clip: { trackId: videoTrack, mediaId: videoId, start: 0, duration: 4, inPoint: 0 } });
       if (audioTrack && audioId) actions.push({ type: 'add_clip', clip: { trackId: audioTrack, mediaId: audioId, start: 0, duration: 5, inPoint: 0 } });
-      if (textTrack) actions.push({ type: 'add_text', trackId: textTrack, start: 0, duration: 4, text: 'CutFlow Demo', role: 'title', preset: 'word-pop', style: { fontSize: 0.1, y: 0.12 } });
+      if (textTrack) actions.push({ type: 'add_text', trackId: textTrack, start: 0, duration: 4, text: 'FalconCut Demo', role: 'title', preset: 'word-pop', style: { fontSize: 0.1, y: 0.12 } });
       if (actions.length) get().commit(actions, 'Load demo timeline');
     },
 
@@ -523,7 +523,7 @@ export const useStore = create<State>()((set, get) => {
       }
       if (textTrack) {
         actions.push({ type: 'add_text', trackId: textTrack, start: 0.3, duration: 2.2, text: 'SCARLET WITCH', role: 'title', preset: 'word-pop', style: { fontSize: 0.07, y: 0.12 } });
-        actions.push({ type: 'add_text', trackId: textTrack, start: 11.2, duration: 2.2, text: 'edited in CutFlow — every cut is one undo step', role: 'caption', preset: 'word-pop', style: { fontSize: 0.035, y: 0.86 } });
+        actions.push({ type: 'add_text', trackId: textTrack, start: 11.2, duration: 2.2, text: 'edited in FalconCut — every cut is one undo step', role: 'caption', preset: 'word-pop', style: { fontSize: 0.035, y: 0.86 } });
       }
       if (actions.length) get().commit(actions, 'Load showcase timeline');
     },
@@ -887,7 +887,7 @@ export const useStore = create<State>()((set, get) => {
 
 // Debug hook for browser DevTools/testing (harmless in production).
 if (typeof window !== 'undefined') {
-  (window as unknown as { __cutflow?: unknown }).__cutflow = {
+  (window as unknown as { __falconcut?: unknown }).__falconcut = {
     useStore,
     get pool() { return useStore.getState().pool; },
   };

@@ -4,7 +4,7 @@
  *
  * Why this exists: a web app cannot run from file:// — ES modules, service
  * workers and IndexedDB all require an http(s) origin. Double-clicking
- * dist/index.html will never run CutFlow; this server gives it the localhost
+ * dist/index.html will never run FalconCut; this server gives it the localhost
  * origin so the PWA installs (real icon, standalone window) and works offline.
  */
 import { createServer } from 'node:http';
@@ -17,7 +17,7 @@ const ROOT = path.join(process.cwd(), 'dist');
 const PORT = Number(process.env.PORT || 4173);
 
 if (!existsSync(path.join(ROOT, 'index.html'))) {
-  console.error('dist/index.html not found — run `npm run build` first (or double-click Start CutFlow.bat).');
+  console.error('dist/index.html not found — run `npm run build` first (or double-click Start FalconCut.bat).');
   process.exit(1);
 }
 
@@ -74,7 +74,7 @@ const server = createServer(async (req, res) => {
 });
 
 server.listen(PORT, '127.0.0.1', () => {
-  console.log(`CutFlow running at http://localhost:${PORT}`);
-  console.log('Install it as an app: Chrome/Edge → address-bar install icon (or ⋮ → "Install CutFlow").');
+  console.log(`FalconCut running at http://localhost:${PORT}`);
+  console.log('Install it as an app: Chrome/Edge → address-bar install icon (or ⋮ → "Install FalconCut").');
   console.log('Press Ctrl+C to stop the server.');
 });

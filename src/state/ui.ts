@@ -10,8 +10,9 @@ export type Workspace = 'edit' | 'color' | 'audio';
 
 export interface Toast { id: string; text: string; kind: 'info' | 'success' | 'error'; }
 
-/** Active preview tool: 'select' manipulates overlays, anything else draws. */
-export type PreviewTool = 'select' | DrawTool;
+/** Active preview tool: 'select' manipulates overlays, 'crop' opens the
+ * non-destructive source-frame crop workspace, anything else draws. */
+export type PreviewTool = 'select' | 'crop' | DrawTool;
 export interface DrawState {
   tool: PreviewTool;
   color: string;
@@ -33,6 +34,7 @@ interface UIPrefs {
   timelineHeight: number;
   previewZoom: 'fit' | number;
   workspace: Workspace;
+  snap: boolean;
 }
 
 export const TIMELINE_H_MIN = 160;
@@ -79,6 +81,8 @@ interface UIState {
   railVisible: boolean;
   /** Bottom timeline pane height in px (user-resizable, persisted). */
   timelineHeight: number;
+  /** Magnetic snapping for timeline drags (N toggles; Alt temporarily disables). */
+  snap: boolean;
   /** Direct-manipulation / drawing tool active on the preview. */
   draw: DrawState;
   setDrawTool: (t: PreviewTool) => void;
@@ -87,6 +91,7 @@ interface UIState {
   setPreviewZoom: (z: 'fit' | number) => void;
   setRailVisible: (v: boolean) => void;
   setTimelineHeight: (h: number) => void;
+  setSnap: (v: boolean) => void;
   setRightTab: (t: RightTab) => void;
   setLeftTab: (t: LeftTab) => void;
   setWorkspace: (w: Workspace) => void;
@@ -109,6 +114,7 @@ export const useUI = create<UIState>((set, get) => ({
   timelineHeight: typeof prefs.timelineHeight === 'number' && Number.isFinite(prefs.timelineHeight)
     ? clampTimelineHeight(prefs.timelineHeight)
     : 240,
+  snap: prefs.snap !== false,
   draw: { tool: 'select', color: '#4C9AFF', size: 8, opacity: 1, fill: false, char: '✨' },
   setDrawTool: (t) => set((s) => ({ draw: { ...s.draw, tool: t } })),
   patchDraw: (patch) => set((s) => ({ draw: { ...s.draw, ...patch } })),
@@ -116,6 +122,7 @@ export const useUI = create<UIState>((set, get) => ({
   setPreviewZoom: (z) => { set({ previewZoom: z }); persistUI({ previewZoom: z }); },
   setRailVisible: (v) => { set({ railVisible: v }); persistUI({ railVisible: v }); },
   setTimelineHeight: (h) => { const clamped = clampTimelineHeight(h); set({ timelineHeight: clamped }); persistUI({ timelineHeight: clamped }); },
+  setSnap: (v) => { set({ snap: v }); persistUI({ snap: v }); },
   setWorkspace: (w) => { set({ workspace: w }); persistUI({ workspace: w }); },
   setRightTab: (t) => set({ rightTab: t }),
   setLeftTab: (t) => set({ leftTab: t }),

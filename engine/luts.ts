@@ -31,7 +31,7 @@ export function parseCube(text: string, name: string): { lut: Lut } | { error: s
       size = n;
       continue;
     }
-    if (/^LUT_1D_SIZE/i.test(line)) return { error: 'This is a 1D LUT — CutFlow needs a 3D (.cube) LUT with LUT_3D_SIZE.' };
+    if (/^LUT_1D_SIZE/i.test(line)) return { error: 'This is a 1D LUT — FalconCut needs a 3D (.cube) LUT with LUT_3D_SIZE.' };
     if (/^DOMAIN_(MIN|MAX)/i.test(line)) {
       const parts = line.split(/\s+/).slice(1).map(Number);
       if (/^DOMAIN_MIN/i.test(line)) domainMin = parts[0] ?? 0;

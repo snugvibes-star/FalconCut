@@ -1,4 +1,4 @@
-# Kdenlive → CutFlow feature mapping
+# Kdenlive → FalconCut feature mapping
 
 Deep analysis of the **actual Kdenlive installed on this machine**
 (`D:\apps\video_editor_mcp\src\video_editor\bin\kdenlive.exe`, data dir
@@ -15,7 +15,7 @@ open-source binary's shipped artifacts):
    `movit*`, `ladspa*`, mlt-core, text).
 4. Cross-checked Kdenlive's running MCP surface (D-Bus broken on this Windows
    install — `ERROR: [WinError 2]` — so on-disk data files were used instead).
-5. Compared the inventory against CutFlow's engine
+5. Compared the inventory against FalconCut's engine
    (`engine/effects.ts`, `engine/types.ts`, `engine/audio.ts`).
 
 Full machine-readable inventory: `%TEMP%\kdenlive_effects.csv`
@@ -30,11 +30,11 @@ Full machine-readable inventory: `%TEMP%\kdenlive_effects.csv`
 | mlt-core          | 84    | MLT's own NLE toolkit               | core reference set       |
 | ladspa            | 75    | Linux audio plugins                 | native-only              |
 | movit (GPU)       | 13    | OpenGL shader effects               | mostly duplicate mlt-core|
-| text              | 1     | Dynamic text                        | CutFlow has richer text  |
+| text              | 1     | Dynamic text                        | FalconCut has richer text  |
 
-## Already covered by CutFlow (verified)
+## Already covered by FalconCut (verified)
 
-| Kdenlive filter(s) | CutFlow equivalent | Status |
+| Kdenlive filter(s) | FalconCut equivalent | Status |
 |---|---|---|
 | `lift_gamma_gain`, `lumaliftgaingamma`, `movit.lift_gamma_gain` | color effect `lift_r/g/b`, `gamma_r/g/b`, `gain_r/g/b` (per-channel, keyframe-animatable) | **Working** — same 9-parameter model, verified live |
 | `avfilter.colorlevels`, brightness/contrast family | color effect brightness/contrast | Working |
@@ -56,7 +56,7 @@ Full machine-readable inventory: `%TEMP%\kdenlive_effects.csv`
 
 **Adopted and verified (this build):**
 
-| Kdenlive filter | CutFlow implementation | Verification |
+| Kdenlive filter | FalconCut implementation | Verification |
 |---|---|---|
 | `lift_gamma_gain` (all 3 variants) | per-channel LGG in the color effect | live pixel check on preview |
 | `avfilter.negate` | `negate` effect (`invert` 0..1) | A/B: inverted channels sum to 255 |
@@ -92,7 +92,7 @@ Full machine-readable inventory: `%TEMP%\kdenlive_effects.csv`
 
 ## Summary
 
-- Kdenlive exposes **415 effects**; CutFlow's engine today covers the
+- Kdenlive exposes **415 effects**; FalconCut's engine today covers the
   **core NLE grading/keying/audio set** (the mlt-core essentials) plus a
   growing avfilter-compatible subset, with the same one-engine
   (preview = export) guarantee Kdenlive gets from MLT.

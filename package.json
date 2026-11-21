@@ -1,9 +1,9 @@
 {
-  "name": "cutflow",
+  "name": "falconcut",
   "private": true,
   "version": "1.0.0",
   "type": "module",
-  "description": "AI-native, privacy-first video editor. The editing skill lives in the system, not the model.",
+  "description": "A modern video editor built for human creators and AI agents. Create, edit, automate, and export videos with a powerful professional editing workflow.",
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
@@ -12,7 +12,7 @@
     "test": "vitest run",
     "manifest": "node scripts/gen-manifest.mjs",
     "relay": "node server/relay.mjs",
-    "mcp": "node server/cutflow-mcp.mjs"
+    "mcp": "node server/falconcut-mcp.mjs"
   },
   "dependencies": {
     "@fontsource-variable/inter": "^5.1.0",

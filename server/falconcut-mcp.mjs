@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 /**
- * CutFlow MCP bridge (Phase 9). A minimal Model Context Protocol stdio server
- * that joins the relay as an "agent" and exposes the SAME CutFlow tools to any
+ * FalconCut MCP bridge (Phase 9). A minimal Model Context Protocol stdio server
+ * that joins the relay as an "agent" and exposes the SAME FalconCut tools to any
  * MCP client (Claude Desktop, etc.). No account, no install beyond Node.
  *
- *   CUTFLOW_RELAY=ws://127.0.0.1:8787/ws CUTFLOW_TOKEN=<token> node server/cutflow-mcp.mjs
+ *   FALCONCUT_RELAY=ws://127.0.0.1:8787/ws FALCONCUT_TOKEN=<token> node server/falconcut-mcp.mjs
  *
  * Get the token from the editor's "Connect an agent" dialog. Every editing
  * tool call is applied as ONE undo step in the editor, so the human can always
@@ -19,8 +19,8 @@ import readline from 'node:readline';
 import { fileURLToPath } from 'node:url';
 
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
-const RELAY = process.env.CUTFLOW_RELAY || 'ws://127.0.0.1:8787/ws';
-const TOKEN = process.env.CUTFLOW_TOKEN || '';
+const RELAY = process.env.FALCONCUT_RELAY || 'ws://127.0.0.1:8787/ws';
+const TOKEN = process.env.FALCONCUT_TOKEN || '';
 const PROTOCOL_VERSION = '2024-11-05';
 
 let manifest = { tools: [] };
@@ -33,7 +33,7 @@ function log(...a) { process.stderr.write(a.join(' ') + '\n'); }
 class Relay {
   constructor() { this.ws = null; this.pending = new Map(); this.seq = 0; this.ready = false; this.shuttingDown = false; }
   connect() {
-    if (!TOKEN) { log('No CUTFLOW_TOKEN set — tools/list works, but tool calls need a token from the editor.'); return; }
+    if (!TOKEN) { log('No FALCONCUT_TOKEN set — tools/list works, but tool calls need a token from the editor.'); return; }
     const url = `${RELAY.replace(/\/+$/, '')}${RELAY.includes('?') ? '&' : '?'}token=${encodeURIComponent(TOKEN)}&role=agent`;
     const ws = new WebSocket(url);
     this.ws = ws;
@@ -83,7 +83,7 @@ const READ_TOOLS = [
   { name: 'get_analysis', description: 'Read the analysis (transcript, silences, scenes, faces, beats, loudness). Read-only.', method: 'getAnalysis', inputSchema: { type: 'object', properties: {} } },
   { name: 'get_storyboard', description: 'Read the plain-text storyboard summary of the footage. Read-only.', method: 'getStoryboard', inputSchema: { type: 'object', properties: {} } },
   { name: 'get_lint', description: 'Read the quality-check report (issues + score). Read-only.', method: 'getLint', inputSchema: { type: 'object', properties: {} } },
-  { name: 'preview_tool', description: 'Preview any CutFlow tool without applying it. Returns the action list + summary.', inputSchema: { type: 'object', properties: { name: { type: 'string', description: 'CutFlow tool name, e.g. remove_dead_air' }, params: { type: 'object', description: 'Tool params' } }, required: ['name'] } },
+  { name: 'preview_tool', description: 'Preview any FalconCut tool without applying it. Returns the action list + summary.', inputSchema: { type: 'object', properties: { name: { type: 'string', description: 'FalconCut tool name, e.g. remove_dead_air' }, params: { type: 'object', description: 'Tool params' } }, required: ['name'] } },
 ];
 
 function buildTools() {
@@ -124,7 +124,7 @@ async function handle(msg) {
   const { id, method, params } = msg;
   try {
     if (method === 'initialize') {
-      respond(id, { protocolVersion: PROTOCOL_VERSION, capabilities: { tools: {} }, serverInfo: { name: 'cutflow', version: '1.0.0' } });
+      respond(id, { protocolVersion: PROTOCOL_VERSION, capabilities: { tools: {} }, serverInfo: { name: 'falconcut', version: '1.0.0' } });
     } else if (method === 'notifications/initialized' || method === 'initialized') {
       /* notification — no response */
     } else if (method === 'ping') {
@@ -152,4 +152,4 @@ rl.on('line', (line) => {
 rl.on('close', () => { relay.close(); process.exit(0); });
 process.on('SIGINT', () => { relay.close(); process.exit(0); });
 process.on('SIGTERM', () => { relay.close(); process.exit(0); });
-log(`CutFlow MCP bridge ready (relay ${RELAY}). ${manifest.tools.length} editing tools + ${READ_TOOLS.length} read/preview tools.`);
+log(`FalconCut MCP bridge ready (relay ${RELAY}). ${manifest.tools.length} editing tools + ${READ_TOOLS.length} read/preview tools.`);

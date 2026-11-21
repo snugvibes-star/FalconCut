@@ -5,7 +5,7 @@ import type { Action } from '../../engine/actions';
 import type { Analysis, Project } from '../../engine/types';
 import type { LintReport } from '../../quality/lint';
 
-export interface CutflowAPI {
+export interface FalconCutAPI {
   readonly version: string;
   listTools(): ReturnType<typeof toolManifest>;
   toolsPrompt(): string;
@@ -15,6 +15,8 @@ export interface CutflowAPI {
   getLint(): LintReport;
   getPlayhead(): number;
   setPlayhead(t: number): void;
+  getSelection(): string[];
+  select(ids: string[]): void;
   runTool(name: string, params?: Record<string, unknown>): Promise<ToolResult>;
   applyTool(name: string, params?: Record<string, unknown>): Promise<ToolResult>;
   applyActions(actions: Action[], label?: string): void;
@@ -25,7 +27,7 @@ export interface CutflowAPI {
 
 const clone = <T,>(v: T): T => v === undefined ? v : JSON.parse(JSON.stringify(v)) as T;
 
-export function createCutflowAPI(authorize: () => void = () => {}): CutflowAPI {
+export function createFalconCutAPI(authorize: () => void = () => {}): FalconCutAPI {
   const state = () => { authorize(); return useStore.getState(); };
   return {
     version: '1.0.0',
@@ -37,6 +39,8 @@ export function createCutflowAPI(authorize: () => void = () => {}): CutflowAPI {
     getLint: () => clone(state().lint),
     getPlayhead: () => state().playhead,
     setPlayhead: (t) => { if (!Number.isFinite(t)) throw new Error('Time must be finite.'); state().setPlayhead(t); },
+    getSelection: () => state().selection.slice(),
+    select: (ids) => { authorize(); state().select(ids.filter((id) => state().project.clips.some((c) => c.id === id))); },
     runTool: async (name, params) => {
       const result = await state().previewTool(name, params, 'ai');
       authorize();
@@ -74,11 +78,14 @@ export function createCutflowAPI(authorize: () => void = () => {}): CutflowAPI {
 }
 
 declare global {
-  interface Window { cutflow?: CutflowAPI }
+  interface Window { falconcut?: FalconCutAPI; /** pre-rename alias, kept so older agent scripts keep working */ cutflow?: FalconCutAPI }
 }
 
-export function installCutflowAPI(): CutflowAPI {
-  const api = createCutflowAPI();
-  if (typeof window !== 'undefined') window.cutflow = api;
+export function installFalconCutAPI(): FalconCutAPI {
+  const api = createFalconCutAPI();
+  if (typeof window !== 'undefined') {
+    window.falconcut = api;
+    window.cutflow = api; // compatibility alias for scripts written before the rename
+  }
   return api;
 }

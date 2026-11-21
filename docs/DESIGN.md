@@ -1,8 +1,8 @@
-# CutFlow — Master Build Prompt
+# FalconCut — Master Build Prompt
 
 ## 1. The aim
 
-CutFlow is a browser-native, local-first video editor that **beats CapCut on speed and beats Premiere Pro on depth, with zero uploads and zero fake buttons.**
+FalconCut is a browser-native, local-first video editor that **beats CapCut on speed and beats Premiere Pro on depth, with zero uploads and zero fake buttons.**
 
 Three things make it win, and every task must serve one of them:
 
@@ -32,7 +32,7 @@ Project root: `C:\Users\Nexus Computer\Documents\Qoder\2026-11-11\a95fd32a` (Rea
 
 - `engine/` — `render.ts` (single `renderFrame(project, t, ctx, resolver)`), `actions.ts`, `history.ts`, `effects.ts`, `easing.ts`, `generators.ts`, `motifs.ts`, `captions.ts`, `audio.ts` (`buildAudioGraph`, shared by preview and WAV export), `media.ts` (preview `MediaPool`), `diff.ts`. Project doc is one JSON `Project` with `tracks[]`/`clips[]`, flat `effects[]` and flat `keyframes[]` (`path` strings).
 - `exporter/` — JSON, SRT, PNG, WAV only.
-- `tools/registry.ts` — 22 tools; `scripts/gen-manifest.mjs` → `public/tools.json`; `server/relay.mjs` + `server/cutflow-mcp.mjs` for agent access.
+- `tools/registry.ts` — 22 tools; `scripts/gen-manifest.mjs` → `public/tools.json`; `server/relay.mjs` + `server/falconcut-mcp.mjs` for agent access.
 - `analysis/` — Whisper worker, silence/beat/scene/text analysis. `ai/` — planner + client with user-supplied key and a no-key path. `quality/lint.ts` — 15 checks with per-issue auto-fixes.
 - `src/` — Left panel (Media / Tools / Styles), centre `Preview`, right panel (Inspect / AI / Versions / Quality / Notes), `Timeline`, dialogs, IndexedDB autosave.
 
@@ -126,7 +126,7 @@ Build in milestone order. Each milestone is complete only when it works in previ
 - Batch: apply preset to many clips, batch export, batch caption.
 - Recorders: screen (getDisplayMedia) with webcam bubble/click highlights, webcam, voiceover.
 - Utilities: compressor/converter, trim without re-encode, video→GIF/WebP, image sequence→video, frame extraction, metadata and media report, missing-media warnings.
-- Project interchange: export/import `.cutflow` (JSON + media refs), template save, 15 built-in templates (intro, vlog, product, reel, slideshow, quote, countdown, tutorial, podcast clip, before/after), versions, autosave, backup/restore.
+- Project interchange: export/import `.falconcut` (JSON + media refs), template save, 15 built-in templates (intro, vlog, product, reel, slideshow, quote, countdown, tutorial, podcast clip, before/after), versions, autosave, backup/restore.
 - Export presets per platform (TikTok, Reels, Shorts, YouTube, X, LinkedIn), cover-thumbnail picker, safe zones per platform.
 - Workspaces (Editing, Color, Audio, Effects, Captions), full shortcut remapping with Premiere/CapCut/DaVinci presets.
 - Image editor for stills: crop/rotate/resize, curves/levels/HSL, sharpen/blur/noise, layers with blend modes, masks, shadow/stroke/glow/gradient overlay, marquee/ellipse/lasso/magic wand/subject select, refine edge, clone/heal (Partial), content-aware fill (Not possible), thumbnail maker with text templates.

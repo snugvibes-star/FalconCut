@@ -28,7 +28,7 @@ const bundled = await build({
   logLevel: 'warning',
 });
 
-const tmp = path.join(tmpdir(), `cutflow-manifest-${Date.now()}.mjs`);
+const tmp = path.join(tmpdir(), `falconcut-manifest-${Date.now()}.mjs`);
 await writeFile(tmp, bundled.outputFiles[0].text, 'utf8');
 const mod = await import(pathToFileURL(tmp).href);
 await rm(tmp, { force: true });
@@ -37,13 +37,13 @@ const { toolManifest, toolsPromptText, TOOLS, AGENT_SYSTEM_PROMPT } = mod;
 const tools = toolManifest();
 
 const manifest = {
-  name: 'cutflow',
+  name: 'falconcut',
   version: '1.0.0',
-  description: 'AI-native, privacy-first video editor. The editing skill lives in the system (analysis, rules, tools, quality checks), not in the model — so even a weak model produces professional edits by calling these tools.',
+  description: 'A modern video editor built for human creators and AI agents. Create, edit, automate, and export videos with a powerful professional editing workflow.',
   privacy: 'Everything runs in the browser. Your videos never leave this device. No account, no upload.',
   access: {
     inPage: {
-      where: 'window.cutflow',
+      where: 'window.falconcut',
       methods: ['listTools()', 'getProject()', 'getAnalysis()', 'getStoryboard()', 'getLint()', 'runTool(name, params)', 'applyTool(name, params)', 'applyActions(actions, label)', 'undo()', 'redo()', 'onChange(cb)'],
       note: 'Same-page agents only. Scoped to the project open in this tab; cannot reach other projects or files.',
     },
@@ -51,7 +51,7 @@ const manifest = {
       where: 'Connect an agent → one-time session link + QR',
       note: 'A session token grants access to the current project only, expires when the tab closes, and is revocable with one click.',
     },
-    mcp: { where: 'node server/cutflow-mcp.mjs', note: 'MCP stdio bridge that forwards to the relay.' },
+    mcp: { where: 'node server/falconcut-mcp.mjs', note: 'MCP stdio bridge that forwards to the relay.' },
   },
   protocol: {
     reply: 'Respond with ONLY a JSON object: {"thought": string, "say": string, "calls": [{"tool": string, "params": object, "why": string}]}',
@@ -62,17 +62,17 @@ const manifest = {
   tools,
 };
 
-const llms = `# CutFlow
+const llms = `# FalconCut
 
-> AI-native, privacy-first video editor. The editing skill lives in the system — analysis, style rules, high-level tools and a quality checker — not in the model. Even a weak AI model produces professional, human-looking edits by calling the tools below. It also works as a normal manual (CapCut-style) editor.
+> A modern video editor built for human creators and AI agents. Create, edit, automate, and export videos with a powerful professional editing workflow. Every manual tool works without a key; connect one and the assistant can plan edits, cut dead air and write captions by calling the tools below. Privacy-first: media never leaves the device.
 
 Everything runs in the browser. Your videos never leave this device. No account, no upload, no install.
 
 ## Connect an agent (no account)
 
-- In-page API: \`window.cutflow\` — \`listTools()\`, \`getProject()\`, \`getAnalysis()\`, \`runTool(name, params)\` (preview), \`applyTool(name, params)\` (one undo step). Same-page agents only; scoped to the open project.
+- In-page API: \`window.falconcut\` — \`listTools()\`, \`getProject()\`, \`getAnalysis()\`, \`runTool(name, params)\` (preview), \`applyTool(name, params)\` (one undo step). Same-page agents only; scoped to the open project.
 - Connect an agent: a one-time session link + QR code bridges an external agent over a local WebSocket relay. The token grants the current project only, expires on tab close, and is revocable with one click.
-- MCP: \`node server/cutflow-mcp.mjs\` exposes the same tools over the Model Context Protocol.
+- MCP: \`node server/falconcut-mcp.mjs\` exposes the same tools over the Model Context Protocol.
 - Machine-readable manifest: [/tools.json](/tools.json)
 
 ## How to reply

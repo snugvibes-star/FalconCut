@@ -4,9 +4,22 @@
  * Handles: volume keyframes, equal-power fades, ducking (baked keyframes),
  * EQ, light de-ess, noise gate / downward-expansion denoise from analysis.
  */
-import type { Clip, Project } from './types';
+import type { Clip, Project, Track } from './types';
 import { getMedia, avgSpeed, sourceTimeOf } from './types';
 import { clipVolumeAt } from './render';
+
+/**
+ * Is this track's audio audible right now?
+ * Muted tracks are always silent. Solo wins over mute-by-other: when at least
+ * one track of a kind is soloed, only the soloed tracks of that kind play.
+ * Text tracks never carry audio.
+ */
+export function trackAudible(p: Project, track: Track | undefined): boolean {
+  if (!track || track.kind === 'text') return false;
+  if (track.muted) return false;
+  const soloed = p.tracks.some((t) => t.kind === track.kind && t.solo);
+  return soloed ? !!track.solo : true;
+}
 
 export interface AudioGraphHandle {
   stop(): void;
@@ -63,7 +76,7 @@ export function buildAudioGraph(
 
   for (const clip of p.clips) {
     const track = p.tracks.find((t) => t.id === clip.trackId);
-    if (!track || track.muted || track.kind === 'text') continue;
+    if (!track || !trackAudible(p, track)) continue;
     const asset = getMedia(p, clip.mediaId);
     if (!asset) continue;
     const buffer = clip.mediaId ? buffers.get(clip.mediaId) : undefined;
@@ -214,11 +227,11 @@ function reversedBuffer(original: AudioBuffer): AudioBuffer {
 
 /** Rough integrated loudness of the mixed timeline, for lint (uses analysis envelopes). */export function estimateSpeechMusicBalance(p: Project): { musicOverSpeech: { time: number; musicDb: number; speechDb: number }[] } {
   const out: { time: number; musicDb: number; speechDb: number }[] = [];
-  const audioTracks = p.tracks.filter((t) => t.kind === 'audio' && !t.muted);
+  const audioTracks = p.tracks.filter((t) => t.kind === 'audio' && trackAudible(p, t));
   const musicClips = p.clips.filter((c) => audioTracks.some((t) => t.id === c.trackId) && getMedia(p, c.mediaId)?.type === 'audio');
   const speechClips = p.clips.filter((c) => {
     const a = getMedia(p, c.mediaId);
-    return a?.type === 'video' && a.hasAudio && !p.tracks.find((t) => t.id === c.trackId)?.muted;
+    return a?.type === 'video' && a.hasAudio && trackAudible(p, p.tracks.find((t) => t.id === c.trackId));
   });
   for (const mc of musicClips) {
     for (let tl = mc.start; tl < mc.start + mc.duration; tl += 0.5) {

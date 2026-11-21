@@ -13,7 +13,7 @@ export class ErrorBoundary extends Component<Props, State> {
   static getDerivedStateFromError(error: Error): State { return { error }; }
 
   componentDidCatch(error: Error, info: ErrorInfo) {
-    console.error('CutFlow crashed:', error, info.componentStack);
+    console.error('FalconCut crashed:', error, info.componentStack);
   }
 
   private resetStorage = async () => {

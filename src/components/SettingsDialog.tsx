@@ -255,7 +255,7 @@ export function SettingsDialog() {
             {provider === 'openrouter'
               ? 'OpenRouter routes one key to many providers. "auto" picks a working model for your credits; press Fetch models to see everything the key can use (free models end in :free).'
               : provider === 'gemini'
-                ? 'Create a key at aistudio.google.com/apikey. Both formats work: standard keys starting with AIza and the newer authorization keys starting with AQ. Any endpoint shape works too: …/v1beta, …/v1beta/models, or a full …/models/<model>:generateContent URL — CutFlow builds the model action itself and the Model name field always wins.'
+                ? 'Create a key at aistudio.google.com/apikey. Both formats work: standard keys starting with AIza and the newer authorization keys starting with AQ. Any endpoint shape works too: …/v1beta, …/v1beta/models, or a full …/models/<model>:generateContent URL — FalconCut builds the model action itself and the Model name field always wins.'
                 : 'Any server that speaks the OpenAI chat-completions API — not just OpenAI. Pick a vendor below, or paste your own endpoint (vLLM, Azure, a gateway…). A bare base URL such as …/v1 is fine: /chat/completions is added when it is missing.'}
           </p>
           {provider === 'openai' && (
@@ -377,7 +377,7 @@ export function SettingsDialog() {
           <p className="text-[11px] leading-relaxed text-paper-dim">
             {proxy
               ? 'Connection proxy: active (this app is running from its local server). Providers that block direct browser requests, such as api.openai.com, are routed locally without any extra setup — your key still goes straight to the provider.'
-              : 'Connection proxy: not available on this origin. OpenAI and other providers that block direct browser requests may fail here — open CutFlow from its local server (Start CutFlow.bat) to enable the proxy, or use OpenRouter or Gemini.'}
+              : 'Connection proxy: not available on this origin. OpenAI and other providers that block direct browser requests may fail here — open FalconCut from its local server (Start FalconCut.bat) to enable the proxy, or use OpenRouter or Gemini.'}
           </p>
         )}
         {testResult && (

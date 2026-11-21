@@ -7,7 +7,7 @@ import { useUI } from '../../state/ui';
 import { commit, DragSlider, Section, Hint, useSelectedClip } from './shared';
 import { COLOR_PRESETS, type Action, type Effect } from '../../../engine';
 
-const CUTFLOW_MIME = 'application/x-cutflow'; // same MIME the Timeline drop handler reads
+const FALCONCUT_MIME = 'application/x-falconcut'; // same MIME the Timeline drop handler reads
 const SWATCH_GRADIENT = 'linear-gradient(135deg, #e0a86a 0%, #7c5cbf 50%, #4a90d9 100%)';
 
 const BASE: Record<string, number> = { brightness: 1, contrast: 1, saturation: 1, temperature: 0 };
@@ -124,7 +124,7 @@ export function FiltersTab() {
               <button key={key}
                 draggable
                 onDragStart={(e) => {
-                  e.dataTransfer.setData(CUTFLOW_MIME, JSON.stringify({ kind: 'filter', preset: key, intensity }));
+                  e.dataTransfer.setData(FALCONCUT_MIME, JSON.stringify({ kind: 'filter', preset: key, intensity }));
                   e.dataTransfer.effectAllowed = 'copy';
                 }}
                 onClick={() => { setCurrent(key); if (clip && id) applyPreset(key, id, colorFx); }}

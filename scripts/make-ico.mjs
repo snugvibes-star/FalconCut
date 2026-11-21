@@ -1,5 +1,5 @@
 /**
- * Builds public/cutflow.ico from public/icon-512.png.
+ * Builds public/falconcut.ico from public/icon-512.png.
  * Windows accepts PNG-compressed ICO entries (Vista and later), so each size
  * is a PNG rendered by sharp and wrapped in the ICO container. Multi-size
  * matters: Explorer uses 16/32 px, the desktop uses 48/256 px.
@@ -13,7 +13,7 @@ import sharp from 'sharp';
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, '..');
 const src = join(root, 'public', 'icon-512.png');
-const out = join(root, 'public', 'cutflow.ico');
+const out = join(root, 'public', 'falconcut.ico');
 const sizes = [16, 24, 32, 48, 64, 128, 256];
 
 const source = readFileSync(src);
@@ -45,4 +45,4 @@ for (const { size, png } of images) {
 }
 
 writeFileSync(out, Buffer.concat([header, ...dirs, ...images.map((i) => i.png)]));
-console.log(`cutflow.ico written: ${sizes.join(', ')} px, ${(offset / 1024).toFixed(1)} kB`);
+console.log(`falconcut.ico written: ${sizes.join(', ')} px, ${(offset / 1024).toFixed(1)} kB`);

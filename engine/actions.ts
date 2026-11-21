@@ -1,5 +1,5 @@
 /**
- * Every edit in CutFlow is one of these small action objects.
+ * Every edit in FalconCut is one of these small action objects.
  * Humans (UI) and AI (tools) both go through applyActions().
  * A list of actions applied together becomes ONE undo step.
  * The ACTION_SCHEMA export below is written for AI models to read.
@@ -18,7 +18,8 @@ export type Action =
   | { type: 'remove_media'; mediaId: string }
   | { type: 'add_track'; track: Partial<Track> & { kind: Track['kind'] }; index?: number }
   | { type: 'remove_track'; trackId: string }
-  | { type: 'set_track'; trackId: string; patch: Partial<Pick<Track, 'name' | 'locked' | 'muted' | 'hidden' | 'height'>> }
+  | { type: 'set_track'; trackId: string; patch: Partial<Pick<Track, 'name' | 'locked' | 'muted' | 'hidden' | 'solo' | 'height'>> }
+  | { type: 'move_track'; trackId: string; toIndex: number }
   | { type: 'add_clip'; clip: Partial<Clip> & { trackId: string; start: number; duration: number }; ripple?: boolean }
   | { type: 'remove_clip'; clipId: string; ripple?: boolean }
   | { type: 'split_clip'; clipId: string; time: number }
@@ -70,6 +71,7 @@ export const ACTION_SCHEMA: Record<Action['type'], string> = {
   add_track: 'Add a timeline track. kind: video | audio | text. Higher video tracks draw on top.',
   remove_track: 'Delete a track and all clips on it.',
   set_track: 'Change track name/locked/muted/hidden.',
+  move_track: 'Move a track up or down in the track order.',
   add_clip: 'Place media on a track. start/duration are timeline seconds, inPoint is where to start inside the source file. ripple: true inserts instead of overwriting (following clips shift right).',
   remove_clip: 'Delete a clip. ripple=true also closes the gap on its track.',
   split_clip: 'Cut one clip into two at a timeline time. Both halves keep playing the same source.',
@@ -236,6 +238,16 @@ export function applyAction(project: Project, action: Action): Project {
       case 'set_track': {
         const t = p.tracks.find((x) => x.id === action.trackId);
         if (t) Object.assign(t, action.patch);
+        break;
+      }
+      case 'move_track': {
+        // Reorder tracks (z-order + track header order). Clips follow their
+        // track id, so nothing else has to move.
+        const i = p.tracks.findIndex((x) => x.id === action.trackId);
+        if (i < 0) break;
+        const [t] = p.tracks.splice(i, 1);
+        const to = Math.max(0, Math.min(p.tracks.length, Math.round(action.toIndex)));
+        p.tracks.splice(to, 0, t);
         break;
       }
       case 'add_clip': {

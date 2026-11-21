@@ -13,7 +13,7 @@
  */
 import { useEffect, useRef } from 'react';
 import { useStore } from '../state/store';
-import { buildAudioGraph, activeClips, projectDuration, getMedia, type AudioGraphHandle, type Clip, type MediaAsset } from '../../engine';
+import { buildAudioGraph, activeClips, projectDuration, getMedia, trackAudible, type AudioGraphHandle, type Clip, type MediaAsset } from '../../engine';
 
 function activeWithAssets(project: ReturnType<typeof useStore.getState>['project'], t: number) {
   const out: { clip: Clip; asset: MediaAsset }[] = [];
@@ -67,7 +67,7 @@ export function usePlayback() {
       for (const clip of s.project.clips) {
         const track = s.project.tracks.find((t) => t.id === clip.trackId);
         const asset = getMedia(s.project, clip.mediaId);
-        if (!track || track.muted || !asset || asset.type !== 'video') continue;
+        if (!trackAudible(s.project, track) || !asset || asset.type !== 'video') continue;
         const el = s.pool.elementFor(asset.id);
         if (el && s.pool.decodeFailedFor(asset.id)) {
           el.muted = false;
@@ -164,7 +164,7 @@ export function usePlayback() {
       const parts: string[] = [];
       for (const c of s.project.clips) {
         const track = s.project.tracks.find((t) => t.id === c.trackId);
-        parts.push(`${c.id}:${c.start}:${c.duration}:${c.volume}:${c.speed}:${c.mediaId}:${track ? (track.muted ? 1 : 0) : 2}`);
+        parts.push(`${c.id}:${c.start}:${c.duration}:${c.volume}:${c.speed}:${c.mediaId}:${track ? (trackAudible(s.project, track) ? 0 : 1) : 2}`);
       }
       return parts.join('|');
     };

@@ -1,7 +1,7 @@
 {
-  "name": "CutFlow â€” AI-native video editor",
-  "short_name": "CutFlow",
-  "description": "Privacy-first, AI-native video editor that runs entirely in your browser. Media never leaves your device.",
+  "name": "FalconCut — Edit with Creativity. Create with AI.",
+  "short_name": "FalconCut",
+  "description": "A modern video editor built for human creators and AI agents. Create, edit, automate, and export videos with a powerful professional editing workflow.",
   "id": "/",
   "start_url": "/?source=pwa",
   "scope": "/",

@@ -5,7 +5,7 @@ import { useUI } from '../state/ui';
 import { projectDuration, uid, type MediaAsset, type GeneratorSpec, type Action } from '../../engine';
 
 /** MIME type shared with the Timeline drop zone. */
-export const CUTFLOW_MIME = 'application/x-cutflow';
+export const FALCONCUT_MIME = 'application/x-falconcut';
 
 const thumbCache = new Map<string, string>();
 
@@ -132,7 +132,7 @@ export function MediaTab() {
                 key={m.id}
                 draggable
                 onDragStart={(e) => {
-                  e.dataTransfer.setData(CUTFLOW_MIME, JSON.stringify({ kind: 'media', mediaId: m.id }));
+                  e.dataTransfer.setData(FALCONCUT_MIME, JSON.stringify({ kind: 'media', mediaId: m.id }));
                   e.dataTransfer.effectAllowed = 'copy';
                 }}
                 onClick={() => setSelectedId(m.id)}

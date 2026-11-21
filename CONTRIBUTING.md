@@ -1,4 +1,4 @@
-# Contributing to CutFlow
+# Contributing to FalconCut
 
 Thanks for contributing! This repo has one non-negotiable rule: **honesty about what the app can actually do.**
 
