@@ -58,7 +58,7 @@ export const CAPTION_PRESETS: CaptionPreset[] = [
     id: 'default', label: 'Default', styleId: 'clean', effect: 'shadow', transition: 'both',
     style: {
       presetId: 'default', revealWords: true, color: '#FFFFFF', fontSize: 0.046, fontWeight: 800,
-      uppercase: false, shadow: true, outlineWidth: 0.1, bgColor: 'transparent',
+      uppercase: false, shadow: true, outlineWidth: 0.03, bgColor: 'transparent',
       highlight: { enabled: false, anim: 'instant', bgColor: '#000000', textColor: '#FFFFFF', padding: 0.18, radius: 0.1, opacity: 0.9, speed: 0.12, glow: 0, shadow: 0 },
     },
   },
@@ -66,7 +66,7 @@ export const CAPTION_PRESETS: CaptionPreset[] = [
     id: 'tiktok', label: 'TikTok', styleId: 'clean', effect: 'shadow', transition: 'both',
     style: {
       presetId: 'tiktok', revealWords: true, color: '#FFFFFF', fontSize: 0.052, fontWeight: 900,
-      uppercase: false, shadow: true, outlineWidth: 0.12, bgColor: 'transparent',
+      uppercase: false, shadow: true, outlineWidth: 0.045, bgColor: 'transparent',
       highlight: { enabled: true, anim: 'slide', bgColor: '#FFEB00', textColor: '#0B1220', padding: 0.12, radius: 0.06, opacity: 1, speed: 0.16, glow: 0.05, shadow: 0 },
     },
   },
@@ -74,7 +74,7 @@ export const CAPTION_PRESETS: CaptionPreset[] = [
     id: 'karaoke', label: 'Karaoke', styleId: 'karaoke', effect: 'halo', transition: 'both',
     style: {
       presetId: 'karaoke', revealWords: true, color: '#FFFFFF', fontSize: 0.05, fontWeight: 800,
-      uppercase: false, shadow: true, outlineWidth: 0.1, bgColor: 'transparent',
+      uppercase: false, shadow: true, outlineWidth: 0.03, bgColor: 'transparent',
       highlightColor: '#22D3EE',
       highlight: { enabled: true, anim: 'color', bgColor: 'rgba(0,0,0,0)', textColor: '#22D3EE', padding: 0, radius: 0, opacity: 0, speed: 0.18, glow: 0, shadow: 0 },
     },
@@ -83,7 +83,7 @@ export const CAPTION_PRESETS: CaptionPreset[] = [
     id: 'beast', label: 'Beast', styleId: 'word-pop', effect: 'pop', transition: 'both',
     style: {
       presetId: 'beast', revealWords: true, color: '#FFFFFF', fontSize: 0.075, fontWeight: 900,
-      uppercase: true, shadow: true, outlineWidth: 0.12, bgColor: 'transparent',
+      uppercase: true, shadow: true, outlineWidth: 0.045, bgColor: 'transparent',
       letterSpacing: 0.01,
       highlight: { enabled: true, anim: 'pop', bgColor: '#C6F24E', textColor: '#0B1220', padding: 0.14, radius: 0.06, opacity: 1, speed: 0.14, glow: 0.04, shadow: 0 },
     },
@@ -92,7 +92,7 @@ export const CAPTION_PRESETS: CaptionPreset[] = [
     id: 'focus', label: 'Focus', styleId: 'clean', effect: 'shadow', transition: 'both',
     style: {
       presetId: 'focus', revealWords: true, color: '#FFFFFF', fontSize: 0.05, fontWeight: 800,
-      uppercase: false, shadow: true, outlineWidth: 0.1, bgColor: 'transparent',
+      uppercase: false, shadow: true, outlineWidth: 0.03, bgColor: 'transparent',
       highlight: { enabled: true, anim: 'instant', bgColor: '#FFD400', textColor: '#0B1220', padding: 0.2, radius: 0.08, opacity: 1, speed: 0.1, glow: 0.06, shadow: 0.04 },
     },
   },
@@ -100,7 +100,7 @@ export const CAPTION_PRESETS: CaptionPreset[] = [
     id: 'mogul', label: 'Mogul', styleId: 'bold-keywords', effect: 'halo', transition: 'both',
     style: {
       presetId: 'mogul', revealWords: true, color: '#FFFFFF', fontSize: 0.056, fontWeight: 900,
-      uppercase: false, shadow: true, outlineWidth: 0.1, bgColor: 'transparent',
+      uppercase: false, shadow: true, outlineWidth: 0.03, bgColor: 'transparent',
       highlightColor: '#22D3EE',
       highlight: { enabled: true, anim: 'slide', bgColor: '#22D3EE', textColor: '#06121F', padding: 0.14, radius: 0.07, opacity: 0.95, speed: 0.2, glow: 0.08, shadow: 0 },
     },
@@ -178,7 +178,7 @@ export function textStyleFor(
       break;
     case 'halo':
       s.shadow = false;
-      s.outlineWidth = Math.max(0.12, s.outlineWidth);
+      s.outlineWidth = Math.max(0.045, s.outlineWidth);
       s.outlineColor = s.highlightColor;
       break;
     case 'pop':
@@ -196,7 +196,7 @@ export function textStyleFor(
     case 'glow':
       s.shadow = false;
       s.highlightColor = String(p.color ?? s.highlightColor);
-      s.outlineWidth = Number(p.radius ?? 0.08) * 2;
+      s.outlineWidth = Math.min(0.06, Number(p.radius ?? 0.08) * 0.6);
       s.animation = 'pop';
       break;
     case 'blur':

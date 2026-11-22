@@ -7,6 +7,7 @@ function mockCtx() {
   const stack: number[] = [];
   const fills: { w: string; alpha: number }[] = [];
   const rects: number[] = [];
+  const strokes: number[] = [];
   const ctx: any = {
     canvas: { width: 1080, height: 1920 },
     get globalAlpha() { return state.globalAlpha; },
@@ -22,9 +23,9 @@ function mockCtx() {
     fill() { rects.push(state.globalAlpha); }, stroke() {},
     measureText(s: string) { return { width: s.length * 24 }; },
     fillText(w: string) { fills.push({ w, alpha: state.globalAlpha }); },
-    strokeText() {},
+    strokeText() { strokes.push(ctx.lineWidth); },
   };
-  return { ctx, fills, rects, stack, state };
+  return { ctx, fills, rects, strokes, stack, state };
 }
 
 const sampleWords = [
@@ -117,6 +118,20 @@ describe('word-by-word speech-sync rendering', () => {
     expect(rects.length).toBeGreaterThan(0); // highlight stays on the last spoken word
     expect(fills.map((f) => f.w)).toContain('EVERY');
     expect(fills.map((f) => f.w)).not.toContain('STORY');
+  });
+
+  it('keeps outlines subtle, including legacy heavy strokes', () => {
+    for (const p of CAPTION_PRESETS) {
+      expect(presetTextStyle(p.id, 'caption', '16:9').outlineWidth).toBeLessThanOrEqual(0.05);
+    }
+    const legacy = presetTextStyle('default', 'caption', '16:9');
+    legacy.outlineWidth = 0.3; // a style saved by an older version
+    const { ctx, strokes } = mockCtx();
+    const layout = layoutCaption(ctx, 'EVERY STORY', legacy, 1080, 1920, 1, sampleWords.slice(0, 2));
+    drawCaption(ctx, layout, legacy, 1080, 1920, 1, 2);
+    // lineWidth = fontSize * cappedOutline * 2 — never a heavy box outline.
+    const fontSize = layout.fontSize;
+    for (const width of strokes) expect(width).toBeLessThanOrEqual(fontSize * 0.06 * 2 + 0.01);
   });
 
   it('gives each word its own color override while preserving timing', () => {

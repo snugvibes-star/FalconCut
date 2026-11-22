@@ -436,7 +436,7 @@ export const defaultTextStyle = (preset: CaptionStyleId = 'clean'): TextStyle =>
   color: '#FFFFFF',
   highlightColor: '#C6F24E',
   outlineColor: '#000000',
-  outlineWidth: 0.09,
+  outlineWidth: 0.035,
   bgColor: preset === 'clean' ? 'rgba(0,0,0,0.45)' : 'transparent',
   bgPadding: 0.35,
   align: 'center',

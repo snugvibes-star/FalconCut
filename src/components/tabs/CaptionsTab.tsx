@@ -56,7 +56,7 @@ export function StylePreview({ style, sample = 'your story', hi = 'story' }: {
   style: TextStyle; sample?: string; hi?: string;
 }) {
   const fs = Math.max(9, Math.min(26, style.fontSize * 400)); // fontSize fraction, scaled to card
-  const stroke = Math.min(fs * 0.45, fs * style.outlineWidth * 2); // canvas lineWidth = fs*ow*2
+  const stroke = Math.min(fs * 0.1, fs * Math.min(0.06, style.outlineWidth) * 2); // subtle outline only
   const wordPop = style.preset === 'karaoke' || style.preset === 'word-pop' || style.preset === 'bold-keywords';
   const bg = style.bgColor !== 'transparent' ? style.bgColor : undefined;
   const words = sample.split(/\s+/).filter(Boolean);
@@ -96,17 +96,22 @@ export function StylePreview({ style, sample = 'your story', hi = 'story' }: {
         >
           {words.map((word, i) => {
             const isHi = hi && word.toLowerCase() === hi.toLowerCase();
+            const hiBg = isHi && style.highlight?.enabled ? style.highlight.bgColor : undefined;
+            const hiOpaque = !!hiBg && hiBg !== 'transparent' && !/rgba\([^)]*,\s*0\s*\)/.test(hiBg);
             return (
               <span key={i} style={{
                 ...baseStroke,
+                // A solid highlight already separates the word from the
+                // background — stroking it as well looks like a heavy box.
+                WebkitTextStrokeWidth: hiOpaque ? 0 : baseStroke.WebkitTextStrokeWidth,
                 color: isHi
                   ? (style.highlight?.enabled ? (style.highlight.textColor || style.highlightColor) : (wordPop ? style.highlightColor : style.color))
                   : style.color,
-                background: isHi && style.highlight?.enabled ? style.highlight.bgColor : undefined,
-                padding: isHi && style.highlight?.enabled ? `0 ${(style.highlight.padding * 0.7).toFixed(2)}em` : undefined,
-                borderRadius: isHi && style.highlight?.enabled ? `${(fs * style.highlight.radius).toFixed(0)}px` : undefined,
-                boxShadow: isHi && style.highlight?.enabled && style.highlight.glow > 0
-                  ? `0 0 ${(fs * style.highlight.glow).toFixed(1)}px ${style.highlight.bgColor}` : undefined,
+                background: hiBg,
+                padding: hiBg ? `0 ${(style.highlight!.padding * 0.7).toFixed(2)}em` : undefined,
+                borderRadius: hiBg ? `${(fs * style.highlight!.radius).toFixed(0)}px` : undefined,
+                boxShadow: hiBg && style.highlight!.glow > 0
+                  ? `0 0 ${(fs * style.highlight!.glow).toFixed(1)}px ${hiBg}` : undefined,
               }}>{word}</span>
             );
           })}

@@ -263,8 +263,12 @@ export function drawCaption(
       ctx.shadowBlur = fs * 0.12;
       ctx.shadowOffsetY = fs * 0.04;
     }
-    const ow = ws?.outlineWidth ?? style.outlineWidth;
-    if (ow > 0) {
+    // Keep outlines subtle. Older projects can carry very heavy stroke values;
+    // clamp them so reopened captions stay legible instead of looking boxed in.
+    const hlOpaque = hl.enabled && !!hl.bgColor && hl.bgColor !== 'transparent'
+      && !/rgba\([^)]*,\s*0\s*\)/.test(hl.bgColor);
+    const ow = isActive && hlOpaque ? 0 : Math.min(0.06, Math.max(0, ws?.outlineWidth ?? style.outlineWidth ?? 0));
+    if (ow > 0.002) {
       ctx.strokeStyle = ws?.outlineColor ?? style.outlineColor;
       ctx.lineWidth = fs * ow * 2;
       ctx.strokeText(lw.w, -lw.width / 2, 0);
