@@ -104,6 +104,21 @@ describe('word-by-word speech-sync rendering', () => {
     expect(later.fills).toContain('EVERY'); // spoken words stay visible as the highlight moves forward
   });
 
+  it('holds the highlight through gaps between spoken words', () => {
+    const words = [
+      { w: 'EVERY', start: 0, end: 0.3 },
+      { w: 'STORY', start: 0.6, end: 1.2 },
+    ];
+    const style = presetTextStyle('focus', 'caption', '9:16');
+    const { ctx, rects, fills } = mockCtx();
+    const t = 0.45; // between the two words — no word is "active"
+    const layout = layoutCaption(ctx, 'EVERY STORY', style, 1080, 1920, t, words);
+    drawCaption(ctx, layout, style, 1080, 1920, t, 2);
+    expect(rects.length).toBeGreaterThan(0); // highlight stays on the last spoken word
+    expect(fills.map((f) => f.w)).toContain('EVERY');
+    expect(fills.map((f) => f.w)).not.toContain('STORY');
+  });
+
   it('gives each word its own color override while preserving timing', () => {
     const words = sampleWords.map((w, i) => ({ ...w, style: { color: i === 4 ? '#FF0000' : '#FFFFFF' } }));
     const style = presetTextStyle('default', 'caption', '16:9');

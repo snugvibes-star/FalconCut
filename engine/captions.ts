@@ -180,7 +180,15 @@ export function drawCaption(
     enabled: false, anim: 'instant' as const, bgColor: '#000000', textColor: '#FFFFFF',
     padding: 0.18, radius: 0.12, opacity: 0.9, speed: 0.12, glow: 0, shadow: 0,
   };
-  const activeIdx = placed.findIndex((p) => p.lw.active);
+  // Hold the highlight on the last spoken word in the natural gaps between
+  // words. Without this, the highlight blinks off on every micro-pause.
+  let activeIdx = placed.findIndex((p) => p.lw.active);
+  if (activeIdx < 0 && style.revealWords) {
+    for (let i = placed.length - 1; i >= 0; i--) {
+      if (placed[i].lw.sung) { activeIdx = i; break; }
+    }
+  }
+  const activeWordIndex = activeIdx >= 0 ? placed[activeIdx].lw.index : -1;
   const prevIdx = activeIdx > 0 ? activeIdx - 1 : -1;
   const speed = Math.max(0.01, hl.speed || 0.12);
   const progress = activeIdx >= 0 ? clamp01((localT - (placed[activeIdx].lw.start ?? 0)) / speed) : 1;
@@ -227,7 +235,7 @@ export function drawCaption(
 
   for (const { lw, x, y } of placed) {
     if (style.revealWords && lw.start != null && localT < lw.start) continue;
-    const isActive = lw.active;
+    const isActive = lw.index === activeWordIndex;
     const isPrev = prevIdx >= 0 && placed[prevIdx].lw.index === lw.index;
     let color = style.color;
     if (style.preset === 'karaoke' && lw.sung) color = style.highlightColor;

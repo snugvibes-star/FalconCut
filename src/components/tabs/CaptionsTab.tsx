@@ -21,7 +21,19 @@ const DENSITIES = [
   { id: 'relaxed', label: 'Relaxed', hint: '2 lines · ~9s · interview' },
 ] as const;
 type Density = (typeof DENSITIES)[number]['id'];
-const ANIMATIONS: TextStyle['animation'][] = ['none', 'pop', 'fade', 'rise', 'typewriter'];
+const PRESET_SAMPLES: Record<CinematicPresetId, { text: string; hi: string }> = {
+  default: { text: 'your story', hi: '' },
+  tiktok: { text: 'your STORY', hi: 'STORY' },
+  karaoke: { text: 'EVERY STORY', hi: 'STORY' },
+  beast: { text: 'EVERY STORY', hi: 'STORY' },
+  focus: { text: 'your STORY', hi: 'STORY' },
+  mogul: { text: 'YOUR STORY', hi: 'STORY' },
+};
+
+const ANIMATIONS: TextStyle['animation'][] = [
+  'none', 'fade', 'fade-in', 'fade-out', 'pop', 'rise', 'slide', 'bounce', 'zoom',
+  'typewriter', 'blur', 'glitch', 'wave', 'shake', 'pulse',
+];
 const WEIGHTS: TextStyle['fontWeight'][] = [300, 400, 600, 700, 800, 900];
 
 const fmtTime = (t: number) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
@@ -40,11 +52,19 @@ function toHex(c: string): string {
 
 /* ---------------- live style preview (CSS approximation of drawCaption) ---------------- */
 
-export function StylePreview({ style }: { style: TextStyle }) {
+export function StylePreview({ style, sample = 'your story', hi = 'story' }: {
+  style: TextStyle; sample?: string; hi?: string;
+}) {
   const fs = Math.max(9, Math.min(26, style.fontSize * 400)); // fontSize fraction, scaled to card
   const stroke = Math.min(fs * 0.45, fs * style.outlineWidth * 2); // canvas lineWidth = fs*ow*2
   const wordPop = style.preset === 'karaoke' || style.preset === 'word-pop' || style.preset === 'bold-keywords';
   const bg = style.bgColor !== 'transparent' ? style.bgColor : undefined;
+  const words = sample.split(/\s+/).filter(Boolean);
+  const baseStroke = {
+    WebkitTextStrokeWidth: stroke > 0.2 ? `${stroke.toFixed(1)}px` : 0,
+    WebkitTextStrokeColor: style.outlineColor,
+    paintOrder: 'stroke fill' as const,
+  };
   return (
     <div
       className="relative w-full h-full overflow-hidden rounded-lg"
@@ -56,13 +76,12 @@ export function StylePreview({ style }: { style: TextStyle }) {
           left: `${style.x * 100}%`,
           top: `${style.y * 100}%`,
           transform: 'translate(-50%, -50%)',
-          maxWidth: '92%',
+          maxWidth: '94%',
           textAlign: style.align,
-          fontFamily: 'Inter Variable, sans-serif',
         }}
       >
         <span
-          className="inline-flex items-center gap-[0.25em] leading-tight"
+          className="inline-flex flex-wrap items-center justify-center gap-x-[0.25em] gap-y-0 leading-tight"
           style={{
             fontSize: fs,
             fontWeight: style.fontWeight,
@@ -75,25 +94,22 @@ export function StylePreview({ style }: { style: TextStyle }) {
             borderRadius: bg ? `${(fs * 0.22).toFixed(0)}px` : undefined,
           }}
         >
-          <span style={{
-            color: style.color,
-            WebkitTextStrokeWidth: stroke > 0.2 ? `${stroke.toFixed(1)}px` : 0,
-            WebkitTextStrokeColor: style.outlineColor,
-            paintOrder: 'stroke fill',
-          }}>your</span>
-          <span style={{
-            color: style.highlight?.enabled
-              ? (style.highlight.textColor || style.highlightColor)
-              : (wordPop ? style.highlightColor : style.color),
-            background: style.highlight?.enabled ? style.highlight.bgColor : undefined,
-            padding: style.highlight?.enabled ? `0 ${(style.highlight.padding * 0.7).toFixed(2)}em` : undefined,
-            borderRadius: style.highlight?.enabled ? `${(fs * style.highlight.radius).toFixed(0)}px` : undefined,
-            boxShadow: style.highlight?.enabled && style.highlight.glow > 0
-              ? `0 0 ${(fs * style.highlight.glow).toFixed(1)}px ${style.highlight.bgColor}` : undefined,
-            WebkitTextStrokeWidth: stroke > 0.2 ? `${stroke.toFixed(1)}px` : 0,
-            WebkitTextStrokeColor: style.outlineColor,
-            paintOrder: 'stroke fill',
-          }}>story</span>
+          {words.map((word, i) => {
+            const isHi = hi && word.toLowerCase() === hi.toLowerCase();
+            return (
+              <span key={i} style={{
+                ...baseStroke,
+                color: isHi
+                  ? (style.highlight?.enabled ? (style.highlight.textColor || style.highlightColor) : (wordPop ? style.highlightColor : style.color))
+                  : style.color,
+                background: isHi && style.highlight?.enabled ? style.highlight.bgColor : undefined,
+                padding: isHi && style.highlight?.enabled ? `0 ${(style.highlight.padding * 0.7).toFixed(2)}em` : undefined,
+                borderRadius: isHi && style.highlight?.enabled ? `${(fs * style.highlight.radius).toFixed(0)}px` : undefined,
+                boxShadow: isHi && style.highlight?.enabled && style.highlight.glow > 0
+                  ? `0 0 ${(fs * style.highlight.glow).toFixed(1)}px ${style.highlight.bgColor}` : undefined,
+              }}>{word}</span>
+            );
+          })}
         </span>
       </div>
     </div>
@@ -312,7 +328,8 @@ export function CaptionsTab() {
               title={`Add ${p.label} caption at the playhead with word-by-word speech sync`}
               className={`rounded-lg border overflow-hidden text-left transition-all ${presetId === p.id ? 'ring-2 ring-signal border-transparent' : 'border-line hover:border-line-bright'}`}>
               <div className="aspect-video">
-                <StylePreview style={presetTextStyle(p.id, 'caption', project.settings.aspect)} />
+                <StylePreview style={presetTextStyle(p.id, 'caption', project.settings.aspect)}
+                  sample={PRESET_SAMPLES[p.id].text} hi={PRESET_SAMPLES[p.id].hi} />
               </div>
               <div className="flex items-center justify-between px-2 py-1">
                 <span className={`text-[11px] font-medium ${presetId === p.id ? 'text-signal' : 'text-paper-dim'}`}>{p.label}</span>
@@ -589,7 +606,7 @@ export function CaptionsTab() {
                   onClick={() => seekTo(c.id, c.start)}>
                   {fmtTime(c.start)}
                 </button>
-                <CaptionTextInput clipId={c.id} text={c.text?.text ?? ''} />
+                <CaptionTextInput clipId={c.id} text={c.text?.text ?? ''} duration={c.duration} />
                 <span className="text-[10px] text-paper-faint font-mono shrink-0">{c.duration.toFixed(1)}s</span>
                 {isSel && (
                   <button className="icon-btn shrink-0" title="Split at middle" onClick={() => splitCaption(c)}><Scissors size={13} /></button>
@@ -621,11 +638,20 @@ export function CaptionsTab() {
 }
 
 /** Editable caption text: drafts locally, commits set_text on blur/Enter. */
-function CaptionTextInput({ clipId, text }: { clipId: string; text: string }) {
+function CaptionTextInput({ clipId, text, duration }: { clipId: string; text: string; duration: number }) {
   const [draft, setDraft] = useState<string | null>(null);
   useEffect(() => setDraft(null), [text, clipId]);
   const commitEdit = () => {
-    if (draft != null && draft !== text) commit([{ type: 'set_text', clipId, text: draft }], 'Edit caption');
+    if (draft != null && draft !== text) {
+      const existing = useStore.getState().project.clips.find((c) => c.id === clipId)?.text?.words ?? [];
+      const parts = draft.trim().split(/\s+/).filter(Boolean);
+      // Keep speech timing when only wording changed; rebuild it when the word
+      // count changed so no stale words linger in the timeline.
+      const words = existing.length === parts.length && parts.length > 0
+        ? existing.map((w, i) => ({ ...w, w: parts[i] }))
+        : evenWords(draft, duration);
+      commit([{ type: 'set_text', clipId, text: draft, words }], 'Edit caption');
+    }
     setDraft(null);
   };
   return (
