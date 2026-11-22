@@ -24,7 +24,7 @@ export const FEATURE_CHECKLIST: FeatureItem[] = [
   { id: 'non-destructive-crop', group: 'Editing core', label: 'Visual crop workspace: drag the source-frame box + handles to keep only a chosen region; render-time crop (no re-encode until export)', status: 'working', note: 'commits set_transform cropL/R/T/B consumed by both preview renderFrame and the exporter — lossless source pixels inside the box' },
   { id: 'clip-clipboard', group: 'Editing core', label: 'Copy / cut / paste / duplicate clips (Ctrl+C / X / V / D) with effects, keyframes and fades preserved', status: 'working' },
   { id: 'marquee-select', group: 'Editing core', label: 'Rubber-band marquee selection by dragging empty timeline space', status: 'working' },
-  { id: 'track-solo-reorder', group: 'Editing core', label: 'Track solo, track reorder and delete from the track context menu; N toggles snapping (Alt bypasses)', status: 'working' },
+  { id: 'track-solo-reorder', group: 'Editing core', label: 'Track solo, duplicate (with clips), reorder and delete from the track context menu; N toggles snapping (Alt bypasses)', status: 'working' },
   { id: 'markers', group: 'Editing core', label: 'Timeline markers', status: 'working' },
   { id: 'snapping', group: 'Editing core', label: 'Snapping to clip edges / playhead', status: 'working' },
   { id: 'undo-redo', group: 'Editing core', label: 'Undo / redo history', status: 'working' },

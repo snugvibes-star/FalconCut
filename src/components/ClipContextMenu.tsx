@@ -11,7 +11,7 @@ import {
 import { useStore } from '../state/store';
 import { useUI } from '../state/ui';
 import { clipboardCount, pasteClipboard } from '../features/clipClipboard';
-import type { Clip } from '../../engine';
+import { uid, type Action, type Clip } from '../../engine';
 
 export interface CtxMenuState {
   /** Viewport coordinates for the menu. */
@@ -67,7 +67,7 @@ export function ClipContextMenu({ menu, onClose }: { menu: CtxMenuState; onClose
   // position: keep inside the viewport
   const W = 210;
   const left = Math.min(menu.x, window.innerWidth - W - 8);
-  const top = Math.min(menu.y, window.innerHeight - (clip ? 330 : track ? 280 : 220) - 8);
+  const top = Math.min(menu.y, window.innerHeight - (clip ? 360 : track ? 320 : 220) - 8);
 
   const Item = ({ icon: Icon, label, onClick, danger, disabled, title }: {
     icon: typeof Scissors; label: string; onClick: () => void; danger?: boolean; disabled?: boolean; title?: string;
@@ -178,6 +178,26 @@ export function ClipContextMenu({ menu, onClose }: { menu: CtxMenuState; onClose
           <Item icon={ChevronDown} label="Move track down" disabled={!canMoveDown}
             title="Reorder this track below the next track of the same kind"
             onClick={run(() => commit([{ type: 'move_track', trackId: track.id, toIndex: sameKind[trackPos + 1].i }], 'Move track down'))} />
+          <Item icon={Copy} label={`Duplicate track (${trackClips.length} clip${trackClips.length === 1 ? '' : 's'})`}
+            title="Copy this track and everything on it — one undo step"
+            onClick={run(() => {
+              const idx = s.project.tracks.findIndex((t) => t.id === track.id);
+              const newTrackId = uid('trk');
+              const actions: Action[] = [{
+                type: 'add_track',
+                track: { id: newTrackId, kind: track.kind, name: `${track.name} copy`, height: track.height },
+                index: idx + 1,
+              }];
+              for (const c of trackClips) {
+                const copy = JSON.parse(JSON.stringify(c)) as Record<string, unknown> & { trackId: string };
+                copy.id = undefined;
+                copy.trackId = newTrackId;
+                copy.keyframes = (c.keyframes as { id: string }[]).map((k) => ({ ...k, id: undefined }));
+                copy.effects = (c.effects as { id: string }[]).map((e) => ({ ...e, id: undefined }));
+                actions.push({ type: 'add_clip', clip: copy as unknown as Clip });
+              }
+              commit(actions, `Duplicate ${track.name}`);
+            })} />
           <div className="h-px bg-line my-1" />
           <Item icon={ListChecks} label={`Select all ${trackClips.length} clip${trackClips.length === 1 ? '' : 's'} on this track`}
             disabled={!trackClips.length}
