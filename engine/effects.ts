@@ -12,6 +12,7 @@ export interface ResolvedEffects {
   brightness: number; contrast: number; saturation: number; temperature: number;
   grayscale: number; sepia: number; hue: number; blur: number; sharpen: number;
   vignette: number; negate: number; normalize: number;
+  pixelate: number; noise: number; rgbSplit: number; glow: number;
   chroma?: { color: [number, number, number]; tolerance: number; softness: number };
   /** Lift/gamma/gain grading (Kdenlive `lift_gamma_gain` model): per-channel
    * shadow lift (additive), gamma (exponent), and highlight gain (multiplier).
@@ -28,7 +29,8 @@ const clamp = (v: number, a: number, b: number) => Math.max(a, Math.min(b, v));
 export function resolveEffects(clip: Clip, localT: number, filterSupported: boolean): ResolvedEffects {
   const r: ResolvedEffects = {
     filter: '', brightness: 1, contrast: 1, saturation: 1, temperature: 0,
-    grayscale: 0, sepia: 0, hue: 0, blur: 0, sharpen: 0, vignette: 0, negate: 0, normalize: 0, needsPixels: false,
+    grayscale: 0, sepia: 0, hue: 0, blur: 0, sharpen: 0, vignette: 0, negate: 0, normalize: 0,
+    pixelate: 0, noise: 0, rgbSplit: 0, glow: 0, needsPixels: false,
   };
   const val = (e: Effect, key: string, def: number) => {
     const kfs = clip.keyframes.filter((k) => k.path === `effects.${e.id}.${key}`);
@@ -62,6 +64,10 @@ export function resolveEffects(clip: Clip, localT: number, filterSupported: bool
       case 'vignette': r.vignette = Math.max(r.vignette, val(e, 'amount', 0.5)); break;
       case 'negate': r.negate = Math.max(r.negate, clamp(val(e, 'invert', 1), 0, 1)); r.needsPixels = true; break;
       case 'normalize': r.normalize = Math.max(r.normalize, clamp(val(e, 'strength', 1), 0, 1)); r.needsPixels = true; break;
+      case 'pixelate': r.pixelate = Math.max(r.pixelate, Math.round(clamp(val(e, 'amount', 8), 2, 64))); r.needsPixels = true; break;
+      case 'noise': r.noise = Math.max(r.noise, clamp(val(e, 'amount', 0.15), 0, 1)); r.needsPixels = true; break;
+      case 'rgbSplit': r.rgbSplit = Math.max(r.rgbSplit, Math.round(clamp(val(e, 'amount', 4), 0, 32))); r.needsPixels = true; break;
+      case 'glow': r.glow = Math.max(r.glow, clamp(val(e, 'amount', 0.4), 0, 1)); r.needsPixels = true; break;
       case 'chromaKey': {
         const hex = String(e.params.color ?? '#00FF00');
         const n = parseInt(hex.slice(1), 16);
@@ -201,6 +207,55 @@ export function applyPixelOps(canvas: HTMLCanvasElement | OffscreenCanvas, r: Re
       else if (dist < t0 + soft) d[i + 3] = Math.round(d[i + 3] * ((dist - t0) / soft));
     }
     d[i] = clamp(R, 0, 255); d[i + 1] = clamp(G, 0, 255); d[i + 2] = clamp(B, 0, 255);
+  }
+  // Creative effects that need neighbour samples work from a snapshot so they
+  // do not compound with the per-pixel color pass above.
+  if (r.rgbSplit > 0 || r.glow > 0 || r.noise > 0 || r.pixelate > 0) {
+    const src = new Uint8ClampedArray(d);
+    if (r.rgbSplit > 0) {
+      const shift = Math.round(r.rgbSplit);
+      for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+        const i = (y * w + x) * 4;
+        const ri = (y * w + Math.min(w - 1, x + shift)) * 4;
+        const bi = (y * w + Math.max(0, x - shift)) * 4;
+        d[i] = src[ri]; d[i + 2] = src[bi + 2];
+      }
+    }
+    if (r.glow > 0) {
+      const amt = clamp(r.glow, 0, 1);
+      for (let y = 1; y < h - 1; y++) for (let x = 1; x < w - 1; x++) {
+        const i = (y * w + x) * 4;
+        let rr = 0, gg = 0, bb = 0;
+        for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+          const j = ((y + dy) * w + (x + dx)) * 4;
+          rr += src[j]; gg += src[j + 1]; bb += src[j + 2];
+        }
+        d[i] = d[i] * (1 - amt) + (rr / 9) * amt;
+        d[i + 1] = d[i + 1] * (1 - amt) + (gg / 9) * amt;
+        d[i + 2] = d[i + 2] * (1 - amt) + (bb / 9) * amt;
+      }
+    }
+    if (r.noise > 0) {
+      const amt = r.noise * 48;
+      for (let i = 0; i < d.length; i += 4) {
+        const n = (Math.random() - 0.5) * amt;
+        d[i] = clamp(d[i] + n, 0, 255); d[i + 1] = clamp(d[i + 1] + n, 0, 255); d[i + 2] = clamp(d[i + 2] + n, 0, 255);
+      }
+    }
+    if (r.pixelate > 0) {
+      const block = Math.max(2, Math.round(r.pixelate));
+      const px = new Uint8ClampedArray(d);
+      for (let by = 0; by < h; by += block) for (let bx = 0; bx < w; bx += block) {
+        let rr = 0, gg = 0, bb = 0, n = 0;
+        for (let y = by; y < Math.min(h, by + block); y++) for (let x = bx; x < Math.min(w, bx + block); x++) {
+          const i = (y * w + x) * 4; rr += px[i]; gg += px[i + 1]; bb += px[i + 2]; n++;
+        }
+        if (!n) continue;
+        for (let y = by; y < Math.min(h, by + block); y++) for (let x = bx; x < Math.min(w, bx + block); x++) {
+          const i = (y * w + x) * 4; d[i] = rr / n; d[i + 1] = gg / n; d[i + 2] = bb / n;
+        }
+      }
+    }
   }
   if (r.sharpen > 0.01) sharpenInPlace(img, w, h, clamp(r.sharpen, 0, 1));
   ctx.putImageData(img, 0, 0);

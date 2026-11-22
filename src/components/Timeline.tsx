@@ -154,6 +154,10 @@ const EFFECT_DEFAULTS: Record<EffectType, Record<string, number | string | boole
   denoise: { thresholdDb: -45 },
   negate: { invert: 1 },
   normalize: { strength: 0.8 },
+  pixelate: { amount: 8 },
+  noise: { amount: 0.15 },
+  rgbSplit: { amount: 4 },
+  glow: { amount: 0.4 },
   lut: { strength: 1 }, // requires a lut id; generic drops are ignored by the renderer
   compressor: { thresholdDb: -24, ratio: 4 },
   limiter: { ceilingDb: -1 },

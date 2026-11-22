@@ -61,7 +61,7 @@ export function clipVolumeAt(clip: Clip, localT: number): number {
   return Math.max(0, evalKeyframes(clip.keyframes.filter((k) => k.path === 'volume'), localT, clip.volume));
 }
 
-interface LayerOpts { alpha?: number; dx?: number; extraScale?: number; clipRect?: [number, number, number, number]; composite?: GlobalCompositeOperation }
+interface LayerOpts { alpha?: number; dx?: number; extraScale?: number; extraRotation?: number; clipRect?: [number, number, number, number]; composite?: GlobalCompositeOperation }
 
 function drawMediaLayer(p: Project, clip: Clip, t: number, ctx: Ctx2D, resolver: MediaResolver | null, o: LayerOpts = {}) {
   const W = p.settings.width, H = p.settings.height;
@@ -123,7 +123,7 @@ function drawMediaLayer(p: Project, clip: Clip, t: number, ctx: Ctx2D, resolver:
   if (o.composite) ctx.globalCompositeOperation = o.composite;
   else if (clip.blendMode && clip.blendMode !== 'normal') ctx.globalCompositeOperation = clip.blendMode;
   ctx.translate(W / 2 + tr.x + (o.dx ?? 0), H / 2 + tr.y);
-  ctx.rotate((tr.rotation * Math.PI) / 180);
+  ctx.rotate(((tr.rotation + (o.extraRotation ?? 0)) * Math.PI) / 180);
   // True 2D skew (affine shear): x' = x + tan(skewX)·y, y' = y + tan(skewY)·x.
   if (Math.abs(tr.skewX) > 0.01 || Math.abs(tr.skewY) > 0.01) {
     ctx.transform(1, Math.tan((tr.skewY * Math.PI) / 180), Math.tan((tr.skewX * Math.PI) / 180), 1, 0, 0);
@@ -236,6 +236,34 @@ function drawMediaClip(p: Project, clip: Clip, t: number, ctx: Ctx2D, resolver: 
         if (prev) drawMediaLayer(p, prev, prevT, ctx, resolver, { alpha: 1 - e, extraScale: 1 + e * 0.12 });
         drawMediaLayer(p, clip, t, ctx, resolver, { alpha: e, extraScale: 1.12 - 0.12 * e });
         break;
+      case 'push':
+        if (prev) drawMediaLayer(p, prev, prevT, ctx, resolver, { dx: -e * W });
+        drawMediaLayer(p, clip, t, ctx, resolver, { dx: (1 - e) * W });
+        break;
+      case 'spin':
+        if (prev) drawMediaLayer(p, prev, prevT, ctx, resolver, { alpha: 1 - e, extraRotation: e * 35 });
+        drawMediaLayer(p, clip, t, ctx, resolver, { alpha: e, extraRotation: (1 - e) * -35, extraScale: 0.85 + 0.15 * e });
+        break;
+      case 'glitch': {
+        if (prev) drawMediaLayer(p, prev, prevT, ctx, resolver, { alpha: 1 - e });
+        const jitter = Math.sin(localT * 90) * 12 * (1 - e);
+        drawMediaLayer(p, clip, t, ctx, resolver, { alpha: e, dx: jitter });
+        ctx.save(); ctx.globalAlpha = 4 * e * (1 - e) * 0.35;
+        ctx.fillStyle = e > 0.5 ? '#22D3EE' : '#FF2D95'; ctx.fillRect(0, 0, W, H); ctx.restore();
+        break;
+      }
+      case 'light-leak':
+      case 'film':
+      case 'cinematic':
+        if (prev) drawMediaLayer(p, prev, prevT, ctx, resolver, { alpha: 1 - e });
+        drawMediaLayer(p, clip, t, ctx, resolver, { alpha: e });
+        ctx.save();
+        ctx.globalAlpha = 4 * e * (1 - e);
+        ctx.fillStyle = tin.type === 'light-leak' ? '#FF8A3D' : tin.type === 'film' ? '#D8B07A' : '#102040';
+        ctx.globalCompositeOperation = tin.type === 'cinematic' ? 'multiply' : 'screen';
+        ctx.fillRect(0, 0, W, H);
+        ctx.restore();
+        break;
       default: {
         // Blend transitions: incoming clip composited over the previous one
         // with the named canvas blend mode (multiply/screen/overlay/…).
@@ -280,6 +308,30 @@ function drawMediaClip(p: Project, clip: Clip, t: number, ctx: Ctx2D, resolver: 
           break;
         case 'zoom-in':
           drawMediaLayer(p, next, nextT, ctx, resolver, { alpha: e, extraScale: 1.12 - 0.12 * e });
+          break;
+        case 'push':
+          drawMediaLayer(p, next, nextT, ctx, resolver, { dx: (1 - e) * W });
+          break;
+        case 'spin':
+          drawMediaLayer(p, next, nextT, ctx, resolver, { alpha: e, extraRotation: (1 - e) * -35, extraScale: 0.85 + 0.15 * e });
+          break;
+        case 'glitch': {
+          const jitter = Math.sin(localT * 90) * 12 * e;
+          drawMediaLayer(p, next, nextT, ctx, resolver, { alpha: e, dx: jitter });
+          ctx.save(); ctx.globalAlpha = 4 * e * (1 - e) * 0.35;
+          ctx.fillStyle = '#22D3EE'; ctx.fillRect(0, 0, W, H); ctx.restore();
+          break;
+        }
+        case 'light-leak':
+        case 'film':
+        case 'cinematic':
+          drawMediaLayer(p, next, nextT, ctx, resolver, { alpha: e });
+          ctx.save();
+          ctx.globalAlpha = 4 * e * (1 - e);
+          ctx.fillStyle = tout.type === 'light-leak' ? '#FF8A3D' : tout.type === 'film' ? '#D8B07A' : '#102040';
+          ctx.globalCompositeOperation = tout.type === 'cinematic' ? 'multiply' : 'screen';
+          ctx.fillRect(0, 0, W, H);
+          ctx.restore();
           break;
         default: {
           const op = BLEND_TRANSITIONS[tout.type as BlendTransitionType];

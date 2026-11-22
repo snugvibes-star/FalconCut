@@ -63,4 +63,5 @@ export const EFFECT_RANGES: Record<string, [number, number, number]> = {
   brightness: [0.4, 1.8, 0.01], contrast: [0.4, 1.8, 0.01], saturation: [0, 2, 0.01],
   temperature: [-1, 1, 0.01], grayscale: [0, 1, 0.01], sepia: [0, 1, 0.01],
   amount: [0, 20, 0.1], tolerance: [0, 1, 0.01], softness: [0, 1, 0.01], thresholdDb: [-70, 0, 1],
+  pixelate: [2, 32, 1], noise: [0, 1, 0.01],
 };

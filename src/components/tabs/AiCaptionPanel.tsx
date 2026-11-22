@@ -285,7 +285,7 @@ export function AiCaptionPanel() {
           </select>
         </label>
         <Hint>Chunking, cue length and word limits are chosen automatically from the video length and available device memory. Nothing is downloaded or processed until you press Start.</Hint>
-        {jobProgress && (
+        {jobProgress && phase !== 'done' && (
           <div className="rounded-lg border border-line bg-ink-850 p-2 space-y-1.5">
             <div className="flex items-center justify-between text-[10px] text-paper-dim">
               <span className="truncate">{selectedMedia?.name}</span>

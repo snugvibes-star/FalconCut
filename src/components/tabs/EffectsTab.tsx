@@ -24,6 +24,10 @@ const EFFECT_BUTTONS: { label: string; type: EffectType; params: Record<string, 
   { label: 'Strong blur', type: 'blur', params: { amount: 12 } },
   { label: 'Soft blur', type: 'blur', params: { amount: 2 } },
   { label: 'Deep vignette', type: 'vignette', params: { amount: 0.9 } },
+  { label: 'Pixelate', type: 'pixelate', params: { amount: 8 } },
+  { label: 'Film grain', type: 'noise', params: { amount: 0.12 } },
+  { label: 'RGB split', type: 'rgbSplit', params: { amount: 4 } },
+  { label: 'Soft glow', type: 'glow', params: { amount: 0.4 } },
 ];
 
 const EFFECT_PRESETS_KEY = 'falconcut.effectPresets';

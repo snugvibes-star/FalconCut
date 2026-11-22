@@ -5,7 +5,7 @@ import { useSelectedClip } from './shared';
 import type { Transition, TransitionType } from '../../../engine';
 import { FALCONCUT_MIME } from '../MediaTab';
 
-const BASIC: TransitionType[] = ['crossfade', 'dip-black', 'dip-white', 'wipe-left', 'slide-left', 'zoom-in'];
+const BASIC: TransitionType[] = ['crossfade', 'dip-black', 'dip-white', 'wipe-left', 'slide-left', 'zoom-in', 'push', 'spin', 'glitch', 'light-leak', 'film', 'cinematic'];
 const BLEND: TransitionType[] = [
   'blend-multiply', 'blend-screen', 'blend-overlay', 'blend-soft-light', 'blend-hard-light',
   'blend-difference', 'blend-exclusion', 'blend-lighten', 'blend-darken',

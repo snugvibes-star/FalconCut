@@ -610,15 +610,13 @@ export function Inspector() {
               {/* Under a ramp the slider shows the ramp's average speed; moving it
                   writes a constant speed, which the engine turns into (clears the ramp). */}
               <Slider label="Speed" value={ramp ? avgSpeed(clip) : clip.speed} min={0.25} max={4} step={0.05} fmt={(v) => `${v.toFixed(2)}×`} onChange={(v) => set([{ type: 'set_speed', clipId: id, speed: v }], 'Speed', `${id}:speed`)} />
-              {ramp ? (
-                <p className="text-[11px] text-paper-faint">A speed ramp is active — moving this slider sets a constant speed and clears the ramp.</p>
-              ) : (
-                <button className="btn-ghost text-[11px] px-2 py-1 w-full justify-center"
-                  title={`Turn the current ${clip.speed.toFixed(2)}× constant speed into a 2-point ramp`}
-                  onClick={() => set([{ type: 'set_speed_ramp', clipId: id, points: [{ t: 0, speed: clip.speed }, { t: clip.duration, speed: clip.speed }] }], 'Add speed ramp')}>
-                  Add speed ramp
-                </button>
-              )}
+              <button className="btn-signal text-[11px] px-2 py-1 w-full justify-center"
+                title="Open the graphical speed-curve editor"
+                onClick={() => {
+                  if (!ramp) set([{ type: 'set_speed_ramp', clipId: id, points: [{ t: 0, speed: clip.speed }, { t: clip.duration, speed: clip.speed }] }], 'Open speed curve');
+                }}>
+                Curve speed adjustment — open editor
+              </button>
               {!ramp && (
                 <div className="flex flex-wrap gap-1">
                   {([
@@ -645,17 +643,21 @@ export function Inspector() {
                 <p className="text-[11px] text-heat-amber">Reversed: the preview scrubs frame-by-frame (browsers can't play video elements backward) and audio plays a real reversed buffer. Render/export match.</p>
               )}
             </Section>
-            {ramp && (
-              <Section title="Speed ramp" action={
-                <button className="btn-ghost text-[10px] px-1.5 py-0.5" title="Back to constant speed (ramp average)"
-                  onClick={() => set([{ type: 'set_speed', clipId: id, speed: avgSpeed(clip) }], 'Clear speed ramp')}>
-                  Clear ramp
-                </button>
-              }>
-                <RampEditor clipId={id} duration={clip.duration} points={ramp} />
-                <p className="text-[11px] text-paper-faint">Drag dots to reshape · click empty space to add a point · double-click a dot (or ×) to remove one. Audio under a ramp plays at the ramp's average speed.</p>
-              </Section>
-            )}
+            <Section title="Curve speed adjustment" action={ramp ? (
+              <button className="btn-ghost text-[10px] px-1.5 py-0.5" title="Back to constant speed (ramp average)"
+                onClick={() => set([{ type: 'set_speed', clipId: id, speed: avgSpeed(clip) }], 'Clear speed curve')}>
+                Clear curve
+              </button>
+            ) : undefined}>
+              {ramp ? (
+                <>
+                  <RampEditor clipId={id} duration={clip.duration} points={ramp} />
+                  <p className="text-[11px] text-paper-faint">Drag dots to reshape the curve · click empty space to add a point · double-click a dot (or ×) to remove one. Changes preview and export immediately.</p>
+                </>
+              ) : (
+                <p className="text-[11px] text-paper-faint">No curve on this clip. Press "Curve speed adjustment — open editor" above, or choose a curve preset, to start shaping speed over time.</p>
+              )}
+            </Section>
           </>
         );
       })()}

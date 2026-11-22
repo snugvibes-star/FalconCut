@@ -62,7 +62,8 @@ export interface Transform {
 
 export type EffectType =
   | 'color' | 'blur' | 'sharpen' | 'vignette' | 'chromaKey' | 'negate' | 'normalize' | 'lut'
-  | 'eq' | 'gate' | 'deess' | 'denoise' | 'compressor' | 'limiter' | 'echo' | 'pan';
+  | 'eq' | 'gate' | 'deess' | 'denoise' | 'compressor' | 'limiter' | 'echo' | 'pan'
+  | 'pixelate' | 'noise' | 'rgbSplit' | 'glow';
 
 /** Canvas globalCompositeOperation blend modes, 1:1 with the CSS list. */
 export type BlendMode =
@@ -216,7 +217,8 @@ export type TransitionType =
   | 'blend-multiply' | 'blend-screen' | 'blend-overlay' | 'blend-soft-light'
   | 'blend-hard-light' | 'blend-difference' | 'blend-exclusion' | 'blend-lighten'
   | 'blend-darken' | 'blend-color-dodge' | 'blend-color-burn'
-  | 'blend-hue' | 'blend-saturation' | 'blend-color' | 'blend-luminosity';
+  | 'blend-hue' | 'blend-saturation' | 'blend-color' | 'blend-luminosity'
+  | 'push' | 'spin' | 'glitch' | 'light-leak' | 'film' | 'cinematic';
 
 export const TRANSITION_TYPES: TransitionType[] = [
   'crossfade', 'dip-black', 'dip-white', 'wipe-left', 'slide-left', 'zoom-in',
@@ -224,6 +226,7 @@ export const TRANSITION_TYPES: TransitionType[] = [
   'blend-hard-light', 'blend-difference', 'blend-exclusion', 'blend-lighten',
   'blend-darken', 'blend-color-dodge', 'blend-color-burn', 'blend-hue',
   'blend-saturation', 'blend-color', 'blend-luminosity',
+  'push', 'spin', 'glitch', 'light-leak', 'film', 'cinematic',
 ];
 
 export interface Transition {
