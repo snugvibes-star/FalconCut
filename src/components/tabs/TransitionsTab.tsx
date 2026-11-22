@@ -2,13 +2,22 @@ import { useState } from 'react';
 import { useStore } from '../../state/store';
 import { commit, DragSlider, Section } from './shared';
 import { useSelectedClip } from './shared';
-import type { Transition } from '../../../engine';
+import type { Transition, TransitionType } from '../../../engine';
 
-const TYPES: Transition['type'][] = ['crossfade', 'dip-black', 'dip-white', 'wipe-left', 'slide-left', 'zoom-in'];
+const BASIC: TransitionType[] = ['crossfade', 'dip-black', 'dip-white', 'wipe-left', 'slide-left', 'zoom-in'];
+const BLEND: TransitionType[] = [
+  'blend-multiply', 'blend-screen', 'blend-overlay', 'blend-soft-light', 'blend-hard-light',
+  'blend-difference', 'blend-exclusion', 'blend-lighten', 'blend-darken',
+  'blend-color-dodge', 'blend-color-burn', 'blend-hue', 'blend-saturation',
+  'blend-color', 'blend-luminosity',
+];
+const DURATIONS = [0.2, 0.4, 0.6, 1];
+const label = (t: TransitionType) => t.replace(/^blend-/, '').replace(/-/g, ' ');
 
 export function TransitionsTab() {
   const clip = useSelectedClip();
   const [edge, setEdge] = useState<'in' | 'out'>('out');
+  const [category, setCategory] = useState<'basic' | 'blend'>('basic');
 
   const current = clip ? (edge === 'in' ? clip.transitionIn : clip.transitionOut) : undefined;
   const disabled = !clip;
@@ -42,16 +51,33 @@ export function TransitionsTab() {
       </Section>
 
       <Section title="Type">
+        <div className="flex gap-1.5">
+          {(['basic', 'blend'] as const).map((c) => (
+            <button key={c} onClick={() => setCategory(c)}
+              className={`chip flex-1 justify-center capitalize border ${category === c ? 'bg-signal/15 border-signal/50 text-signal' : 'border-line text-paper-dim hover:text-paper'}`}>
+              {c === 'basic' ? 'Basic & wipes' : 'Blend modes'}
+            </button>
+          ))}
+        </div>
         <div className="grid grid-cols-3 gap-1.5">
-          {TYPES.map((t) => (
+          {(category === 'basic' ? BASIC : BLEND).map((t) => (
             <button key={t} disabled={disabled} onClick={() => apply({ type: t, duration: current?.duration ?? 0.4 })}
-              className={`rounded-lg py-1.5 text-[11px] font-medium transition-colors border ${current?.type === t ? 'bg-ink-700 text-paper border-signal/40' : 'text-paper-dim hover:text-paper hover:bg-ink-800 border-line'}`}>
-              {t}
+              title={t}
+              className={`rounded-lg py-1.5 text-[11px] font-medium capitalize transition-colors border ${current?.type === t ? 'bg-ink-700 text-paper border-signal/40' : 'text-paper-dim hover:text-paper hover:bg-ink-800 border-line'}`}>
+              {label(t)}
             </button>
           ))}
         </div>
         {current && (
           <>
+            <div className="flex gap-1.5">
+              {DURATIONS.map((d) => (
+                <button key={d} disabled={disabled} onClick={() => apply({ type: current.type, duration: d })}
+                  className={`chip flex-1 justify-center border ${Math.abs(current.duration - d) < 0.01 ? 'bg-signal/15 border-signal/50 text-signal' : 'border-line text-paper-dim hover:text-paper'}`}>
+                  {d.toFixed(1)}s
+                </button>
+              ))}
+            </div>
             <DragSlider label="Duration" value={current.duration} min={0.1} max={2} step={0.05} fmt={(v) => `${v.toFixed(2)}s`} commitKey="tr-dur"
               onCommit={(v) => apply({ type: current.type, duration: v })} />
             <button className="btn-solid w-full justify-center text-xs" onClick={() => apply(undefined)}>Remove {edge} transition</button>

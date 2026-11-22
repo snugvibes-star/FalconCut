@@ -162,7 +162,8 @@ export function ExportDialog() {
         </div>
 
         {offline && (
-          <div className="grid grid-cols-3 gap-2 mb-2.5">
+          <>
+          <div className="grid grid-cols-4 gap-2 mb-2.5">
             <label className="block">
               <span className="label">Quality</span>
               <select className="field py-1 text-xs cursor-pointer" value={quality} onChange={(e) => setQuality(e.target.value as ExportQuality)} disabled={!!busy}>
@@ -181,7 +182,32 @@ export function ExportDialog() {
                 <option value="1">Include</option><option value="0">Silent</option>
               </select>
             </label>
+            <label className="block">
+              <span className="label">Frame rate</span>
+              <select className="field py-1 text-xs cursor-pointer" value={project.settings.fps} disabled={!!busy}
+                onChange={(e) => useStore.getState().commit(
+                  [{ type: 'set_settings', patch: { fps: Number(e.target.value) } }],
+                  `Set ${e.target.value} fps`,
+                )}>
+                <option value={24}>24 fps</option><option value={30}>30 fps</option><option value={60}>60 fps</option>
+              </select>
+            </label>
           </div>
+          <div className="flex items-end gap-2 mb-2.5">
+            <label className="flex-1">
+              <span className="label">Custom width (px)</span>
+              <input type="number" min={320} max={3840} className="field py-1 text-xs" defaultValue={project.settings.width}
+                key={`w:${project.settings.width}`} disabled={!!busy}
+                onBlur={(e) => { const w = Number(e.target.value); if (w >= 320 && w <= 3840 && w !== project.settings.width) useStore.getState().commit([{ type: 'set_settings', patch: { width: w } }], 'Set export width'); }} />
+            </label>
+            <label className="flex-1">
+              <span className="label">Custom height (px)</span>
+              <input type="number" min={320} max={3840} className="field py-1 text-xs" defaultValue={project.settings.height}
+                key={`h:${project.settings.height}`} disabled={!!busy}
+                onBlur={(e) => { const h = Number(e.target.value); if (h >= 320 && h <= 3840 && h !== project.settings.height) useStore.getState().commit([{ type: 'set_settings', patch: { height: h } }], 'Set export height'); }} />
+            </label>
+          </div>
+          </>
         )}
 
         {busy === 'video' && prog ? (

@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import { Mic, Music, Square, Volume2, VolumeX } from 'lucide-react';
+import { Mic, Music, Square, Volume2, VolumeX, Plus, Headphones } from 'lucide-react';
 import { useStore } from '../../state/store';
 import { useUI } from '../../state/ui';
 import { commit, DragSlider, Section, Hint, useSelectedClip } from './shared';
@@ -141,10 +141,26 @@ export function AudioTab() {
         ))}
       </Section>
 
-      <Section title="Audio tracks">
+      <Section title="Audio tracks" action={
+        <button className="icon-btn" title="Add audio track"
+          onClick={() => commit([{ type: 'add_track', track: { kind: 'audio', name: `A${audioTracks.length + 1}` } }], 'Add audio track')}>
+          <Plus size={14} />
+        </button>
+      }>
         {audioTracks.map((t) => (
           <div key={t.id} className="flex items-center gap-2 text-xs">
-            <span className="text-paper-dim flex-1 truncate">{t.name}</span>
+            <input
+              className="field flex-1 min-w-0 !py-0.5 !px-1.5 text-[11px]"
+              defaultValue={t.name}
+              key={`${t.id}:${t.name}`}
+              title="Rename track"
+              onBlur={(e) => { const v = e.target.value.trim(); if (v && v !== t.name) commit([{ type: 'set_track', trackId: t.id, patch: { name: v } }], 'Rename audio track'); }}
+              onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+            />
+            <button className={`icon-btn ${t.solo ? 'text-signal' : ''}`} title={t.solo ? 'Unsolo' : 'Solo track'}
+              onClick={() => commit([{ type: 'set_track', trackId: t.id, patch: { solo: !t.solo } }], t.solo ? 'Unsolo track' : 'Solo track')}>
+              <Headphones size={13} />
+            </button>
             <button
               className={`icon-btn ${t.muted ? 'text-heat' : ''}`}
               onClick={() => commit([{ type: 'set_track', trackId: t.id, patch: { muted: !t.muted } }], t.muted ? 'Unmute track' : 'Mute track')}
@@ -167,6 +183,24 @@ export function AudioTab() {
               onCommit={(v) => commit([{ type: 'set_fades', clipId: clip.id, fadeIn: v }], 'Fade in', `${clip.id}:fi`)} />
             <DragSlider label="Fade out" value={clip.fades.out} min={0} max={3} step={0.05} fmt={(v) => `${v.toFixed(2)}s`} commitKey={`${clip.id}:fo`}
               onCommit={(v) => commit([{ type: 'set_fades', clipId: clip.id, fadeOut: v }], 'Fade out', `${clip.id}:fo`)} />
+            <div>
+              <span className="label">Fade presets</span>
+              <div className="flex flex-wrap gap-1">
+                {([['None', 0], ['Anti-pop 15ms', 0.015], ['Quick', 0.3], ['Smooth', 1]] as const).map(([l, v]) => (
+                  <button key={l} className="chip border border-line text-paper-dim hover:text-paper"
+                    onClick={() => commit([{ type: 'set_fades', clipId: clip.id, fadeIn: v, fadeOut: v }], `Fade preset ${l}`)}>{l}</button>
+                ))}
+              </div>
+            </div>
+            <div>
+              <span className="label">Volume presets</span>
+              <div className="flex flex-wrap gap-1">
+                {([['−12 dB', 0.25], ['−6 dB', 0.5], ['100%', 1], ['150%', 1.5]] as const).map(([l, v]) => (
+                  <button key={l} className="chip border border-line text-paper-dim hover:text-paper"
+                    onClick={() => commit([{ type: 'set_clip_props', clipId: clip.id, patch: { volume: v } }], `Volume ${l}`)}>{l}</button>
+                ))}
+              </div>
+            </div>
           </>
         )}
       </Section>

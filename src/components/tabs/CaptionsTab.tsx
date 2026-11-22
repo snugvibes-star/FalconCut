@@ -15,6 +15,8 @@ import {
   type CinematicPresetId, type TextEffect, type TextTransition,
 } from './textPresets';
 
+const SAVED_PRESETS_KEY = 'falconcut.captionPresets';
+
 const DENSITIES = [
   { id: 'tight', label: 'Tight', hint: '1 line · ~3s · social' },
   { id: 'balanced', label: 'Balanced', hint: '2 lines · ~6s' },
@@ -130,6 +132,11 @@ export function CaptionsTab() {
   const [style, setStyle] = useState<CaptionStyleId>('clean');
   const [presetId, setPresetId] = useState<CinematicPresetId>('default');
   const [selectedWords, setSelectedWords] = useState<number[]>([]);
+  const [presetName, setPresetName] = useState('');
+  const [savedPresets, setSavedPresets] = useState<Record<string, TextStyle>>(() => {
+    try { return JSON.parse(localStorage.getItem(SAVED_PRESETS_KEY) || '{}') as Record<string, TextStyle>; }
+    catch { return {}; }
+  });
   const [density, setDensity] = useState<Density>('balanced');
   const [cleanFillers, setCleanFillers] = useState(true);
   const [highlight, setHighlight] = useState(true);
@@ -275,6 +282,18 @@ export function CaptionsTab() {
   const patchHighlight = (patch: Partial<TextStyle['highlight']>) => {
     if (!currentStyle?.highlight) return;
     patchStyle({ highlight: { ...currentStyle.highlight, ...patch } }, 'Caption highlight');
+  };
+
+  const persistPresets = (next: Record<string, TextStyle>) => {
+    setSavedPresets(next);
+    try { localStorage.setItem(SAVED_PRESETS_KEY, JSON.stringify(next)); } catch { /* storage unavailable */ }
+  };
+  const saveCurrentPreset = () => {
+    const name = presetName.trim() || `My style ${Object.keys(savedPresets).length + 1}`;
+    if (!currentStyle) { ui.toast('Add a caption first', 'info'); return; }
+    persistPresets({ ...savedPresets, [name]: JSON.parse(JSON.stringify(currentStyle)) as TextStyle });
+    setPresetName('');
+    ui.toast(`Saved caption preset “${name}”`, 'success');
   };
 
   const seekTo = (clipId: string, start: number) => {
@@ -595,6 +614,24 @@ export function CaptionsTab() {
               fmt={(v) => v.toFixed(2)} onCommit={(v) => patchStyle({ outlineWidth: v }, 'Caption outline')} />
           </>
         )}
+      </Section>
+
+      <Section title="My caption presets">
+        <div className="flex gap-1.5">
+          <input className="field flex-1 min-w-0 !py-1 !px-2 text-xs" placeholder="Preset name"
+            value={presetName} onChange={(e) => setPresetName(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') saveCurrentPreset(); }} />
+          <button className="btn-solid text-xs px-2" onClick={saveCurrentPreset}>Save</button>
+        </div>
+        {Object.keys(savedPresets).length === 0 && <Hint>Save the current caption look here to reuse it on any clip or project.</Hint>}
+        {Object.entries(savedPresets).map(([name, saved]) => (
+          <div key={name} className="flex items-center gap-1.5 rounded-lg border border-line px-2 py-1.5">
+            <button className="flex-1 min-w-0 text-left text-xs text-paper truncate"
+              title="Apply to selected caption(s)" onClick={() => patchStyle(saved, `Apply preset ${name}`)}>{name}</button>
+            <button className="icon-btn hover:text-heat" title={`Delete ${name}`}
+              onClick={() => { const next = { ...savedPresets }; delete next[name]; persistPresets(next); }}><Trash2 size={13} /></button>
+          </div>
+        ))}
       </Section>
 
       <Section title={`Captions (${captions.length})`} action={

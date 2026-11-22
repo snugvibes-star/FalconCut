@@ -17,6 +17,11 @@ const EFFECT_BUTTONS: { label: string; type: EffectType; params: Record<string, 
   { label: 'Contrast', type: 'color', params: { ...COLOR, contrast: 1.25 } },
   { label: 'Saturation', type: 'color', params: { ...COLOR, saturation: 1.3 } },
   { label: 'Temperature', type: 'color', params: { ...COLOR, temperature: 0.3 } },
+  { label: 'Black & white', type: 'color', params: { ...COLOR, grayscale: 1 } },
+  { label: 'Sepia tone', type: 'color', params: { ...COLOR, sepia: 0.8, saturation: 0.7 } },
+  { label: 'Strong blur', type: 'blur', params: { amount: 12 } },
+  { label: 'Soft blur', type: 'blur', params: { amount: 2 } },
+  { label: 'Deep vignette', type: 'vignette', params: { amount: 0.9 } },
 ];
 
 export function EffectsTab() {
@@ -50,7 +55,12 @@ export function EffectsTab() {
           return (
             <div key={ef.id} className="rounded-lg border border-line bg-ink-850 px-2 py-1.5 space-y-1.5">
               <div className="flex items-center gap-2">
-                <span className="text-xs text-paper capitalize flex-1">{ef.type}</span>
+                <button className={`chip border px-1.5 ${ef.enabled ? 'bg-signal/15 border-signal/50 text-signal' : 'border-line text-paper-faint'}`}
+                  title={ef.enabled ? 'Disable effect' : 'Enable effect'}
+                  onClick={() => commit([{ type: 'set_effect', clipId: clip.id, effectId: ef.id, enabled: !ef.enabled }], ef.enabled ? 'Disable effect' : 'Enable effect')}>
+                  {ef.enabled ? 'On' : 'Off'}
+                </button>
+                <span className={`text-xs flex-1 capitalize ${ef.enabled ? 'text-paper' : 'text-paper-faint line-through'}`}>{ef.type}</span>
                 <button className="icon-btn p-0.5 hover:text-heat" title="Remove effect"
                   onClick={() => commit([{ type: 'remove_effect', clipId: clip.id, effectId: ef.id }], 'Remove effect')}>
                   <Trash2 size={12} />
