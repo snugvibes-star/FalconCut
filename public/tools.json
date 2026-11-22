@@ -569,6 +569,502 @@
         },
         "why": "Reach a Spanish-speaking audience."
       }
+    },
+    {
+      "name": "set_caption_style_advanced",
+      "description": "Deep caption typography control: apply one of the caption presets or set font family, size, weight, colors, outline, background, position, alignment, spacing, reveal mode and entrance animation. Targets all captions or one by caption_index.",
+      "params": {
+        "caption_index": {
+          "type": "number",
+          "description": "Zero-based caption index in timeline order. Omit for all captions.",
+          "optional": true
+        },
+        "preset_id": {
+          "type": "enum",
+          "description": "Apply a full preset first, then any overrides.",
+          "optional": true,
+          "enum": [
+            "default",
+            "tiktok",
+            "karaoke",
+            "beast",
+            "focus",
+            "mogul",
+            "minimal",
+            "documentary",
+            "podcast",
+            "gaming",
+            "cinematic"
+          ]
+        },
+        "font_family": {
+          "type": "string",
+          "description": "CSS font family name, e.g. Georgia or Impact.",
+          "optional": true
+        },
+        "font_size": {
+          "type": "number",
+          "description": "Font size as a fraction of frame height (0.02–0.12).",
+          "optional": true
+        },
+        "font_weight": {
+          "type": "number",
+          "description": "Font weight (300–900).",
+          "optional": true
+        },
+        "color": {
+          "type": "string",
+          "description": "Text color hex.",
+          "optional": true
+        },
+        "highlight_color": {
+          "type": "string",
+          "description": "Base highlight/keyword color hex.",
+          "optional": true
+        },
+        "outline_color": {
+          "type": "string",
+          "description": "Outline color hex.",
+          "optional": true
+        },
+        "outline_width": {
+          "type": "number",
+          "description": "Subtle outline width fraction of font size.",
+          "optional": true
+        },
+        "bg_color": {
+          "type": "string",
+          "description": "Block background color or transparent.",
+          "optional": true
+        },
+        "bg_padding": {
+          "type": "number",
+          "description": "Background padding fraction.",
+          "optional": true
+        },
+        "x": {
+          "type": "number",
+          "description": "Horizontal anchor 0..1.",
+          "optional": true
+        },
+        "y": {
+          "type": "number",
+          "description": "Vertical anchor 0..1.",
+          "optional": true
+        },
+        "align": {
+          "type": "enum",
+          "description": "Text alignment.",
+          "optional": true,
+          "enum": [
+            "left",
+            "center",
+            "right"
+          ]
+        },
+        "uppercase": {
+          "type": "boolean",
+          "description": "Force uppercase.",
+          "optional": true
+        },
+        "reveal_words": {
+          "type": "boolean",
+          "description": "Reveal words on their own speech timing.",
+          "optional": true
+        },
+        "word_spacing": {
+          "type": "number",
+          "description": "Word spacing multiplier.",
+          "optional": true
+        },
+        "line_spacing": {
+          "type": "number",
+          "description": "Line height multiplier.",
+          "optional": true
+        },
+        "animation": {
+          "type": "string",
+          "description": "Entrance animation name, e.g. pop, fade, blur, glitch.",
+          "optional": true
+        },
+        "max_lines": {
+          "type": "number",
+          "description": "Maximum lines.",
+          "optional": true
+        },
+        "max_width": {
+          "type": "number",
+          "description": "Maximum width as fraction of frame.",
+          "optional": true
+        }
+      },
+      "example": {
+        "input": {
+          "preset_id": "beast",
+          "font_size": 0.075,
+          "color": "#FFFFFF"
+        },
+        "why": "Make all captions large, loud and green-highlighted."
+      }
+    },
+    {
+      "name": "set_caption_highlight",
+      "description": "Configure active-word highlighting: on/off, animation style, highlight colors, previous/next word colors, padding, corner radius, opacity, speed, glow, shadow and timing offset.",
+      "params": {
+        "caption_index": {
+          "type": "number",
+          "description": "Zero-based caption index. Omit for all captions.",
+          "optional": true
+        },
+        "enabled": {
+          "type": "boolean",
+          "description": "Enable active-word highlighting.",
+          "optional": true
+        },
+        "anim": {
+          "type": "enum",
+          "description": "Highlight animation.",
+          "optional": true,
+          "enum": [
+            "instant",
+            "slide",
+            "pop",
+            "scale",
+            "fade",
+            "wipe",
+            "color",
+            "bar",
+            "glitch"
+          ]
+        },
+        "bg_color": {
+          "type": "string",
+          "description": "Highlight box color hex.",
+          "optional": true
+        },
+        "text_color": {
+          "type": "string",
+          "description": "Active word text color hex.",
+          "optional": true
+        },
+        "prev_color": {
+          "type": "string",
+          "description": "Previously spoken word color hex.",
+          "optional": true
+        },
+        "next_color": {
+          "type": "string",
+          "description": "Upcoming word color hex.",
+          "optional": true
+        },
+        "padding": {
+          "type": "number",
+          "description": "Highlight padding fraction of font size.",
+          "optional": true
+        },
+        "radius": {
+          "type": "number",
+          "description": "Corner radius fraction of font size.",
+          "optional": true
+        },
+        "opacity": {
+          "type": "number",
+          "description": "Highlight opacity 0..1.",
+          "optional": true
+        },
+        "speed": {
+          "type": "number",
+          "description": "Highlight transition seconds.",
+          "optional": true
+        },
+        "glow": {
+          "type": "number",
+          "description": "Highlight glow amount.",
+          "optional": true
+        },
+        "shadow": {
+          "type": "number",
+          "description": "Highlight shadow amount.",
+          "optional": true
+        },
+        "offset": {
+          "type": "number",
+          "description": "Shift highlight timing relative to speech, in seconds.",
+          "optional": true
+        }
+      },
+      "example": {
+        "input": {
+          "enabled": true,
+          "anim": "slide",
+          "bg_color": "#FFEB00",
+          "text_color": "#0B1220"
+        },
+        "why": "TikTok-style moving yellow word highlight."
+      }
+    },
+    {
+      "name": "set_caption_effects",
+      "description": "Apply glow, colored soft blur, background blur, text opacity and sharpness to captions. These effects render in preview and export.",
+      "params": {
+        "caption_index": {
+          "type": "number",
+          "description": "Zero-based caption index. Omit for all captions.",
+          "optional": true
+        },
+        "glow_enabled": {
+          "type": "boolean",
+          "description": "Turn text glow on or off.",
+          "optional": true
+        },
+        "glow_color": {
+          "type": "string",
+          "description": "Glow color hex.",
+          "optional": true
+        },
+        "glow_radius": {
+          "type": "number",
+          "description": "Glow radius fraction of font size.",
+          "optional": true
+        },
+        "glow_intensity": {
+          "type": "number",
+          "description": "Glow intensity multiplier.",
+          "optional": true
+        },
+        "blur_enabled": {
+          "type": "boolean",
+          "description": "Turn soft text blur on or off.",
+          "optional": true
+        },
+        "blur_amount": {
+          "type": "number",
+          "description": "Blur amount fraction of font size.",
+          "optional": true
+        },
+        "blur_direction": {
+          "type": "enum",
+          "description": "Blur direction.",
+          "optional": true,
+          "enum": [
+            "left",
+            "right",
+            "up",
+            "down"
+          ]
+        },
+        "edge_softness": {
+          "type": "number",
+          "description": "Edge softness 0..1.",
+          "optional": true
+        },
+        "background_blur": {
+          "type": "number",
+          "description": "Background blur amount 0..1.",
+          "optional": true
+        },
+        "text_opacity": {
+          "type": "number",
+          "description": "Text opacity 0..1.",
+          "optional": true
+        },
+        "sharpness": {
+          "type": "number",
+          "description": "Text sharpness 0..1.",
+          "optional": true
+        }
+      },
+      "example": {
+        "input": {
+          "glow_enabled": true,
+          "glow_color": "#22D3EE",
+          "glow_intensity": 0.8,
+          "blur_enabled": true
+        },
+        "why": "Neon glowing captions with soft edges."
+      }
+    },
+    {
+      "name": "edit_caption_word",
+      "description": "Edit one word inside a caption: its text, individual start/end timing, color, weight, italic style, opacity and letter spacing. Word timings stay editable after AI generation.",
+      "params": {
+        "caption_index": {
+          "type": "number",
+          "description": "Zero-based caption index in timeline order."
+        },
+        "word_index": {
+          "type": "number",
+          "description": "Zero-based word index inside that caption."
+        },
+        "text": {
+          "type": "string",
+          "description": "Replacement word.",
+          "optional": true
+        },
+        "start": {
+          "type": "number",
+          "description": "Word start time relative to the caption, in seconds.",
+          "optional": true
+        },
+        "end": {
+          "type": "number",
+          "description": "Word end time relative to the caption, in seconds.",
+          "optional": true
+        },
+        "color": {
+          "type": "string",
+          "description": "Per-word color hex.",
+          "optional": true
+        },
+        "font_weight": {
+          "type": "number",
+          "description": "Per-word font weight.",
+          "optional": true
+        },
+        "font_style": {
+          "type": "enum",
+          "description": "Per-word font style.",
+          "optional": true,
+          "enum": [
+            "normal",
+            "italic",
+            "oblique"
+          ]
+        },
+        "opacity": {
+          "type": "number",
+          "description": "Per-word opacity 0..1.",
+          "optional": true
+        },
+        "letter_spacing": {
+          "type": "number",
+          "description": "Per-word letter spacing in em.",
+          "optional": true
+        }
+      },
+      "example": {
+        "input": {
+          "caption_index": 0,
+          "word_index": 2,
+          "color": "#C6F24E",
+          "end": 1.4
+        },
+        "why": "Make one word green and adjust its timing."
+      }
+    },
+    {
+      "name": "set_clip_look_advanced",
+      "description": "Set clip blend mode, fit, name, color label, volume, audio fades and reverse flag. Omit clip_id to apply to all editable clips.",
+      "params": {
+        "clip_id": {
+          "type": "string",
+          "description": "Exact clip id. Omit to update all media and text clips.",
+          "optional": true
+        },
+        "blend_mode": {
+          "type": "string",
+          "description": "Canvas blend mode such as normal, screen, multiply, overlay.",
+          "optional": true
+        },
+        "fit": {
+          "type": "enum",
+          "description": "How source media fits the frame.",
+          "optional": true,
+          "enum": [
+            "cover",
+            "contain",
+            "fill"
+          ]
+        },
+        "name": {
+          "type": "string",
+          "description": "New clip name.",
+          "optional": true
+        },
+        "label": {
+          "type": "string",
+          "description": "Color label: red, amber, green, blue, purple or pink.",
+          "optional": true
+        },
+        "volume": {
+          "type": "number",
+          "description": "Linear volume gain.",
+          "optional": true
+        },
+        "fade_in": {
+          "type": "number",
+          "description": "Audio/video fade in seconds.",
+          "optional": true
+        },
+        "fade_out": {
+          "type": "number",
+          "description": "Audio/video fade out seconds.",
+          "optional": true
+        },
+        "reversed": {
+          "type": "boolean",
+          "description": "Play the clip backwards.",
+          "optional": true
+        }
+      },
+      "example": {
+        "input": {
+          "blend_mode": "screen",
+          "volume": 0.5,
+          "fade_in": 0.3
+        },
+        "why": "Blend an overlay and soften its audio."
+      }
+    },
+    {
+      "name": "set_project_settings_ai",
+      "description": "Change project frame rate, aspect ratio, custom resolution or background color. All changes are one undo step and affect preview and export.",
+      "params": {
+        "fps": {
+          "type": "enum",
+          "description": "Frames per second.",
+          "optional": true,
+          "enum": [
+            "24",
+            "25",
+            "30",
+            "60"
+          ]
+        },
+        "aspect": {
+          "type": "enum",
+          "description": "Frame aspect ratio.",
+          "optional": true,
+          "enum": [
+            "16:9",
+            "9:16",
+            "1:1",
+            "4:5"
+          ]
+        },
+        "width": {
+          "type": "number",
+          "description": "Custom frame width in pixels (320–3840).",
+          "optional": true
+        },
+        "height": {
+          "type": "number",
+          "description": "Custom frame height in pixels (320–3840).",
+          "optional": true
+        },
+        "background": {
+          "type": "string",
+          "description": "Background color hex.",
+          "optional": true
+        }
+      },
+      "example": {
+        "input": {
+          "fps": 60,
+          "aspect": "9:16"
+        },
+        "why": "Deliver smooth vertical video."
+      }
     }
   ]
 }

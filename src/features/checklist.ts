@@ -48,6 +48,7 @@ export const FEATURE_CHECKLIST: FeatureItem[] = [
   { id: 'first-run-demo', group: 'Editing core', label: 'First-run demo timeline (one click: sample video + music + title in a single undo step)', status: 'working', note: 'button on the empty canvas state' },
   { id: 'keyboard-cheatsheet', group: 'Editing core', label: 'Keyboard cheatsheet inside the command palette', status: 'working' },
   { id: 'agent-api-validation', group: 'Editing core', label: 'External agent API validates actions before applying (window.falconcut.applyActions rejects invalid action groups)', status: 'working' },
+  { id: 'ai-deep-control', group: 'Editing core', label: 'AI can control caption typography, presets, active-word highlight, glow/blur effects, individual word text/timing/color, clip blend mode/fit/volume/fades and project fps/aspect/resolution/background through six validated, undoable tools (also available without an API key through rules mode)', status: 'working', note: 'tools are generated into the AI prompt, the Tools tab, window.falconcut and the MCP manifest' },
   { id: 'responsive-layout', group: 'Editing core', label: 'Multi-device responsive layout: full-screen panel drawers and 44px touch targets on phones, overlay panels on tablets, docked resizable panels on desktops, collapsible timeline, and saved compact/comfortable density', status: 'working', note: 'a dense NLE is still desktop-first, but every editing surface is reachable on phone and tablet' },
 
   // ── Transform & animation ──────────────────────────────────────────────────

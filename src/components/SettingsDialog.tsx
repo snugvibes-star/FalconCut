@@ -25,32 +25,6 @@ const FILTERS: { id: ChecklistFilter; label: string }[] = [
   { id: 'not-possible', label: 'Not possible' },
 ];
 
-function LayoutSection() {
-  const density = useUI((s) => s.density);
-  const setDensity = useUI((s) => s.setDensity);
-  const collapsed = useUI((s) => s.timelineCollapsed);
-  const setCollapsed = useUI((s) => s.setTimelineCollapsed);
-  return (
-    <section className="space-y-2" aria-label="Layout and devices">
-      <h2 className="label">Layout &amp; devices</h2>
-      <p className="text-[11px] leading-relaxed text-paper-dim">
-        Layout preferences are saved on this device. Phones get full-screen panel drawers and larger touch targets; tablets get overlay panels; desktops get docked, resizable panels.
-      </p>
-      <div className="flex flex-wrap gap-2">
-        {(['comfortable', 'compact'] as const).map((d) => (
-          <button key={d} type="button" onClick={() => setDensity(d)}
-            className={density === d ? 'btn-signal' : 'btn-solid'} aria-pressed={density === d}>
-            {d === 'comfortable' ? 'Comfortable' : 'Compact'}
-          </button>
-        ))}
-        <button type="button" onClick={() => setCollapsed(!collapsed)} className="btn-solid" aria-pressed={collapsed}>
-          {collapsed ? 'Expand timeline' : 'Collapse timeline'}
-        </button>
-      </div>
-    </section>
-  );
-}
-
 function ChecklistSection() {
   const [filter, setFilter] = useState<ChecklistFilter>('all');
   const summary = checklistSummary();
@@ -264,7 +238,6 @@ export function SettingsDialog() {
   return (
     <Dialog title="AI settings" onClose={onClose}>
       <div className="space-y-4">
-      <LayoutSection />
       <ChecklistSection />
       <form onSubmit={save} className="space-y-4">
         <p className="text-xs leading-relaxed text-paper-dim">
