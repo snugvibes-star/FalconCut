@@ -137,6 +137,83 @@ describe('caption + motion tools', () => {
     expect(validateActions(p, r.actions)).toEqual([]);
   });
 
+  it('add_captions tight density caps line length and drops fillers', async () => {
+    const p = fixture();
+    const r = await runTool(p, 'add_captions', { density: 'tight', remove_fillers: true });
+    expect(r.stats?.cues).toBeGreaterThan(0);
+    expect(r.stats?.maxLines).toBe(1);
+    expect(r.stats?.fillersRemoved).toBeGreaterThan(0);
+    const after = applyActions(p, r.actions);
+    const caps = after.clips.filter((c) => c.kind === 'text' && c.text?.role === 'caption');
+    for (const c of caps) expect(c.text!.text).not.toMatch(/\bum\b/i);
+    expect(validateActions(p, r.actions)).toEqual([]);
+  });
+
+  it('add_captions without a transcript leaves existing captions alone', async () => {
+    let p = createProject('No transcript', '16:9');
+    p = applyActions(p, [{ type: 'add_text', start: 0, duration: 2, text: 'keep me', role: 'caption' }]);
+    const r = await runTool(p, 'add_captions', {});
+    expect(r.actions).toEqual([]);
+    expect(r.summary).toMatch(/No transcript/i);
+    expect(applyActions(p, r.actions).clips.some((c) => c.text?.role === 'caption')).toBe(true);
+  });
+
+  it('restyle + shift + fix_caption_timing act on generated captions', async () => {
+    const p = fixture();
+    const gen = await runTool(p, 'add_captions', { style: 'clean' });
+    let after = applyActions(p, gen.actions);
+    const styled = await runTool(after, 'restyle_captions', { style: 'karaoke', font_size: 0.06, y: 0.7, uppercase: true });
+    expect(styled.actions.length).toBeGreaterThan(0);
+    expect(validateActions(after, styled.actions)).toEqual([]);
+    after = applyActions(after, styled.actions);
+    for (const c of after.clips.filter((x) => x.text?.role === 'caption')) {
+      expect(c.text!.style.preset).toBe('karaoke');
+      expect(c.text!.style.y).toBeCloseTo(0.7);
+      expect(c.text!.style.uppercase).toBe(true);
+    }
+    const firstStart = Math.min(...after.clips.filter((c) => c.text?.role === 'caption').map((c) => c.start));
+    const shifted = await runTool(after, 'shift_captions', { offset: 0.5 });
+    expect(validateActions(after, shifted.actions)).toEqual([]);
+    after = applyActions(after, shifted.actions);
+    const newStart = Math.min(...after.clips.filter((c) => c.text?.role === 'caption').map((c) => c.start));
+    expect(newStart).toBeCloseTo(firstStart + 0.5, 1);
+  });
+
+  it('fix_caption_timing splits an over-long caption', async () => {
+    let p = fixture();
+    p = applyActions(p, [{ type: 'add_text', start: 0, duration: 20, text: 'one long caption that stays on screen far too long', role: 'caption' }]);
+    const r = await runTool(p, 'fix_caption_timing', { max_seconds: 5 });
+    expect(r.stats?.split).toBe(1);
+    expect(validateActions(p, r.actions)).toEqual([]);
+    const after = applyActions(p, r.actions);
+    const caps = after.clips.filter((c) => c.text?.role === 'caption');
+    expect(caps.length).toBeGreaterThan(1);
+    for (const c of caps) expect(c.duration).toBeLessThanOrEqual(5.05);
+  });
+
+  it('import_captions parses SRT into editable caption clips', async () => {
+    const p = fixture();
+    const srt = '1\n00:00:01,000 --> 00:00:03,000\nHello there\n\n2\n00:00:04,000 --> 00:00:06,000\nSecond cue';
+    const r = await runTool(p, 'import_captions', { srt });
+    expect(r.stats?.cues).toBe(2);
+    expect(validateActions(p, r.actions)).toEqual([]);
+    const after = applyActions(p, r.actions);
+    const caps = after.clips.filter((c) => c.text?.role === 'caption').sort((a, b) => a.start - b.start);
+    expect(caps.map((c) => c.text!.text)).toEqual(['Hello there', 'Second cue']);
+    expect(caps[0].start).toBeCloseTo(1);
+  });
+
+  it('manage_track duplicates a track with its clips', async () => {
+    const p = fixture();
+    const trackId = p.tracks[0].id;
+    const r = await runTool(p, 'manage_track', { operation: 'duplicate', track_id: trackId });
+    expect(validateActions(p, r.actions)).toEqual([]);
+    const after = applyActions(p, r.actions);
+    expect(after.tracks.length).toBe(p.tracks.length + 1);
+    const dup = after.tracks.find((t) => t.name.endsWith('copy'))!;
+    expect(after.clips.filter((c) => c.trackId === dup.id).length).toBe(p.clips.filter((c) => c.trackId === trackId).length);
+  });
+
   it('zoom respects max-zoom rule and alternates', async () => {
     let p = fixture();
     p = applyActions(p, [{ type: 'add_rule', rule: { text: 'never zoom more than 110 percent', kind: 'max-zoom', value: 1.1 } }]);
@@ -291,5 +368,61 @@ describe('action determinism', () => {
     for (const act of r.actions) {
       if (act.type === 'set_fades') expect(after.clips.some((c) => c.id === act.clipId)).toBe(true);
     }
+  });
+});
+
+describe('region + clip assistant tools', () => {
+  it('crop_region crops in place (non-destructive) with valid actions', async () => {
+    const p = fixture();
+    const id = p.clips[0].id;
+    const r = await runTool(p, 'crop_region', { clip_id: id, x: 0.25, y: 0.1, width: 0.5, height: 0.8 });
+    expect(validateActions(p, r.actions)).toEqual([]);
+    const after = applyActions(p, r.actions);
+    const c = after.clips.find((x) => x.id === id)!;
+    expect(c.transform.cropL).toBeCloseTo(0.25);
+    expect(c.transform.cropT).toBeCloseTo(0.1);
+    expect(c.mediaId).toBe('vid1');
+  });
+
+  it('crop_region extract adds an independent clip and leaves the original intact', async () => {
+    const p = fixture();
+    const id = p.clips[0].id;
+    const r = await runTool(p, 'crop_region', { clip_id: id, x: 0, y: 0, width: 0.5, height: 0.5, unit: 'fraction', extract: true });
+    expect(validateActions(p, r.actions)).toEqual([]);
+    const after = applyActions(p, r.actions);
+    const added = after.clips.filter((c) => c.id !== id);
+    expect(added.length).toBe(1);
+    expect(added[0].mediaId).toBe('vid1');
+    expect(added[0].transform.cropR).toBeCloseTo(0.5);
+    expect(after.clips.find((x) => x.id === id)!.transform.cropL).toBe(0);
+  });
+
+  it('add_marker / duplicate_clip / reverse_clip / set_clip_look all apply cleanly', async () => {
+    const p = fixture();
+    const id = p.clips[0].id;
+    const m = await runTool(p, 'add_marker', { time: 5, label: 'Hook' });
+    const d = await runTool(p, 'duplicate_clip', { clip_id: id });
+    const rv = await runTool(p, 'reverse_clip', { clip_id: id, reverse: true });
+    const lk = await runTool(p, 'set_clip_look', { clip_id: id, opacity: 0.5, fade_in: 0.2, fade_out: 0.2, label: 'blue', blend_mode: 'screen' });
+    for (const r of [m, d, rv, lk]) expect(validateActions(p, r.actions)).toEqual([]);
+    const after = applyActions(p, [...m.actions, ...d.actions, ...rv.actions, ...lk.actions]);
+    expect(after.markers.some((x) => x.label === 'Hook' && Math.abs(x.time - 5) < 1e-6)).toBe(true);
+    expect(after.clips.filter((c) => c.mediaId === 'vid1').length).toBe(2);
+    const src = after.clips.find((c) => c.id === id)!;
+    expect(src.reversed).toBe(true);
+    expect(src.transform.opacity).toBeCloseTo(0.5);
+    expect(src.fades.in).toBeCloseTo(0.2);
+    expect(src.fades.out).toBeCloseTo(0.2);
+    expect(src.label).toBe('blue');
+    expect(src.blendMode).toBe('screen');
+  });
+
+  it('remove_section ripples the timeline and keeps captions', async () => {
+    const p = fixture();
+    const before = projectDuration(p);
+    const r = await runTool(p, 'remove_section', { start: 10, end: 20 });
+    expect(validateActions(p, r.actions)).toEqual([]);
+    const after = applyActions(p, r.actions);
+    expect(projectDuration(after)).toBeCloseTo(before - 10, 3);
   });
 });

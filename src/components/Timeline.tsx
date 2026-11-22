@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Scissors, Trash2, ZoomIn, ZoomOut, Magnet, Lock, Unlock, Volume2, VolumeX, Eye, EyeOff, Plus, Flag, Maximize, ChevronsRightLeft, Headphones } from 'lucide-react';
+import { Scissors, Trash2, ZoomIn, ZoomOut, Magnet, Lock, Unlock, Volume2, VolumeX, Eye, EyeOff, Plus, Flag, Maximize, ChevronsRightLeft, Headphones, Focus } from 'lucide-react';
 import { useStore } from '../state/store';
 import { useUI } from '../state/ui';
 import { ClipContextMenu, type CtxMenuState } from './ClipContextMenu';
+import { buildStyledText, type TextEffect, type TextRole, type TextTransition } from './tabs/textPresets';
 import { projectDuration, clipsOnTrack, getMedia, uid, COLOR_PRESETS, type Action, type Clip, type Track, type MediaAsset, type TextData, type EffectType, type Transition } from '../../engine';
 
 const HEADER_W = 150;
@@ -110,7 +111,14 @@ interface DragState {
 }
 
 /** Payload shapes sent by MediaTab / TextTab / StickersTab / FiltersTab / EffectsTab / TransitionsTab drag sources. */
-interface TextPresetDrop { text: string; role?: TextData['role']; duration?: number }
+interface TextPresetDrop {
+  text: string;
+  role?: TextRole;
+  duration?: number;
+  preset?: import('../../engine').CaptionStyleId;
+  effect?: TextEffect;
+  transition?: TextTransition;
+}
 type DropPayload =
   | { kind: 'media'; mediaId: string }
   | { kind: 'text'; preset: TextPresetDrop }
@@ -542,12 +550,18 @@ export function Timeline() {
     } else if (payload.kind === 'text' && payload.preset) {
       const preset = payload.preset;
       const textTrackId = project.tracks.find((t) => t.kind === 'text')?.id;
-      const start = textTrackId ? resolveFreeStart(textTrackId, hit.time, preset.duration ?? 3) : hit.time;
-      const actions: Action[] = [];
-      if (!textTrackId) actions.push({ type: 'add_track', track: { kind: 'text' } });
-      actions.push({ type: 'add_text', start, duration: preset.duration ?? 3, text: preset.text, role: preset.role ?? 'caption' });
+      const duration = preset.duration ?? 3;
+      const start = textTrackId ? resolveFreeStart(textTrackId, hit.time, duration) : hit.time;
+      const { actions } = buildStyledText(project, {
+        start, duration, text: preset.text,
+        role: preset.role ?? 'caption',
+        preset: preset.preset ?? 'clean',
+        effect: preset.effect ?? 'none',
+        transition: preset.transition ?? 'none',
+        trackId: textTrackId,
+      });
       commitAndSelect(actions, 'Drop text');
-      ui.toast('Text added to timeline', 'success');
+      ui.toast(`${preset.preset ?? 'Clean'} ${preset.role ?? 'text'} added to the video`, 'success');
     } else if (payload.kind === 'sticker' && payload.value) {
       const textTrackId = project.tracks.find((t) => t.kind === 'text')?.id;
       const start = textTrackId ? resolveFreeStart(textTrackId, hit.time, 2) : hit.time;
@@ -646,6 +660,22 @@ export function Timeline() {
     useStore.getState().setZoom((w - HEADER_W - 24) / Math.max(1, dur));
   };
 
+  /** Frame the selected clips: zoom so the selection fills the pane and
+   * scroll its start into view. */
+  const zoomToSelection = () => {
+    const s = useStore.getState();
+    const clips = s.project.clips.filter((c) => s.selection.includes(c.id));
+    if (!clips.length) { useUI.getState().toast('Select a clip first, then zoom to it', 'info'); return; }
+    const start = Math.min(...clips.map((c) => c.start));
+    const end = Math.max(...clips.map((c) => c.start + c.duration));
+    const w = scrollRef.current?.clientWidth ?? 0;
+    const z = Math.max(8, Math.min(600, (w - HEADER_W - 24) / Math.max(0.5, end - start)));
+    s.setZoom(z);
+    requestAnimationFrame(() => {
+      if (scrollRef.current) scrollRef.current.scrollLeft = Math.max(0, start * z - 12);
+    });
+  };
+
   /* ---- right-click context menu ---- */
 
   const [ctxMenu, setCtxMenu] = useState<CtxMenuState | null>(null);
@@ -653,8 +683,13 @@ export function Timeline() {
   // The empty-space menu's "Zoom to fit" reuses this component's scroll-aware math.
   useEffect(() => {
     const onZoomToFit = () => zoomToFit();
+    const onZoomToSelection = () => zoomToSelection();
     window.addEventListener('falconcut:zoom-to-fit', onZoomToFit);
-    return () => window.removeEventListener('falconcut:zoom-to-fit', onZoomToFit);
+    window.addEventListener('falconcut:zoom-to-selection', onZoomToSelection);
+    return () => {
+      window.removeEventListener('falconcut:zoom-to-fit', onZoomToFit);
+      window.removeEventListener('falconcut:zoom-to-selection', onZoomToSelection);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dur]);
 
@@ -771,6 +806,7 @@ export function Timeline() {
         <button className="icon-btn" onClick={() => useStore.getState().setZoom(zoom / 1.3)} title="Zoom out (-)"><ZoomOut size={15} /></button>
         <button className="icon-btn" onClick={() => useStore.getState().setZoom(zoom * 1.3)} title="Zoom in (+)"><ZoomIn size={15} /></button>
         <button className="icon-btn" onClick={zoomToFit} title="Zoom to fit"><Maximize size={15} /></button>
+        <button className="icon-btn" onClick={zoomToSelection} disabled={!selection.length} title="Zoom to selection (Shift+Z)"><Focus size={15} /></button>
         <input type="range" min={8} max={600} step={1} value={Math.round(zoom)} onChange={(e) => useStore.getState().setZoom(Number(e.target.value))} className="w-24 mx-1" title="Zoom (px per second)" />
         <span className="text-[11px] text-paper-faint font-mono ml-1">{Math.round(zoom)}px/s</span>
         <div className="h-5 w-px bg-line mx-1" />

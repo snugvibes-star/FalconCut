@@ -51,6 +51,11 @@ export function useKeyboard() {
       if (mod && e.key.toLowerCase() === 'z') { e.preventDefault(); e.shiftKey ? s.redo() : s.undo(); return; }
       if (mod && e.key.toLowerCase() === 'y') { e.preventDefault(); s.redo(); return; }
       if (mod && e.key.toLowerCase() === 'a') { e.preventDefault(); s.select(s.project.clips.map((c) => c.id)); return; }
+      if (!mod && e.shiftKey && e.key.toLowerCase() === 'z') {
+        e.preventDefault();
+        window.dispatchEvent(new CustomEvent('falconcut:zoom-to-selection'));
+        return;
+      }
 
       // ---- clipboard: copy / cut / paste / duplicate -------------------------
       if (mod && e.key.toLowerCase() === 'c') {

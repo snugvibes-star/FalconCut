@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
-import { Play, Pause, SkipBack, SkipForward, ChevronsLeft, ChevronsRight, Grid3x3, Maximize2, Minimize2, Theater, Repeat, PenLine, Camera, Download, Crop } from 'lucide-react';
+import { Play, Pause, SkipBack, SkipForward, ChevronsLeft, ChevronsRight, Grid3x3, LayoutGrid, Maximize2, Minimize2, Theater, Repeat, PenLine, Camera, Download, Crop } from 'lucide-react';
 import { useStore } from '../state/store';
 import { useUI } from '../state/ui';
-import { renderFrame, drawSafeZones, projectDuration, activeClips, getMedia, type Action } from '../../engine';
+import { renderFrame, drawSafeZones, drawThirdsGrid, projectDuration, activeClips, getMedia, type Action } from '../../engine';
 import { toggleMarkerLoop } from '../features/zoneLoop';
 import { projectPNG } from '../../exporter/artifacts';
 import { getBlob } from '../state/persistence';
@@ -44,6 +44,7 @@ export function Preview() {
   const wrapRef = useRef<HTMLDivElement>(null);
   const rootRef = useRef<HTMLDivElement>(null);
   const [safe, setSafe] = useState(false);
+  const [grid, setGrid] = useState(false);
   const [box, setBox] = useState({ w: 0, h: 0 });
   const [full, setFull] = useState(false);
   const [capturing, setCapturing] = useState(false);
@@ -157,7 +158,8 @@ export function Preview() {
     if (!ctx) return;
     renderFrame(project, playhead, ctx, pool);
     if (safe) drawSafeZones(ctx, project);
-  }, [project, playhead, frameTick, pool, width, height, safe]);
+    if (grid) drawThirdsGrid(ctx, project);
+  }, [project, playhead, frameTick, pool, width, height, safe, grid]);
 
   // keep video elements aligned to the paused playhead
   useEffect(() => {
@@ -268,6 +270,7 @@ export function Preview() {
           <Repeat size={16} />
         </button>
         <button className={`icon-btn ${safe ? 'text-signal' : ''}`} onClick={() => setSafe((v) => !v)} title="Toggle caption safe zones"><Grid3x3 size={16} /></button>
+        <button className={`icon-btn ${grid ? 'text-signal' : ''}`} onClick={() => setGrid((v) => !v)} title="Toggle rule-of-thirds composition grid"><LayoutGrid size={16} /></button>
         <button
           className="icon-btn"
           onClick={() => void freezeFrame()}

@@ -319,8 +319,21 @@ export function renderFrame(p: Project, t: number, ctx: Ctx2D, resolver: MediaRe
     for (const clip of clips) {
       if (clip.kind === 'media') drawMediaClip(p, clip, t, ctx, resolver);
       else if (clip.kind === 'text' && clip.text) {
-        const layout = layoutCaption(ctx, clip.text.text, clip.text.style, p.settings.width, p.settings.height, t - clip.start, clip.text.words);
-        drawCaption(ctx, layout, clip.text.style, p.settings.width, p.settings.height, t - clip.start, clip.duration);
+        const local = t - clip.start;
+        // Text/title clips honour in/out transitions too: they fade over the
+        // transition duration instead of popping hard onto the frame. The
+        // renderer is shared by preview and export, so this is burned in.
+        let alpha = 1;
+        if (clip.transitionIn?.duration) alpha = Math.min(alpha, Math.max(0, local / clip.transitionIn.duration));
+        if (clip.transitionOut?.duration) alpha = Math.min(alpha, Math.max(0, (clip.duration - local) / clip.transitionOut.duration));
+        if (alpha > 0.01) {
+          ctx.save();
+          ctx.globalAlpha *= alpha * alpha * (3 - 2 * alpha);
+          if (clip.blendMode && clip.blendMode !== 'normal') ctx.globalCompositeOperation = clip.blendMode;
+          const layout = layoutCaption(ctx, clip.text.text, clip.text.style, p.settings.width, p.settings.height, local, clip.text.words);
+          drawCaption(ctx, layout, clip.text.style, p.settings.width, p.settings.height, local, clip.duration);
+          ctx.restore();
+        }
       } else if (clip.kind === 'motif' && clip.motif) {
         drawMotif(ctx, clip.motif, t - clip.start, clip.duration, p.settings.width, p.settings.height);
       } else if (clip.kind === 'drawing' && clip.drawing) {
@@ -345,6 +358,31 @@ export function drawSafeZones(ctx: Ctx2D, p: Project, margin = 0.05) {
     ctx.strokeStyle = 'rgba(251,113,133,0.45)';
     ctx.strokeRect(W * 0.03, H * 0.12, W * 0.94, H * 0.66);
   }
+  ctx.restore();
+}
+
+/** Rule-of-thirds + centre cross overlay for composition. */
+export function drawThirdsGrid(ctx: Ctx2D, p: Project) {
+  const W = p.settings.width, H = p.settings.height;
+  const s = ctx.canvas.width / W;
+  ctx.save();
+  ctx.scale(s, s);
+  ctx.strokeStyle = 'rgba(255,255,255,0.32)';
+  ctx.lineWidth = 1.5 / s;
+  ctx.beginPath();
+  for (let i = 1; i < 3; i++) {
+    ctx.moveTo((W * i) / 3, 0);
+    ctx.lineTo((W * i) / 3, H);
+    ctx.moveTo(0, (H * i) / 3);
+    ctx.lineTo(W, (H * i) / 3);
+  }
+  ctx.stroke();
+  ctx.strokeStyle = 'rgba(76,154,255,0.55)';
+  ctx.lineWidth = 1 / s;
+  ctx.beginPath();
+  ctx.moveTo(W / 2 - W * 0.02, H / 2); ctx.lineTo(W / 2 + W * 0.02, H / 2);
+  ctx.moveTo(W / 2, H / 2 - H * 0.02); ctx.lineTo(W / 2, H / 2 + H * 0.02);
+  ctx.stroke();
   ctx.restore();
 }
 

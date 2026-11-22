@@ -25,6 +25,11 @@ export const FEATURE_CHECKLIST: FeatureItem[] = [
   { id: 'clip-clipboard', group: 'Editing core', label: 'Copy / cut / paste / duplicate clips (Ctrl+C / X / V / D) with effects, keyframes and fades preserved', status: 'working' },
   { id: 'marquee-select', group: 'Editing core', label: 'Rubber-band marquee selection by dragging empty timeline space', status: 'working' },
   { id: 'track-solo-reorder', group: 'Editing core', label: 'Track solo, duplicate (with clips), reorder and delete from the track context menu; N toggles snapping (Alt bypasses)', status: 'working' },
+  { id: 'track-height-presets', group: 'Editing core', label: 'Track height presets (Compact / Normal / Tall) from the track context menu, plus drag-resize', status: 'working' },
+  { id: 'zoom-to-selection', group: 'Editing core', label: 'Zoom to selection (toolbar button + Shift+Z) frames the selected clips and scrolls them into view', status: 'working' },
+  { id: 'preview-grid', group: 'Editing core', label: 'Rule-of-thirds composition grid overlay in the preview (toggle beside caption safe zones)', status: 'working' },
+  { id: 'clip-speed-presets', group: 'Editing core', label: 'One-click clip speed presets (0.5× / 1× / 1.5× / 2×) in the clip context menu', status: 'working' },
+  { id: 'ripple-delete-menu', group: 'Editing core', label: 'Ripple delete from the clip context menu (closes the gap on every later clip)', status: 'working' },
   { id: 'markers', group: 'Editing core', label: 'Timeline markers', status: 'working' },
   { id: 'snapping', group: 'Editing core', label: 'Snapping to clip edges / playhead', status: 'working' },
   { id: 'undo-redo', group: 'Editing core', label: 'Undo / redo history', status: 'working' },
@@ -66,6 +71,7 @@ export const FEATURE_CHECKLIST: FeatureItem[] = [
   // ── Text & titles ──────────────────────────────────────────────────────────
   { id: 'text-clips', group: 'Text & titles', label: 'Text clips (font, size, color, outline, position)', status: 'working' },
   { id: 'text-animation', group: 'Text & titles', label: 'Text animations (pop / fade / rise / typewriter)', status: 'working' },
+  { id: 'text-studio', group: 'Text & titles', label: 'Text studio: Title/Caption role switch, four preset styles, effects (shadow, halo, pop, rise, fade, typewriter) and fade transitions; click a card to add at the playhead or drag it onto the timeline, and apply the look to a selected clip', status: 'working', note: 'text clips now render fade in/out and blend mode in both preview and export' },
   { id: 'hook-title', group: 'Text & titles', label: 'Animated hook title tool', status: 'working' },
   { id: 'motifs', group: 'Text & titles', label: 'Motion graphic motifs (title-reveal, lower-third, bar-chart, ring-progress, count-up, burst)', status: 'working' },
   { id: 'lottie', group: 'Text & titles', label: 'Lottie / After Effects animation import', status: 'not-possible', note: 'no .json Lottie renderer integrated' },
@@ -74,9 +80,14 @@ export const FEATURE_CHECKLIST: FeatureItem[] = [
   // ── Captions ───────────────────────────────────────────────────────────────
   { id: 'auto-captions', group: 'Captions', label: 'Auto captions (Whisper WASM transcription)', status: 'working' },
   { id: 'caption-styles', group: 'Captions', label: 'Caption styles (clean, karaoke, bold-keywords, word-pop)', status: 'working' },
+  { id: 'caption-density', group: 'Captions', label: 'Density presets (tight 1-line / balanced 2-line / relaxed) with aspect-aware character caps, cue-length and reading-speed limits; hesitation sounds removed by default', status: 'working', note: 'cues are capped so words are never dropped; preview shrinks text instead of clipping it' },
   { id: 'caption-editing', group: 'Captions', label: 'Edit caption text and timing', status: 'working' },
+  { id: 'caption-direct-styles', group: 'Captions', label: 'Caption style cards create a real caption clip on the video at the playhead; it is burned into preview and export, with effect + transition chips', status: 'working', note: 'no sidecar download needed to get styled captions into the video' },
+  { id: 'caption-timing-tools', group: 'Captions', label: 'Assistant timing tools: shift all captions and split over-long cues into readable chunks', status: 'working' },
+  { id: 'caption-import', group: 'Captions', label: 'Import SRT / WebVTT subtitles as editable caption clips', status: 'working', note: 'replaces existing captions in one undo step' },
   { id: 'caption-translate', group: 'Captions', label: 'Translate captions to another language', status: 'working', note: 'requires user AI key' },
   { id: 'captions-srt-export', group: 'Captions', label: 'Export .srt sidecar subtitles', status: 'working' },
+  { id: 'captions-vtt-export', group: 'Captions', label: 'Export WebVTT (.vtt) sidecar subtitles', status: 'working' },
 
   // ── Color ──────────────────────────────────────────────────────────────────
   { id: 'color-correction', group: 'Color', label: 'Basic color correction (brightness, contrast, saturation, temperature)', status: 'working' },
@@ -125,6 +136,9 @@ export const FEATURE_CHECKLIST: FeatureItem[] = [
   // ── AI automation ──────────────────────────────────────────────────────────
   { id: 'ai-chat', group: 'AI automation', label: 'Conversational assistant: chat answers without a plan, small edits run immediately, multi-step work appears as a reviewable plan, full conversation history, streaming replies (OpenAI-compatible providers), Retry on failure, "undo that"', status: 'working', note: 'needs an AI key for free-form chat; without a key the honest rules assistant answers and handles clear edit instructions; Gemini replies arrive complete (its stream format differs)' },
   { id: 'ai-clip-tools', group: 'AI automation', label: 'AI can add text/titles and move, trim, split, delete, mute or change the speed of a named clip (real clip ids are in its context)', status: 'working', note: 'every operation is one undo step; masks, chroma key and keyframing are not yet exposed as AI tools' },
+  { id: 'ai-region-tools', group: 'AI automation', label: 'AI region crop/extract, markers, clip duplicate/reverse, clip look (opacity/fades/blend/label) and section ripple-delete', status: 'working', note: 'crop_region supports fraction/percent/pixel units and non-destructive extraction' },
+  { id: 'ai-track-tools', group: 'AI automation', label: 'AI track management: add, rename, mute, solo, lock, hide, resize, duplicate-with-clips and delete tracks', status: 'working' },
+  { id: 'ai-caption-tools', group: 'AI automation', label: 'AI caption workflow: generate with density, restyle, shift timing, split long cues and import SRT/VTT', status: 'working' },
   { id: 'auto-edit', group: 'AI automation', label: 'One-click auto edit pipeline (per video type)', status: 'working', note: 'with an AI model connected (Google Gemini or OpenAI-compatible) the pipeline is planned by the model; without a key the built-in rules pipeline runs on-device — both are one undo step' },
   { id: 'dead-air-cut', group: 'AI automation', label: 'Cut dead air / fillers / retakes', status: 'working' },
   { id: 'smart-cutdown', group: 'AI automation', label: 'Smart cutdown — short-clip candidates with hook scores', status: 'working' },

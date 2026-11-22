@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll } from 'vitest';
 import {
   createProject, applyAction, applyActions, uid, projectDuration, sourceTimeOf, avgSpeed, strokeBounds,
-  History, renderFrame, evalKeyframes, buildCues, defaultTextStyle, defaultTransform, ACTION_SCHEMA, clearGenCache,
+  History, renderFrame, evalKeyframes, buildCues, parseSRT, cueCps, defaultTextStyle, defaultTransform, ACTION_SCHEMA, clearGenCache,
 } from '../engine';
 import type { Action } from '../engine/actions';
 import type { MediaAsset, Project } from '../engine/types';
@@ -318,6 +318,25 @@ describe('captions', () => {
       const lines = Math.ceil(c.text.length / 22);
       expect(lines).toBeLessThanOrEqual(2);
     }
+  });
+
+  it('caps cue length, drops fillers and honours the reading-speed ceiling', () => {
+    const words = 'um hello there this is a long fast sentence with many words and more words after it'.split(' ').map((w, i) => ({ word: w, start: i * 0.18, end: i * 0.18 + 0.16 }));
+    const cues = buildCues(words, 30, 2, 0.7, { maxCueSec: 2, targetCps: 16, removeFillers: true });
+    expect(cues.length).toBeGreaterThan(1);
+    expect(cues.some((c) => /\bum\b/i.test(c.text))).toBe(false);
+    for (const c of cues) expect(c.end - c.start).toBeLessThanOrEqual(2.6);
+  });
+
+  it('parses SRT and WebVTT cues, strips tags and decodes entities', () => {
+    const srt = '1\n00:00:01,000 --> 00:00:03,500\nHello <i>world</i> &amp; friends\n\n2\n00:00:04.000 --> 00:00:05.250\nSecond line';
+    const cues = parseSRT(srt);
+    expect(cues).toHaveLength(2);
+    expect(cues[0]).toMatchObject({ start: 1, end: 3.5, text: 'Hello world & friends' });
+    expect(cues[1].start).toBeCloseTo(4);
+    expect(cues[1].end).toBeCloseTo(5.25);
+    const vtt = 'WEBVTT\n\n00:00:02.000 --> 00:00:03.000 align:start\nVTT cue';
+    expect(parseSRT(vtt)[0]).toMatchObject({ start: 2, end: 3, text: 'VTT cue' });
   });
 });
 

@@ -32,6 +32,21 @@ export function wrapWords(words: { w: string; keyword?: boolean; filler?: boolea
     curW += cur.length > 1 ? spaceW + width : width;
   }
   if (cur.length && lines.length < maxLines) lines.push({ words: cur, width: curW });
+
+  // Orphan control: a two-line caption should not leave one lonely word on
+  // line two while line one is packed. Move the last word of line one down
+  // when it still fits — reading order is preserved.
+  if (lines.length === 2 && lines[1].words.length === 1 && lines[0].words.length >= 3) {
+    const moved = lines[0].words[lines[0].words.length - 1];
+    const firstW = lines[0].width - spaceW - moved.width;
+    const secondW = lines[1].width + spaceW + moved.width;
+    if (firstW > 0 && secondW <= maxW) {
+      lines[0].words.pop();
+      lines[0].width = firstW;
+      lines[1].words.unshift(moved);
+      lines[1].width = secondW;
+    }
+  }
   return lines;
 }
 
@@ -39,11 +54,8 @@ export function layoutCaption(
   ctx: Ctx2D, text: string, style: TextStyle, W: number, H: number,
   localT: number, words?: CaptionWord[]
 ): CaptionLayout {
-  const fontSize = Math.max(8, style.fontSize * H);
-  ctx.font = fontString(style, fontSize);
-  const spaceW = ctx.measureText(' ').width;
+  let fontSize = Math.max(8, style.fontSize * H);
   const maxW = style.maxWidth * W;
-  const lineHeight = fontSize * 1.22;
 
   let source: { w: string; keyword?: boolean; start?: number; end?: number }[];
   if (style.preset === 'word-pop' && words?.length) {
@@ -55,8 +67,22 @@ export function layoutCaption(
     source = (words?.length ? words.map((w) => ({ w: w.w, keyword: w.keyword, start: w.start, end: w.end })) : text.split(/\s+/).filter(Boolean).map((w) => ({ w })));
   }
   if (style.uppercase) source = source.map((s) => ({ ...s, w: s.w.toUpperCase() }));
-  const measure = (s: string) => ctx.measureText(s).width;
-  const lines = wrapWords(source, maxW, style.maxLines, measure, spaceW);
+
+  // Fit guarantee: if the wrapped text would lose words to maxLines, shrink
+  // the font (up to ~35%) until every word fits. Dropped caption words are
+  // worse than slightly smaller text — especially on 9:16.
+  let lines: LayoutLine[] = [];
+  let lineHeight = fontSize * 1.22;
+  let spaceW = 0;
+  for (let attempt = 0; attempt < 5; attempt++) {
+    ctx.font = fontString(style, fontSize);
+    spaceW = ctx.measureText(' ').width;
+    lineHeight = fontSize * 1.22;
+    lines = wrapWords(source, maxW, style.maxLines, (s) => ctx.measureText(s).width, spaceW);
+    const laidOut = lines.reduce((n, l) => n + l.words.length, 0);
+    if (laidOut >= source.length || attempt === 4) break;
+    fontSize = Math.max(8, fontSize * 0.9);
+  }
 
   for (const line of lines) {
     for (const lw of line.words) {
@@ -147,15 +173,35 @@ export function roundRect(ctx: Ctx2D, x: number, y: number, w: number, h: number
 }
 
 /** Split a transcript into caption cues: max chars/line, max 2 lines, natural breaks. */
+export interface CueBuildOptions {
+  /** Split any cue longer than this many seconds. Default 7. */
+  maxCueSec?: number;
+  /** Reading-speed ceiling in characters per second. Default 17. */
+  targetCps?: number;
+  /** Break after sentence-ending punctuation. Default true. */
+  sentenceBreak?: boolean;
+  /** Drop hesitation sounds (um, uh, hmm…). Default false. */
+  removeFillers?: boolean;
+}
+
+const HESITATIONS = new Set(['uh', 'uhh', 'uhm', 'um', 'umm', 'erm', 'er', 'ah', 'ahh', 'eh', 'hmm', 'hm', 'mm', 'mhm', 'uhhuh']);
+
+const isHesitation = (w: string) => HESITATIONS.has(w.toLowerCase().replace(/[^a-z]/g, ''));
+
 export function buildCues(
   words: { word: string; start: number; end: number }[],
   maxCharsPerLine: number,
   maxLines = 2,
-  maxGapSec = 0.7
+  maxGapSec = 0.7,
+  opts: CueBuildOptions = {}
 ): { text: string; start: number; end: number; words: CaptionWord[] }[] {
+  const maxCueSec = opts.maxCueSec ?? 7;
+  const targetCps = opts.targetCps ?? 17;
+  const sentenceBreak = opts.sentenceBreak !== false;
   const cues: { text: string; start: number; end: number; words: CaptionWord[] }[] = [];
   let cur: CaptionWord[] = [];
   let lines = 1, lineChars = 0;
+  const cueChars = () => cur.reduce((n, w) => n + w.w.length, 0) + Math.max(0, cur.length - 1);
   const flush = () => {
     if (!cur.length) return;
     cues.push({
@@ -170,9 +216,19 @@ export function buildCues(
     const w = words[i];
     const clean = w.word.trim();
     if (!clean) continue;
+    if (opts.removeFillers && isHesitation(clean) && !/[.!?]$/.test(clean)) continue;
     const gap = cur.length ? w.start - cur[cur.length - 1].end : 0;
-    const endsSentence = /[.!?]$/.test(cur.length ? cur[cur.length - 1].w : '');
-    if (cur.length && (gap > maxGapSec || (endsSentence && lineChars > maxCharsPerLine * 0.5))) flush();
+    const prev = cur.length ? cur[cur.length - 1].w : '';
+    const endsSentence = sentenceBreak && /[.!?]$/.test(prev);
+    const span = cur.length ? w.end - cur[0].start : 0;
+    const chars = cueChars() + (cur.length ? 1 : 0) + clean.length;
+    const cps = span > 0 ? chars / span : 0;
+    if (cur.length && (
+      gap > maxGapSec ||
+      (endsSentence && lineChars > maxCharsPerLine * 0.4) ||
+      span > maxCueSec ||
+      (cur.length >= 3 && cps > targetCps)
+    )) flush();
     if (lineChars + clean.length + 1 > maxCharsPerLine) {
       if (lines >= maxLines) flush();
       else { lines++; lineChars = 0; }
@@ -191,6 +247,52 @@ export function buildCues(
     c.words = c.words.map((w) => ({ ...w, start: w.start - c.start, end: w.end - c.start }));
   }
   return cues;
+}
+
+/** Characters per second for a cue — the readability number editors care about. */
+export function cueCps(text: string, start: number, end: number): number {
+  const chars = text.replace(/\s+/g, ' ').trim().length;
+  return end > start ? chars / (end - start) : 0;
+}
+
+export interface ParsedCue { start: number; end: number; text: string }
+
+const parseTimestamp = (raw: string): number | null => {
+  const m = raw.trim().match(/(?:(\d+):)?(\d{1,2}):(\d{1,2})[,.](\d{1,3})/);
+  if (!m) return null;
+  const [, h, mm, ss, ms] = m;
+  return (h ? Number(h) * 3600 : 0) + Number(mm) * 60 + Number(ss) + Number(ms.padEnd(3, '0')) / 1000;
+};
+
+const decodeEntities = (s: string) => s
+  .replace(/&nbsp;/gi, ' ')
+  .replace(/&amp;/gi, '&')
+  .replace(/&lt;/gi, '<')
+  .replace(/&gt;/gi, '>')
+  .replace(/&quot;/gi, '"')
+  .replace(/&#39;|&apos;/gi, "'");
+
+/** Parse SRT or WebVTT text into cues. Styling tags are stripped. */
+export function parseSRT(input: string): ParsedCue[] {
+  const text = String(input ?? '').replace(/^\uFEFF/, '').replace(/\r\n?/g, '\n');
+  const cues: ParsedCue[] = [];
+  for (const block of text.split(/\n{2,}/)) {
+    const lines = block.split('\n').map((l) => l.trim()).filter(Boolean);
+    if (!lines.length) continue;
+    const arrow = lines.findIndex((l) => l.includes('-->'));
+    if (arrow < 0) continue;
+    const [rawStart, rawEnd] = lines[arrow].split('-->');
+    const start = parseTimestamp(rawStart ?? '');
+    const end = parseTimestamp((rawEnd ?? '').trim().split(/\s+/)[0] ?? '');
+    if (start == null || end == null || end <= start) continue;
+    const body = lines.slice(arrow + 1).join(' ')
+      .replace(/<[^>]+>/g, '')
+      .replace(/\{[^}]+\}/g, '')
+      .trim();
+    if (!body) continue;
+    cues.push({ start, end, text: decodeEntities(body) });
+  }
+  return cues.sort((a, b) => a.start - b.start);
 }
 
 const KEYWORD_SET = new Set(['free', 'new', 'secret', 'best', 'never', 'always', 'stop', 'wait', 'how', 'why', 'what', 'money', 'easy', 'fast', 'proven', 'warning', 'hack', 'mistake', 'truth', 'love', 'win', 'lose', 'big', 'huge', 'crazy', 'insane', 'important', 'remember', 'tip', 'tips', 'step', 'steps', 'result', 'results', 'guarantee', 'today', 'now', 'you', 'your']);

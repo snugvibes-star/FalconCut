@@ -94,11 +94,22 @@ export function CropOverlay({ scale }: { scale: number }) {
     ctx.fillRect(0, 0, dw, dh);
 
     if (!size) {
+      // Small canvases (9:16 on a phone) get shorter, smaller copy so the
+      // hint never overflows the frame.
+      const small = dw < 320;
+      const fsPx = Math.max(9, Math.min(13, Math.round(dw / 24)));
       ctx.fillStyle = '#d7dbe6';
-      ctx.font = `${Math.max(11, 12 * scale)}px system-ui, sans-serif`;
+      ctx.font = `500 ${fsPx}px system-ui, sans-serif`;
       ctx.textAlign = 'center';
-      ctx.fillText('Select a video or image clip on the timeline, then drag a region', dw / 2, dh / 2);
+      ctx.textBaseline = 'middle';
+      const lines = small
+        ? ['Select a video clip', 'then drag a region']
+        : ['Select a video or image clip on the timeline,', 'then drag a region to keep'];
+      lines.forEach((line, i) => {
+        ctx.fillText(line, dw / 2, dh / 2 + (i - (lines.length - 1) / 2) * fsPx * 1.5);
+      });
       ctx.textAlign = 'start';
+      ctx.textBaseline = 'alphabetic';
       return;
     }
 
@@ -236,13 +247,13 @@ export function CropOverlay({ scale }: { scale: number }) {
         onPointerUp={onUp}
         onPointerCancel={onUp}
       />
-      <div className="pointer-events-none absolute left-2 top-2 z-20 rounded-md bg-ink-950/85 border border-line px-2 py-1 text-[10px] text-paper-dim">
-        <span className="text-signal font-semibold">REGION</span>
-        <span className="ml-1.5">drag the box or its handles</span>
+      <div className="pointer-events-none absolute left-1.5 top-1.5 z-20 max-w-[calc(100%-0.75rem)] rounded-md border border-line bg-ink-950/85 px-1.5 py-0.5 text-[clamp(8px,2vw,10px)] leading-tight text-paper-dim">
+        <span className="font-semibold text-signal">REGION</span>
+        <span className="ml-1 hidden min-[360px]:inline">drag the box or its handles</span>
       </div>
-      <div className="absolute left-1/2 bottom-2 z-20 flex max-w-[calc(100%-1rem)] -translate-x-1/2 flex-wrap items-center justify-center gap-1.5 rounded-lg bg-ink-950/90 border border-line px-2 py-1.5 shadow-panel">
-        <button className="btn-ghost px-2 py-1 text-[11px]" onClick={applyCrop} disabled={!rect || !size} title="Crop the original clip (non-destructive)">Apply Crop</button>
-        <button className="btn-solid px-2 py-1 text-[11px]" onClick={extractAsNewClip} disabled={!rect || !size} title="Create an independent clip containing only the selected region">Extract as New Clip</button>
+      <div className="absolute bottom-1.5 left-1/2 z-20 flex max-w-[calc(100%-0.75rem)] -translate-x-1/2 flex-wrap items-center justify-center gap-1 rounded-lg border border-line bg-ink-950/90 px-1.5 py-1 shadow-panel">
+        <button className="btn-ghost px-2 py-1 text-[clamp(9px,2.2vw,11px)] leading-tight" onClick={applyCrop} disabled={!rect || !size} title="Crop the original clip (non-destructive)">Apply Crop</button>
+        <button className="btn-solid px-2 py-1 text-[clamp(9px,2.2vw,11px)] leading-tight" onClick={extractAsNewClip} disabled={!rect || !size} title="Create an independent clip containing only the selected region">Extract as New Clip</button>
       </div>
     </>
   );

@@ -10,13 +10,15 @@ import type { ToolContext, ToolResult } from './cutTools';
 export type { ToolContext, ToolResult } from './cutTools';
 import { makeContext } from './helpers';
 import { removeDeadAir, removeFillers, cutRetakes } from './cutTools';
-import { addCaptions, addHookTitle, translateCaptions } from './captionTools';
+import { addCaptions, addHookTitle, translateCaptions, restyleCaptions, shiftCaptions, fixCaptionTiming, importCaptions } from './captionTools';
 import { zoomOnEmphasis, reframe, addTransitions, snapToBeats, addMotif } from './motionTools';
 import { addMusic, balanceAudio, cleanupAudio } from './audioTools';
 import { applyColorPreset, addBrollSlots, autoBroll } from './lookTools';
 import { autoEdit, autoFix, smartCutdown, abVariants, autoMulticam } from './autoEdit';
 import { addText } from './textTools';
 import { editTimeline } from './timelineTools';
+import { cropRegion, addMarkerTool, duplicateClipTool, reverseClipTool, setClipLookTool, removeSectionTool } from './regionTools';
+import { manageTrack } from './trackTools';
 
 export interface ParamSpec { type: 'string' | 'number' | 'boolean' | 'enum'; desc: string; default?: unknown; enum?: string[]; optional?: boolean }
 
@@ -84,9 +86,17 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: 'add_captions',
-    description: 'Generate styled captions from the transcript. Styles: clean (subtitles), karaoke (word highlight), bold-keywords, word-pop (one big word at a time). Max 2 lines, safe-zone positioned.',
-    params: { style: { type: 'enum', desc: 'Caption style.', enum: ['clean', 'karaoke', 'bold-keywords', 'word-pop'], optional: true } },
-    example: { input: { style: 'karaoke' }, why: 'Social clip where viewers watch without sound.' },
+    description: 'Generate styled captions from the transcript. Styles: clean (subtitles), karaoke (word highlight), bold-keywords, word-pop (one big word at a time). Density tight/balanced/relaxed controls cue length and reading speed; fillers are removed by default. Max 2 lines, safe-zone positioned.',
+    params: {
+      style: { type: 'enum', desc: 'Caption style.', enum: ['clean', 'karaoke', 'bold-keywords', 'word-pop'], optional: true },
+      density: { type: 'enum', desc: 'Text per cue: tight (1 line, ~3s), balanced (2 lines, ~6s), relaxed (longer, ~9s).', enum: ['tight', 'balanced', 'relaxed'], default: 'balanced', optional: true },
+      max_chars: { type: 'number', desc: 'Max characters per caption line (12–60). Auto-capped per aspect.', optional: true },
+      max_lines: { type: 'number', desc: 'Max lines per cue (1–3). Default 2 (1 for word-pop).', optional: true },
+      max_seconds: { type: 'number', desc: 'Max seconds a single cue stays on screen.', optional: true },
+      remove_fillers: { type: 'boolean', desc: 'Drop um/uh/hmm from captions.', default: true, optional: true },
+      highlight_keywords: { type: 'boolean', desc: 'Colour keywords for karaoke/bold-keywords styles.', default: true, optional: true },
+    },
+    example: { input: { style: 'karaoke', density: 'tight', remove_fillers: true }, why: 'Social clip where viewers watch without sound.' },
     roles: ['captions'],
     run: (c, p) => addCaptions(c, p),
   },
@@ -245,6 +255,142 @@ export const TOOLS: ToolDef[] = [
     example: { input: { language: 'Spanish' }, why: 'Reach a Spanish-speaking audience.' },
     roles: ['captions'],
     run: (c, p) => translateCaptions(c, p),
+  },
+  {
+    name: 'restyle_captions',
+    description: 'Restyle existing captions without regenerating them: preset, font size, position, uppercase, animation, text/highlight colour or outline width.',
+    params: {
+      style: { type: 'enum', desc: 'Caption preset.', enum: ['clean', 'karaoke', 'bold-keywords', 'word-pop'], optional: true },
+      font_size: { type: 'number', desc: 'Font size as a fraction of frame height (0.02–0.16).', optional: true },
+      y: { type: 'number', desc: 'Vertical position 0..1 (0.72 is a 9:16 safe zone).', optional: true },
+      x: { type: 'number', desc: 'Horizontal position 0..1.', optional: true },
+      uppercase: { type: 'boolean', desc: 'Force uppercase.', optional: true },
+      animation: { type: 'enum', desc: 'Entrance animation.', enum: ['none', 'pop', 'fade', 'rise', 'typewriter'], optional: true },
+      color: { type: 'string', desc: 'Text colour (#RRGGBB).', optional: true },
+      highlight: { type: 'string', desc: 'Highlight colour (#RRGGBB).', optional: true },
+      outline_width: { type: 'number', desc: 'Outline width 0..0.5.', optional: true },
+    },
+    example: { input: { style: 'karaoke', font_size: 0.055, y: 0.72, uppercase: true }, why: 'Make existing captions punchier for a 9:16 cut.' },
+    roles: ['captions'],
+    run: (c, p) => restyleCaptions(c, p),
+  },
+  {
+    name: 'shift_captions',
+    description: 'Shift captions earlier or later in time by a number of seconds. Optionally limit to a time window.',
+    params: {
+      offset: { type: 'number', desc: 'Seconds to shift (positive = later, negative = earlier).' },
+      from: { type: 'number', desc: 'Only captions starting at/after this time.', optional: true },
+      to: { type: 'number', desc: 'Only captions starting at/before this time.', optional: true },
+    },
+    example: { input: { offset: 0.2 }, why: 'Captions appear slightly too early after a cut.' },
+    roles: ['captions'],
+    run: (c, p) => shiftCaptions(c, p),
+  },
+  {
+    name: 'fix_caption_timing',
+    description: 'Split over-long caption cues into readable chunks, preserving word timing where available. Use when a caption sits on screen for many seconds.',
+    params: { max_seconds: { type: 'number', desc: 'Maximum cue length in seconds.', default: 6, optional: true } },
+    example: { input: { max_seconds: 5 }, why: 'One caption covered a 20-second story beat.' },
+    roles: ['captions'],
+    run: (c, p) => fixCaptionTiming(c, p),
+  },
+  {
+    name: 'import_captions',
+    description: 'Import captions from SRT or WebVTT text as editable caption clips. Replaces existing captions by default; set replace=false to keep them.',
+    params: {
+      srt: { type: 'string', desc: 'The full SRT / WebVTT file contents.' },
+      replace: { type: 'boolean', desc: 'Replace existing captions.', default: true, optional: true },
+      offset: { type: 'number', desc: 'Shift every imported cue by this many seconds.', optional: true },
+    },
+    example: { input: { srt: '1\n00:00:01,000 --> 00:00:04,000\nHello world' }, why: 'Reuse subtitles from another tool.' },
+    roles: ['captions'],
+    run: (c, p) => importCaptions(c, p),
+  },
+  {
+    name: 'crop_region',
+    description: 'Keep only a rectangle of a video/image clip (non-destructive crop), or extract that rectangle as a new independent clip. Coordinates are fractions by default; set unit to "percent" or "pixels".',
+    params: {
+      clip_id: { type: 'string', desc: 'The clip_id from the TIMELINE block.' },
+      x: { type: 'number', desc: 'Left edge of the region.', default: 0, optional: true },
+      y: { type: 'number', desc: 'Top edge of the region.', default: 0, optional: true },
+      width: { type: 'number', desc: 'Region width (defaults to the rest of the frame).', optional: true },
+      height: { type: 'number', desc: 'Region height (defaults to the rest of the frame).', optional: true },
+      unit: { type: 'enum', desc: 'Coordinate unit.', enum: ['fraction', 'percent', 'pixels'], default: 'fraction', optional: true },
+      extract: { type: 'boolean', desc: 'Create a separate clip from the region instead of cropping in place.', default: false, optional: true },
+    },
+    example: { input: { clip_id: 'clip_abc', x: 0.25, y: 0.1, width: 0.5, height: 0.8, extract: true }, why: 'Isolate the speaker as its own overlay layer.' },
+    roles: ['motion', 'story'],
+    run: (c, p) => cropRegion(c, p),
+  },
+  {
+    name: 'add_marker',
+    description: 'Add a timeline marker at a time, with an optional label and colour.',
+    params: {
+      time: { type: 'number', desc: 'Marker time in seconds.' },
+      label: { type: 'string', desc: 'Marker label.', optional: true },
+      color: { type: 'string', desc: 'Colour name or #RRGGBB.', optional: true },
+    },
+    example: { input: { time: 12.5, label: 'Hook', color: '#38BDF8' }, why: 'Mark the moment the hook lands.' },
+    roles: ['story', 'director'],
+    run: (c, p) => addMarkerTool(c, p),
+  },
+  {
+    name: 'duplicate_clip',
+    description: 'Duplicate a clip (effects, keyframes and fades included) and place the copy right after it.',
+    params: { clip_id: { type: 'string', desc: 'The clip_id from the TIMELINE block.' } },
+    example: { input: { clip_id: 'clip_abc' }, why: 'Repeat the best reaction shot.' },
+    roles: ['story', 'motion'],
+    run: (c, p) => duplicateClipTool(c, p),
+  },
+  {
+    name: 'reverse_clip',
+    description: 'Play a clip backwards (video scrubs backward, audio plays a genuinely reversed buffer) or restore normal playback.',
+    params: { clip_id: { type: 'string', desc: 'The clip_id from the TIMELINE block.' }, reverse: { type: 'boolean', desc: 'true to reverse, false to restore.', default: true, optional: true } },
+    example: { input: { clip_id: 'clip_abc', reverse: true }, why: 'A dramatic rewind effect.' },
+    roles: ['motion'],
+    run: (c, p) => reverseClipTool(c, p),
+  },
+  {
+    name: 'set_clip_look',
+    description: 'Change a clip opacity, add audio/video fades, set a colour label, or set its blend mode (screen, multiply, overlay…).',
+    params: {
+      clip_id: { type: 'string', desc: 'The clip_id from the TIMELINE block.' },
+      opacity: { type: 'number', desc: 'Opacity 0..1.', optional: true },
+      fade_in: { type: 'number', desc: 'Fade-in length in seconds.', optional: true },
+      fade_out: { type: 'number', desc: 'Fade-out length in seconds.', optional: true },
+      label: { type: 'string', desc: 'Colour label (red, amber, green, blue, purple).', optional: true },
+      blend_mode: { type: 'string', desc: 'normal, multiply, screen, overlay, darken, lighten, soft-light, difference…', optional: true },
+    },
+    example: { input: { clip_id: 'clip_abc', opacity: 0.6, fade_in: 0.3, fade_out: 0.3 }, why: 'A soft picture-in-picture overlay.' },
+    roles: ['motion', 'color'],
+    run: (c, p) => setClipLookTool(c, p),
+  },
+  {
+    name: 'remove_section',
+    description: 'Delete a time range from all video/audio tracks and ripple the rest of the timeline closed (markers shift too). Text/caption tracks are left alone.',
+    params: { start: { type: 'number', desc: 'Range start in seconds.' }, end: { type: 'number', desc: 'Range end in seconds.' } },
+    example: { input: { start: 30, end: 45 }, why: 'Cut the boring middle section out.' },
+    roles: ['story', 'director'],
+    run: (c, p) => removeSectionTool(c, p),
+  },
+  {
+    name: 'manage_track',
+    description: 'Add a video/audio/text track, update its name/mute/solo/lock/visibility/height, duplicate it with every clip on it, or delete it.',
+    params: {
+      operation: { type: 'enum', desc: 'What to do with the track.', enum: ['add', 'update', 'duplicate', 'delete'] },
+      track_id: { type: 'string', desc: 'Existing track id (not needed for add).', optional: true },
+      kind: { type: 'enum', desc: 'Track kind for add.', enum: ['video', 'audio', 'text'], optional: true },
+      name: { type: 'string', desc: 'Track name.', optional: true },
+      index: { type: 'number', desc: 'Insert position for add (0 = top).', optional: true },
+      muted: { type: 'boolean', desc: 'Mute the track.', optional: true },
+      solo: { type: 'boolean', desc: 'Solo the track.', optional: true },
+      locked: { type: 'boolean', desc: 'Lock the track.', optional: true },
+      hidden: { type: 'boolean', desc: 'Hide the track from the preview.', optional: true },
+      height: { type: 'number', desc: 'Track height in px (32–160).', optional: true },
+    },
+    example: { input: { operation: 'add', kind: 'video', name: 'B-roll' }, why: 'Give overlays their own lane.' },
+    roles: ['story', 'director', 'sound'],
+    run: (c, p) => manageTrack(c, p),
   },
 ];
 

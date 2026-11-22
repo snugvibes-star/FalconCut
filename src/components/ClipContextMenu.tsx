@@ -6,7 +6,7 @@ import { useEffect, useRef } from 'react';
 import {
   Scissors, Copy, Trash2, Lock, Unlock, Volume2, VolumeX, ArrowLeftToLine,
   ArrowRightToLine, FastForward, Tag, Flag, Maximize, AudioLines, ClipboardPaste,
-  ChevronUp, ChevronDown, ListChecks, Headphones,
+  ChevronUp, ChevronDown, ListChecks, Headphones, Gauge, Rows3,
 } from 'lucide-react';
 import { useStore } from '../state/store';
 import { useUI } from '../state/ui';
@@ -67,7 +67,7 @@ export function ClipContextMenu({ menu, onClose }: { menu: CtxMenuState; onClose
   // position: keep inside the viewport
   const W = 210;
   const left = Math.min(menu.x, window.innerWidth - W - 8);
-  const top = Math.min(menu.y, window.innerHeight - (clip ? 360 : track ? 320 : 220) - 8);
+  const top = Math.min(menu.y, window.innerHeight - (clip ? 400 : track ? 360 : 220) - 8);
 
   const Item = ({ icon: Icon, label, onClick, danger, disabled, title }: {
     icon: typeof Scissors; label: string; onClick: () => void; danger?: boolean; disabled?: boolean; title?: string;
@@ -136,6 +136,18 @@ export function ClipContextMenu({ menu, onClose }: { menu: CtxMenuState; onClose
             );
           })()}
           <div className="h-px bg-line my-1" />
+          <div className="px-2.5 py-1 flex items-center gap-1.5">
+            <Gauge size={12} className="text-paper-faint" />
+            <span className="text-[10px] text-paper-faint mr-0.5">Speed</span>
+            {[0.5, 1, 1.5, 2].map((v) => (
+              <button key={v} title={`Set clip speed to ${v}×`}
+                onClick={run(() => commit([{ type: 'set_speed', clipId: clip.id, speed: v }], `Speed ${v}×`))}
+                className={`px-1.5 py-0.5 rounded border text-[10px] leading-none transition-colors ${Math.abs(clip.speed - v) < 0.01 ? 'border-signal/60 bg-signal/10 text-signal' : 'border-line text-paper-dim hover:text-paper hover:bg-ink-800'}`}>
+                {v}×
+              </button>
+            ))}
+          </div>
+          <div className="h-px bg-line my-1" />
           {clip.volume > 0 ? (
             <Item icon={VolumeX} label="Mute clip"
               title="Set clip volume to 0"
@@ -166,6 +178,9 @@ export function ClipContextMenu({ menu, onClose }: { menu: CtxMenuState; onClose
             onClick={run(() => commit([{ type: 'set_clip_props', clipId: clip.id, patch: { locked: !clip.locked } }], clip.locked ? 'Unlock clip' : 'Lock clip'))} />
           <Item icon={Trash2} label="Delete" danger
             onClick={run(() => commit([{ type: 'remove_clip', clipId: clip.id }], 'Delete clip'))} />
+          <Item icon={FastForward} label="Ripple delete (close gap)" danger
+            title="Delete this clip and pull every later clip back to close the gap"
+            onClick={run(() => commit([{ type: 'remove_clip', clipId: clip.id, ripple: true }], 'Ripple delete clip'))} />
         </>
       ) : track ? (
         <>
@@ -198,6 +213,18 @@ export function ClipContextMenu({ menu, onClose }: { menu: CtxMenuState; onClose
               }
               commit(actions, `Duplicate ${track.name}`);
             })} />
+          <div className="h-px bg-line my-1" />
+          <div className="px-2.5 py-1 flex items-center gap-1.5">
+            <Rows3 size={12} className="text-paper-faint" />
+            <span className="text-[10px] text-paper-faint mr-0.5">Height</span>
+            {[{ label: 'Compact', h: 44 }, { label: 'Normal', h: 64 }, { label: 'Tall', h: 96 }].map((x) => (
+              <button key={x.h} title={`Set track height to ${x.label.toLowerCase()} (${x.h}px)`}
+                onClick={run(() => commit([{ type: 'set_track', trackId: track.id, patch: { height: x.h } }], `Track height ${x.label}`))}
+                className={`px-1.5 py-0.5 rounded border text-[10px] leading-none transition-colors ${Math.abs((track.height ?? 64) - x.h) < 2 ? 'border-signal/60 bg-signal/10 text-signal' : 'border-line text-paper-dim hover:text-paper hover:bg-ink-800'}`}>
+                {x.label}
+              </button>
+            ))}
+          </div>
           <div className="h-px bg-line my-1" />
           <Item icon={ListChecks} label={`Select all ${trackClips.length} clip${trackClips.length === 1 ? '' : 's'} on this track`}
             disabled={!trackClips.length}

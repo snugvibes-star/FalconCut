@@ -2,15 +2,25 @@
  * an advanced per-field style editor, and an editable caption list. Every
  * control maps to a real engine action (set_text_style / set_text /
  * split_clip / add_text / remove_clip). */
-import { useEffect, useState } from 'react';
-import { Loader2, Download, Copy, Trash2, Scissors, Plus, ChevronDown } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { Loader2, Download, Copy, Trash2, Scissors, Plus, ChevronDown, Upload, WandSparkles } from 'lucide-react';
 import { useStore } from '../../state/store';
 import { useUI } from '../../state/ui';
 import { commit, Section, Hint, DragSlider } from './shared';
 import { defaultTextStyle, type CaptionStyleId, type TextStyle } from '../../../engine';
-import { projectSRT, downloadBlob } from '../../../exporter/artifacts';
+import { projectSRT, projectVTT, downloadBlob } from '../../../exporter/artifacts';
+import {
+  TEXT_EFFECTS, TEXT_TRANSITIONS, buildStyledText, effectPatch, transitionActions,
+  type TextEffect, type TextTransition,
+} from './textPresets';
 
 const STYLES: CaptionStyleId[] = ['clean', 'karaoke', 'bold-keywords', 'word-pop'];
+const DENSITIES = [
+  { id: 'tight', label: 'Tight', hint: '1 line · ~3s · social' },
+  { id: 'balanced', label: 'Balanced', hint: '2 lines · ~6s' },
+  { id: 'relaxed', label: 'Relaxed', hint: '2 lines · ~9s · interview' },
+] as const;
+type Density = (typeof DENSITIES)[number]['id'];
 const ANIMATIONS: TextStyle['animation'][] = ['none', 'pop', 'fade', 'rise', 'typewriter'];
 const WEIGHTS: TextStyle['fontWeight'][] = [300, 400, 600, 700, 800, 900];
 
@@ -30,7 +40,7 @@ function toHex(c: string): string {
 
 /* ---------------- live style preview (CSS approximation of drawCaption) ---------------- */
 
-function StylePreview({ style }: { style: TextStyle }) {
+export function StylePreview({ style }: { style: TextStyle }) {
   const fs = Math.max(9, Math.min(26, style.fontSize * 400)); // fontSize fraction, scaled to card
   const stroke = Math.min(fs * 0.45, fs * style.outlineWidth * 2); // canvas lineWidth = fs*ow*2
   const wordPop = style.preset === 'karaoke' || style.preset === 'word-pop' || style.preset === 'bold-keywords';
@@ -83,8 +93,14 @@ export function CaptionsTab() {
   const selection = useStore((s) => s.selection);
   const playhead = useStore((s) => s.playhead);
   const [style, setStyle] = useState<CaptionStyleId>('clean');
+  const [density, setDensity] = useState<Density>('balanced');
+  const [cleanFillers, setCleanFillers] = useState(true);
+  const [highlight, setHighlight] = useState(true);
+  const [effect, setEffect] = useState<TextEffect>('shadow');
+  const [transition, setTransition] = useState<TextTransition>('in');
   const [busy, setBusy] = useState(false);
   const [advOpen, setAdvOpen] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
   const ui = useUI();
 
   const captions = project.clips.filter((c) => c.text?.role === 'caption').sort((a, b) => a.start - b.start);
@@ -101,7 +117,12 @@ export function CaptionsTab() {
   const generate = async () => {
     setBusy(true);
     try {
-      const r = await useStore.getState().applyTool('add_captions', { style });
+      const r = await useStore.getState().applyTool('add_captions', {
+        style,
+        density,
+        remove_fillers: cleanFillers,
+        highlight_keywords: highlight,
+      });
       ui.toast(r.summary || 'Captions generated', 'success');
     } catch (e) {
       ui.toast(`Caption generation failed: ${(e as Error).message}`, 'error');
@@ -110,11 +131,58 @@ export function CaptionsTab() {
     }
   };
 
+  /** Create a caption clip in a chosen style, directly on the video timeline.
+   * It renders into the exported video — no subtitle download needed. */
+  const addStyledCaption = (preset: CaptionStyleId) => {
+    setStyle(preset);
+    const { actions, clipId } = buildStyledText(project, {
+      start: playhead, duration: 2.5, text: 'Your caption', role: 'caption',
+      preset, effect, transition,
+    });
+    commit(actions, `Add ${preset} caption`);
+    if (clipId) useStore.getState().select([clipId]);
+    ui.toast(`${preset} caption added to the video — visible in preview and export`, 'success');
+  };
+
+  /** Effect/transition chips: change the default for new captions and, when
+   * one is selected, restyle it in the same undo step. */
+  const applyLook = (params: { effect?: TextEffect; transition?: TextTransition }) => {
+    if (params.effect) setEffect(params.effect);
+    if (params.transition) setTransition(params.transition);
+    if (!selectedCaption) return;
+    const actions = [
+      ...(params.effect ? [{ type: 'set_text_style' as const, clipId: selectedCaption.id, patch: effectPatch(style, params.effect, 'caption', project.settings.aspect) }] : []),
+      ...(params.transition ? transitionActions(selectedCaption.id, params.transition) : []),
+    ];
+    if (actions.length) commit(actions, 'Caption look');
+  };
+
+  const importSubs = async (file: File) => {
+    setBusy(true);
+    try {
+      const text = await file.text();
+      const r = await useStore.getState().applyTool('import_captions', { srt: text });
+      ui.toast(r.summary, r.actions.length ? 'success' : 'error');
+    } catch (e) {
+      ui.toast(`Import failed: ${(e as Error).message}`, 'error');
+    } finally {
+      setBusy(false);
+      if (fileRef.current) fileRef.current.value = '';
+    }
+  };
+
   const exportSRT = () => {
     const srt = projectSRT(project);
     if (!srt.trim()) { ui.toast('No captions to export', 'error'); return; }
     downloadBlob(new Blob([srt], { type: 'text/plain' }), `${project.name || 'captions'}.srt`);
     ui.toast('SRT downloaded', 'success');
+  };
+
+  const exportVTT = () => {
+    const vtt = projectVTT(project);
+    if (!vtt.trim()) { ui.toast('No captions to export', 'error'); return; }
+    downloadBlob(new Blob([vtt], { type: 'text/vtt' }), `${project.name || 'captions'}.vtt`);
+    ui.toast('WebVTT downloaded', 'success');
   };
 
   const copySRT = async () => {
@@ -151,10 +219,14 @@ export function CaptionsTab() {
   const deleteCaption = (c: (typeof captions)[number]) =>
     commit([{ type: 'remove_clip', clipId: c.id, ripple: true }], 'Delete caption');
 
-  const addCaption = () =>
-    commit([{
-      type: 'add_text', start: playhead, duration: 2, text: 'New caption', role: 'caption', preset: style,
-    }], 'Add caption');
+  const addCaption = () => {
+    const { actions, clipId } = buildStyledText(project, {
+      start: playhead, duration: 2, text: 'New caption', role: 'caption',
+      preset: style, effect, transition,
+    });
+    commit(actions, 'Add caption');
+    if (clipId) useStore.getState().select([clipId]);
+  };
 
   const srt = projectSRT(project);
 
@@ -164,21 +236,68 @@ export function CaptionsTab() {
         <button className="btn-signal w-full justify-center text-xs" disabled={busy} onClick={() => void generate()}>
           {busy ? <Loader2 size={14} className="animate-spin" /> : null} Generate captions
         </button>
-        <p className="text-[11px] text-paper-faint">Requires analyzed audio with transcript. Style select below also re-styles existing captions.</p>
+        <div className="grid grid-cols-3 gap-1">
+          {DENSITIES.map((d) => (
+            <button key={d.id} title={d.hint} onClick={() => setDensity(d.id)}
+              className={`chip justify-center border ${density === d.id ? 'bg-signal/15 border-signal/50 text-signal' : 'border-line text-paper-dim hover:text-paper hover:bg-ink-800'}`}>
+              {d.label}
+            </button>
+          ))}
+        </div>
+        <div className="flex gap-1.5">
+          <button onClick={() => setCleanFillers((v) => !v)} title="Drop um / uh / hmm from caption text"
+            className={`chip flex-1 justify-center border ${cleanFillers ? 'bg-signal/15 border-signal/50 text-signal' : 'border-line text-paper-dim hover:text-paper'}`}>
+            Clean fillers {cleanFillers ? 'on' : 'off'}
+          </button>
+          <button onClick={() => setHighlight((v) => !v)} title="Colour keywords in karaoke / bold-keywords styles"
+            className={`chip flex-1 justify-center border ${highlight ? 'bg-signal/15 border-signal/50 text-signal' : 'border-line text-paper-dim hover:text-paper'}`}>
+            Keywords {highlight ? 'on' : 'off'}
+          </button>
+        </div>
       </Section>
 
-      <Section title="Style">
+      <Section title="Caption styles — click to add to video">
         <div className="grid grid-cols-2 gap-1.5">
           {STYLES.map((s) => (
-            <button key={s} onClick={() => restyle(s)}
-              title={`Use style "${s}" for new captions and re-style existing captions`}
+            <button key={s} onClick={() => addStyledCaption(s)}
+              title={`Add a ${s} caption at the playhead — rendered into the video, no download needed`}
               className={`rounded-lg border overflow-hidden text-left transition-all ${style === s ? 'ring-2 ring-signal border-transparent' : 'border-line hover:border-line-bright'}`}>
               <div className="aspect-video">
                 <StylePreview style={defaultTextStyle(s)} />
               </div>
-              <div className={`px-2 py-1 text-[11px] font-medium ${style === s ? 'text-signal' : 'text-paper-dim'}`}>{s}</div>
+              <div className="flex items-center justify-between px-2 py-1">
+                <span className={`text-[11px] font-medium capitalize ${style === s ? 'text-signal' : 'text-paper-dim'}`}>{s}</span>
+                <Plus size={12} className={style === s ? 'text-signal' : 'text-paper-faint'} />
+              </div>
             </button>
           ))}
+        </div>
+        <button className="btn-ghost w-full justify-center text-[11px]" disabled={!captions.length} onClick={() => restyle(style)}
+          title="Re-style every existing caption with the selected style">
+          <WandSparkles size={13} /> Apply “{style}” to all {captions.length} captions
+        </button>
+
+        <div>
+          <span className="label">Effect {selectedCaption ? '· selected caption' : '· new captions'}</span>
+          <div className="flex flex-wrap gap-1">
+            {TEXT_EFFECTS.map((e) => (
+              <button key={e.id} title={e.hint} onClick={() => applyLook({ effect: e.id })}
+                className={`chip border ${effect === e.id ? 'bg-signal/15 border-signal/50 text-signal' : 'border-line text-paper-dim hover:text-paper hover:bg-ink-800'}`}>
+                {e.label}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div>
+          <span className="label">Transition {selectedCaption ? '· selected caption' : '· new captions'}</span>
+          <div className="flex flex-wrap gap-1">
+            {TEXT_TRANSITIONS.map((t) => (
+              <button key={t.id} title={t.hint} onClick={() => applyLook({ transition: t.id })}
+                className={`chip border ${transition === t.id ? 'bg-signal/15 border-signal/50 text-signal' : 'border-line text-paper-dim hover:text-paper hover:bg-ink-800'}`}>
+                {t.label}
+              </button>
+            ))}
+          </div>
         </div>
 
         <button onClick={() => setAdvOpen((v) => !v)}
@@ -287,7 +406,7 @@ export function CaptionsTab() {
       <Section title={`Captions (${captions.length})`} action={
         <button className="icon-btn" title="Add caption at playhead (2s)" onClick={addCaption}><Plus size={14} /></button>
       }>
-        {captions.length === 0 && <Hint>No captions yet. Generate above (requires analyzed audio with transcript), or add one at the playhead.</Hint>}
+        {captions.length === 0 && <Hint>No captions yet. Click a style card above to add one to the video, or use the + button at the playhead.</Hint>}
         {captions.map((c) => {
           const isSel = selection.includes(c.id);
           return (
@@ -313,10 +432,17 @@ export function CaptionsTab() {
       <Section title="Export">
         <div className="flex gap-1.5">
           <button className="btn-signal flex-1 justify-center text-xs" onClick={exportSRT}><Download size={14} /> Export SRT</button>
+          <button className="btn-solid justify-center text-xs" title="Export WebVTT" onClick={exportVTT}><Download size={14} /> VTT</button>
           <button className="btn-solid justify-center text-xs" title="Copy SRT to clipboard" disabled={!srt.trim()} onClick={() => void copySRT()}>
             <Copy size={14} />
           </button>
         </div>
+        <button className="btn-ghost w-full justify-center text-[11px]" disabled={busy} onClick={() => fileRef.current?.click()}>
+          <Upload size={13} /> Import SRT / VTT
+        </button>
+        <input ref={fileRef} type="file" accept=".srt,.vtt,text/plain" className="hidden"
+          onChange={(e) => { const f = e.target.files?.[0]; if (f) void importSubs(f); }} />
+        <p className="text-[10px] text-paper-faint">Import replaces existing captions — one undo step restores them.</p>
       </Section>
     </div>
   );

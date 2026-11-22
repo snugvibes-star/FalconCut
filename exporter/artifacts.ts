@@ -28,6 +28,16 @@ export function projectSRT(project: Project): string {
     .join('\n');
 }
 
+/** WebVTT export of the caption track — accepted by YouTube, Vimeo and most editors. */
+export function projectVTT(project: Project): string {
+  const cues = project.clips
+    .filter((c) => c.text?.role === 'caption' && !project.tracks.find((t) => t.id === c.trackId)?.hidden)
+    .sort((a, b) => a.start - b.start);
+  if (!cues.length) return '';
+  const t = (s: number) => srtTime(s).replace(',', '.');
+  return `WEBVTT\n\n${cues.map((c) => `${t(c.start)} --> ${t(c.start + c.duration)}\n${c.text!.text.replace(/\r\n/g, '\n').trim()}`).join('\n\n')}\n`;
+}
+
 export async function mixProjectAudio(project: Project, loadBlob: BlobLoader): Promise<AudioBuffer> {
   const duration = projectDuration(project);
   if (duration <= 0) throw new Error('Add clips before exporting audio.');
