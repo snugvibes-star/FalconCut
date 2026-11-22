@@ -5,10 +5,13 @@
  * user presses Start Transcription. Audio stays on the device.
  */
 import { useEffect, useRef, useState } from 'react';
-import { Download, Play, Square, Trash2, RefreshCw, CheckCircle2, Info } from 'lucide-react';
+import { Download, Play, Square, Trash2, RefreshCw, CheckCircle2, Info, Pause, RotateCcw } from 'lucide-react';
 import { useStore } from '../../state/store';
 import { getBlob } from '../../state/persistence';
 import { transcriptClient } from '../../../analysis/transcript';
+import { toMono, resampleLinear } from '../../../analysis/audioAnalysis';
+import { segmentWords } from '../../../analysis/textAnalysis';
+import { TranscriptionJob, autoChunkSec, type JobProgress, type JobResult } from '../../../analysis/transcriptionJob';
 import { buildCues } from '../../../engine';
 import { sourceToTimeline } from '../../../tools/helpers';
 import { presetTextStyle, type CinematicPresetId } from './textPresets';
@@ -22,9 +25,10 @@ import {
 type Phase = 'idle' | 'installing' | 'ready' | 'extracting' | 'transcribing' | 'done' | 'error';
 
 const PREFERENCES_KEY = 'falconcut.captionStudio.prefs';
-interface Prefs { modelId: string; language: string; preset: CinematicPresetId; maxWords: number; maxSeconds: number; chunkSec: number }
+interface Prefs { modelId: string; language: string; preset: CinematicPresetId; maxWords: number; maxSeconds: number; chunkSec: number; autoRetry: boolean; overlapSec: number }
 const DEFAULT_PREFS: Prefs = {
-  modelId: CAPTION_MODELS[0].id, language: '', preset: 'tiktok', maxWords: 12, maxSeconds: 6, chunkSec: 30,
+  modelId: CAPTION_MODELS[0].id, language: '', preset: 'tiktok', maxWords: 12, maxSeconds: 6,
+  chunkSec: 30, autoRetry: true, overlapSec: 1,
 };
 function loadPrefs(): Prefs {
   try { return { ...DEFAULT_PREFS, ...JSON.parse(localStorage.getItem(PREFERENCES_KEY) || '{}') }; }
@@ -44,6 +48,9 @@ export function AiCaptionPanel() {
   const [storage, setStorage] = useState<{ usage?: number; quota?: number }>({});
   const [cues, setCues] = useState<{ text: string; start: number; end: number; words?: { w: string; start: number; end: number; timingEstimated?: boolean }[] }[]>([]);
   const [timingNote, setTimingNote] = useState('');
+  const [jobProgress, setJobProgress] = useState<JobProgress | null>(null);
+  const [paused, setPaused] = useState(false);
+  const jobRef = useRef<TranscriptionJob | null>(null);
   const mediaIdRef = useRef<string>('');
   const startedRef = useRef(0);
 
@@ -64,7 +71,7 @@ export function AiCaptionPanel() {
     try { localStorage.setItem(PREFERENCES_KEY, JSON.stringify(prefs)); } catch { /* ignore */ }
   }, [prefs]);
   useEffect(() => {
-    if (phase !== 'installing' && phase !== 'transcribing') return;
+    if (phase !== 'installing') return;
     const timer = setInterval(() => setElapsed(Math.floor((performance.now() - startedRef.current) / 1000)), 500);
     return () => clearInterval(timer);
   }, [phase]);
@@ -88,9 +95,32 @@ export function AiCaptionPanel() {
     }
   };
 
+  const applyResult = (result: JobResult, partial = false) => {
+    const built = buildCues(result.words, 34, 2, 0.7, {
+      maxCueSec: prefs.maxSeconds, targetCps: 18, sentenceBreak: true, removeFillers: false,
+    });
+    setCues(built.map((c) => ({
+      text: c.text, start: c.start, end: c.end,
+      words: c.words.map((w) => ({ ...w, timingEstimated: w.timingEstimated || result.estimated })),
+    })));
+    setTimingNote([partial ? 'Partial result — some chunks failed and were not included.' : '', result.note ?? ''].filter(Boolean).join(' '));
+    if (!partial && selectedMedia) {
+      // Persist the real transcript in the project so the existing "Generate
+      // captions" tool and the rest of the editor can use it too.
+      useStore.getState().commit([{
+        type: 'set_transcript', mediaId: selectedMedia.id,
+        transcript: {
+          segments: segmentWords(result.words), words: result.words,
+          language: result.language, model: model.id, complete: true,
+        },
+      }], 'Store AI transcription');
+    }
+  };
+
   const transcribe = async () => {
     if (!selectedMedia) { setError('Import a video or audio file first.'); setPhase('error'); return; }
-    setError(''); setCues([]); setTimingNote(''); setPhase('extracting'); setProgress(0); setStage('Decoding local audio…');
+    setError(''); setCues([]); setTimingNote(''); setJobProgress(null); setPaused(false);
+    setPhase('extracting'); setProgress(0); setStage('Decoding local audio…');
     startedRef.current = performance.now();
     try {
       const blob = await getBlob(selectedMedia.blobKey!);
@@ -99,29 +129,32 @@ export function AiCaptionPanel() {
       let buffer: AudioBuffer;
       try { buffer = await ctx.decodeAudioData(await blob.arrayBuffer()); }
       finally { void ctx.close(); }
+      const resampled = resampleLinear(toMono(buffer), buffer.sampleRate, 16000);
+      const chunkSec = autoChunkSec(selectedMedia.duration);
       setPhase('transcribing');
-      const result = await transcriptClient.transcribe(buffer, model.id, prefs.language.trim() || undefined, (p) => {
-        setProgress(Math.max(0, Math.min(1, p.pct)));
-        setStage(p.note ?? p.stage);
-      }, { chunkSec: prefs.chunkSec, overlapSec: 2 });
-      const built = buildCues(result.words, 34, 2, 0.7, {
-        maxCueSec: prefs.maxSeconds, targetCps: 18, sentenceBreak: true, removeFillers: false,
-      });
-      setCues(built.map((c) => ({
-        text: c.text, start: c.start, end: c.end,
-        words: c.words.map((w) => ({ ...w, timingEstimated: w.timingEstimated || result.estimated })),
-      })));
-      setTimingNote(result.note ?? '');
-      // Persist the real transcript in the project so the existing "Generate
-      // captions" tool and the rest of the editor can use it too.
-      useStore.getState().commit([{
-        type: 'set_transcript', mediaId: selectedMedia.id,
-        transcript: {
-          segments: result.segments, words: result.words,
-          language: result.language, model: result.model, complete: true,
+      const job = new TranscriptionJob(transcriptClient, {
+        audio: resampled,
+        durationSec: buffer.duration,
+        model: model.id,
+        language: prefs.language.trim() || undefined,
+        chunkSec,
+        overlapSec: Math.min(chunkSec - 5, Math.max(0.5, prefs.overlapSec)),
+        autoRetry: prefs.autoRetry,
+        onProgress: (p) => {
+          setJobProgress(p);
+          setProgress(p.pct);
+          setStage(p.stage);
+          setElapsed(p.elapsed);
         },
-      }], 'Store AI transcription');
-      setPhase('done');
+        onDone: (result) => { applyResult(result); setPhase('done'); },
+        onError: (message, partial) => {
+          if (partial) applyResult(partial, true);
+          setError(message);
+          setPhase('error');
+        },
+      });
+      jobRef.current = job;
+      job.start();
     } catch (e) {
       const err = e as Error;
       setError(err.name === 'AbortError' || err.message === 'Cancelled by user' ? 'Transcription cancelled.' : err.message);
@@ -129,7 +162,21 @@ export function AiCaptionPanel() {
     }
   };
 
-  const cancel = () => { cancelInstall(); setPhase('idle'); setProgress(0); setStage(''); };
+  const togglePause = () => {
+    if (!jobRef.current) return;
+    if (paused) { jobRef.current.resume(); setPaused(false); }
+    else { jobRef.current.pause(); setPaused(true); }
+  };
+  const retryFailed = () => {
+    if (!jobRef.current) { void transcribe(); return; }
+    setError(''); setPhase('transcribing'); jobRef.current.retryFailed();
+  };
+  const cancel = () => {
+    jobRef.current?.cancel();
+    jobRef.current = null;
+    cancelInstall();
+    setPhase('idle'); setProgress(0); setStage(''); setJobProgress(null); setPaused(false);
+  };
 
   const addToTimeline = () => {
     if (!cues.length || !selectedMedia) return;
@@ -205,6 +252,14 @@ export function AiCaptionPanel() {
         {storage.quota ? <p className="text-[10px] text-paper-faint">Browser storage: {formatBytes(storage.usage ?? 0)} used of {formatBytes(storage.quota)}.</p> : null}
       </Section>
 
+      <Section title="AI Processing Settings">
+        <button className={`chip w-full justify-center border ${prefs.autoRetry ? 'bg-signal/15 border-signal/50 text-signal' : 'border-line text-paper-dim'}`}
+          onClick={() => update({ autoRetry: !prefs.autoRetry })}>
+          Automatic retry for failed segments: {prefs.autoRetry ? 'on' : 'off'}
+        </button>
+        <Hint>Chunk length and overlap are chosen automatically from video length and device memory. The model is loaded once per session and reused for every segment. Completed segments are kept on pause, cancel and failure.</Hint>
+      </Section>
+
       <Section title="Transcription">
         <label className="block">
           <span className="label">Media</span>
@@ -223,32 +278,37 @@ export function AiCaptionPanel() {
             {['tiktok', 'karaoke', 'beast', 'focus', 'mogul', 'minimal', 'podcast', 'gaming', 'cinematic'].map((p) => <option key={p} value={p}>{p}</option>)}
           </select>
         </label>
-        <div className="flex gap-1.5">
-          <label className="flex-1"><span className="label">Max words / cue</span>
-            <input type="number" min={3} max={30} className="field py-1 text-xs" value={prefs.maxWords}
-              onChange={(e) => update({ maxWords: Math.max(3, Math.min(30, Number(e.target.value) || 12)) })} disabled={busy} /></label>
-          <label className="flex-1"><span className="label">Max cue sec</span>
-            <input type="number" min={1} max={20} className="field py-1 text-xs" value={prefs.maxSeconds}
-              onChange={(e) => update({ maxSeconds: Math.max(1, Math.min(20, Number(e.target.value) || 6)) })} disabled={busy} /></label>
-        </div>
-        <label className="block">
-          <span className="label">Chunk duration (long videos)</span>
-          <select className="field py-1 text-xs" value={prefs.chunkSec} onChange={(e) => update({ chunkSec: Number(e.target.value) })} disabled={busy}>
-            <option value={15}>15 seconds — low memory</option>
-            <option value={30}>30 seconds — balanced</option>
-            <option value={45}>45 seconds — fewer chunks</option>
-          </select>
-        </label>
-        <Hint>Long videos are processed in overlapping chunks with preserved timestamps. Shorter chunks use less memory on low-RAM devices.</Hint>
-        {busy && (
-          <div className="space-y-1">
-            <div className="h-1.5 rounded-full bg-ink-800 overflow-hidden"><div className="h-full cf-progress-bar" style={{ width: `${Math.round(progress * 100)}%` }} /></div>
-            <p className="text-[10px] text-paper-dim">{stage} · {Math.round(progress * 100)}% · {elapsed}s</p>
-            <button className="btn-ghost w-full justify-center text-[11px]" onClick={cancel}><Square size={12} /> Cancel</button>
+        <Hint>Chunking, cue length and word limits are chosen automatically from the video length and available device memory. Nothing is downloaded or processed until you press Start.</Hint>
+        {jobProgress && (
+          <div className="rounded-lg border border-line bg-ink-850 p-2 space-y-1.5">
+            <div className="flex items-center justify-between text-[10px] text-paper-dim">
+              <span className="truncate">{selectedMedia?.name}</span>
+              <span>{selectedMedia ? `${Math.floor(selectedMedia.duration / 60)}:${String(Math.floor(selectedMedia.duration % 60)).padStart(2, '0')}` : ''}</span>
+            </div>
+            <p className="text-[10px] text-paper-faint">{model.label} · {jobProgress.chunkSec}s chunks · {jobProgress.total} segments · overlap {jobProgress.overlapSec}s</p>
+            <div className="h-1.5 rounded-full bg-ink-800 overflow-hidden"><div className="h-full cf-progress-bar" style={{ width: `${Math.round(jobProgress.pct * 100)}%` }} /></div>
+            <p className="text-[10px] text-paper-dim">{stage} · {Math.round(jobProgress.pct * 100)}% · {jobProgress.completed}/{jobProgress.total} done · {jobProgress.failed} failed · {jobProgress.elapsed}s{jobProgress.etaSec ? ` · ~${jobProgress.etaSec}s left` : ''}</p>
+            <div className="max-h-24 overflow-y-auto grid grid-cols-2 gap-1">
+              {jobProgress.chunks.map((c) => (
+                <div key={c.index} className={`text-[9px] px-1 rounded border ${c.status === 'done' ? 'border-heat-green/30 text-heat-green' : c.status === 'failed' ? 'border-heat/40 text-heat' : c.status === 'processing' ? 'border-signal/40 text-signal' : 'border-line text-paper-faint'}`}>
+                  {c.index + 1}: {c.start.toFixed(0)}–{c.end.toFixed(0)}s · {c.status}
+                </div>
+              ))}
+            </div>
+            <div className="flex gap-1">
+              <button className="btn-ghost flex-1 justify-center text-[10px]" onClick={togglePause}>
+                {paused ? <><Play size={11} /> Resume</> : <><Pause size={11} /> Pause</>}
+              </button>
+              <button className="btn-ghost flex-1 justify-center text-[10px]" onClick={cancel}><Square size={11} /> Cancel</button>
+            </div>
           </div>
         )}
         {phase === 'error' && <div className="flex items-center gap-2"><p className="text-heat text-[11px] flex-1">{error}</p>
-          <button className="icon-btn" title="Retry" onClick={() => { void transcribe(); }}><RefreshCw size={13} /></button></div>}
+          {jobRef.current?.total ? (
+            <button className="btn-solid text-[10px] px-2" onClick={retryFailed}><RotateCcw size={12} /> Retry failed</button>
+          ) : (
+            <button className="icon-btn" title="Retry" onClick={() => { void transcribe(); }}><RefreshCw size={13} /></button>
+          )}</div>}
         <button className="btn-signal w-full justify-center text-xs" disabled={busy || !selectedMedia || !installed.includes(model.id)}
           onClick={() => void transcribe()} title={!installed.includes(model.id) ? 'Install a model first' : 'Extract audio and transcribe locally'}>
           <Play size={13} /> Start transcription

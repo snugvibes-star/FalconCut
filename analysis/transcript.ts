@@ -203,6 +203,18 @@ export class TranscriptClient {
     };
   }
 
+  /** Transcribe one already-extracted audio window. Used by the chunk job. */
+  async transcribeSegment(
+    audio: Float32Array,
+    offset: number,
+    model: WhisperModel,
+    language: string | undefined,
+    onProgress?: (p: TranscriptProgress) => void,
+  ): Promise<any> {
+    await this.load(model, onProgress);
+    return this.call('transcribe_chunk', { audio, offset }, onProgress);
+  }
+
   /** Stop any in-flight load/transcription and clean up the worker. */
   cancelAll() {
     for (const [, p] of this.pending) p.reject(new Error('Cancelled by user'));

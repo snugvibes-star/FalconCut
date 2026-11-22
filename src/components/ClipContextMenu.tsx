@@ -139,7 +139,7 @@ export function ClipContextMenu({ menu, onClose }: { menu: CtxMenuState; onClose
           <div className="px-2.5 py-1 flex items-center gap-1.5">
             <Gauge size={12} className="text-paper-faint" />
             <span className="text-[10px] text-paper-faint mr-0.5">Speed</span>
-            {[0.5, 1, 1.5, 2].map((v) => (
+            {[0.25, 0.5, 0.75, 1, 1.25, 1.5, 2, 3, 4].map((v) => (
               <button key={v} title={`Set clip speed to ${v}×`}
                 onClick={run(() => commit([{ type: 'set_speed', clipId: clip.id, speed: v }], `Speed ${v}×`))}
                 className={`px-1.5 py-0.5 rounded border text-[10px] leading-none transition-colors ${Math.abs(clip.speed - v) < 0.01 ? 'border-signal/60 bg-signal/10 text-signal' : 'border-line text-paper-dim hover:text-paper hover:bg-ink-800'}`}>

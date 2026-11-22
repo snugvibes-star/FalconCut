@@ -176,7 +176,7 @@ export class MediaPool implements MediaResolver {
   /** Keep playing elements in sync with the timeline during playback. Each
    * active clip drives its OWN element (keyed by asset+clip), so two clips
    * sharing one asset stay independently positioned instead of fighting. */
-  syncPlayback(active: { clip: Clip; asset: MediaAsset }[], timelineT: number, playing: boolean) {
+  syncPlayback(active: { clip: Clip; asset: MediaAsset }[], timelineT: number, playing: boolean, previewRate = 1) {
     const wanted = new Map<string, { mediaId: string; expected: number; speed: number; reversed: boolean }>();
     for (const { clip, asset } of active) {
       if (asset.type !== 'video') continue;
@@ -197,7 +197,8 @@ export class MediaPool implements MediaResolver {
         if (Math.abs(v.el.currentTime - w.expected) > 0.04) this.seekEntry(v, w.expected);
         continue;
       }
-      v.el.playbackRate = Math.max(0.1, Math.min(4, w.speed));
+      // previewRate is a preview-only multiplier; the export engine never sees it.
+      v.el.playbackRate = Math.max(0.1, Math.min(4, w.speed * previewRate));
       if (playing) {
         const drift = Math.abs(v.el.currentTime - w.expected);
         if (drift > 0.15) {

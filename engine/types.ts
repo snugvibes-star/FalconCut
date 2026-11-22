@@ -266,6 +266,8 @@ export interface Clip {
    * preview scrubs the element (browsers cannot play a video element
    * backward); the audio graph plays a genuinely reversed buffer. */
   reversed?: boolean;
+  /** Keep the original pitch when the clip speed is changed (preview + export). */
+  preservePitch?: boolean;
   /** Blend mode of this layer against everything under it (canvas
    * globalCompositeOperation). 'normal'/absent = plain over. */
   blendMode?: BlendMode;

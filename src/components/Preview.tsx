@@ -38,6 +38,8 @@ export function Preview() {
   const setRailVisible = useUI((s) => s.setRailVisible);
   const zoneLoop = useStore((s) => !!s.zone?.loop);
   const zoom = useUI((s) => s.previewZoom);
+  const previewRate = useUI((s) => s.previewRate);
+  const setPreviewRate = useUI((s) => s.setPreviewRate);
   const toggleFocusMode = useUI((s) => s.toggleFocusMode);
   const setZoom = useUI((s) => s.setPreviewZoom);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -254,6 +256,14 @@ export function Preview() {
           <span className="text-paper-faint"> / {timecode(dur, fps || 30)}</span>
         </div>
         <div className="flex-1" />
+        <select
+          className="field py-0.5 text-[11px] w-auto cursor-pointer"
+          value={String(previewRate)}
+          onChange={(e) => setPreviewRate(Number(e.target.value))}
+          title="Preview playback speed only — does not change clips or export"
+        >
+          {[0.25, 0.5, 1, 1.5, 2].map((r) => <option key={r} value={r}>{r}×</option>)}
+        </select>
         <select
           className="field py-0.5 text-[11px] w-auto cursor-pointer"
           value={zoom === 'fit' ? 'fit' : String(zoom)}

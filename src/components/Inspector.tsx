@@ -552,12 +552,40 @@ export function Inspector() {
         return (
           <>
             <Section title="Speed">
-              <div className="flex gap-1">
-                {[0.5, 1, 1.5, 2].map((s) => (
+              <div className="flex flex-wrap gap-1">
+                {[0.25, 0.5, 0.75, 1, 1.25, 1.5, 2, 3, 4].map((s) => (
                   <button key={s} className={`chip cursor-pointer border ${Math.abs(clip.speed - s) < 0.001 ? 'bg-ink-700 border-line text-paper' : 'bg-ink-850 border-line text-paper-dim hover:text-paper hover:bg-ink-750'}`}
                     onClick={() => set([{ type: 'set_speed', clipId: id, speed: s }], `Speed ${s}×`)}>{s}×</button>
                 ))}
               </div>
+              <div className="flex items-center gap-1.5">
+                <input type="number" min={0.25} max={4} step={0.05} className="field flex-1 min-w-0 py-1 text-xs" placeholder="Custom speed"
+                  onKeyDown={(e) => {
+                    if (e.key !== 'Enter') return;
+                    const v = Number((e.target as HTMLInputElement).value);
+                    if (v >= 0.25 && v <= 4) set([{ type: 'set_speed', clipId: id, speed: v }], `Speed ${v}×`);
+                  }} />
+                <button className="btn-solid text-[11px] px-2" title="Apply the entered speed"
+                  onClick={(e) => {
+                    const input = e.currentTarget.previousElementSibling as HTMLInputElement;
+                    const v = Number(input.value);
+                    if (v >= 0.25 && v <= 4) set([{ type: 'set_speed', clipId: id, speed: v }], `Speed ${v}×`);
+                  }}>Set</button>
+              </div>
+              <button className="btn-ghost text-[11px] px-2 py-1 w-full justify-center"
+                title="Apply this clip's speed to every selected media clip"
+                onClick={() => {
+                  const s = useStore.getState();
+                  const selected = s.project.clips.filter((c) => c.kind === 'media' && s.selection.includes(c.id));
+                  set(selected.map((c) => ({ type: 'set_speed' as const, clipId: c.id, speed: clip.speed })), `Apply ${clip.speed}× to selected`);
+                }}>
+                Apply {clip.speed.toFixed(2)}× to selected clips
+              </button>
+              <button className={`btn-ghost text-[11px] px-2 py-1 w-full justify-center ${clip.preservePitch ? 'text-signal' : ''}`}
+                title="Keep the original pitch when speed changes (preview and export)"
+                onClick={() => set([{ type: 'set_clip_props', clipId: id, patch: { preservePitch: !clip.preservePitch } }], clip.preservePitch ? 'Pitch follows speed' : 'Preserve pitch')}>
+                {clip.preservePitch ? '✓ Preserve pitch on' : 'Preserve pitch off'}
+              </button>
               {/* Under a ramp the slider shows the ramp's average speed; moving it
                   writes a constant speed, which the engine turns into (clears the ramp). */}
               <Slider label="Speed" value={ramp ? avgSpeed(clip) : clip.speed} min={0.25} max={4} step={0.05} fmt={(v) => `${v.toFixed(2)}×`} onChange={(v) => set([{ type: 'set_speed', clipId: id, speed: v }], 'Speed', `${id}:speed`)} />

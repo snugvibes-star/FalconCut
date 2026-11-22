@@ -31,6 +31,17 @@ describe('editor customization actions', () => {
     expect(p.clips[0].effects[0].enabled).toBe(false);
   });
 
+  it('stores audio pitch preservation on the clip', () => {
+    let p = createProject('Custom');
+    p = applyActions(p, [
+      { type: 'add_track', track: { kind: 'audio', id: 'a1' } },
+      { type: 'add_clip', clip: { trackId: 'a1', start: 0, duration: 2, mediaId: 'm1' } },
+    ]);
+    const id = p.clips[0].id;
+    p = applyActions(p, [{ type: 'set_clip_props', clipId: id, patch: { preservePitch: true } }]);
+    expect(p.clips[0].preservePitch).toBe(true);
+  });
+
   it('changes frame rate and custom export dimensions as undoable settings', () => {
     let p = createProject('Custom', '9:16');
     p = applyActions(p, [{ type: 'set_settings', patch: { fps: 60, width: 720, height: 1280 } }]);

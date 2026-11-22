@@ -31,6 +31,8 @@ export interface AudioGraphOpts {
   startAt: number; // timeline time to begin
   when: number; // context time at which startAt plays
   endAt?: number; // timeline end (default: project end)
+  /** Preview-only speed multiplier. Export never passes this option. */
+  previewRate?: number;
 }
 
 function fadeFactor(clip: Clip, localT: number): number {
@@ -114,7 +116,12 @@ export function buildAudioGraph(
 
     const src = ctx.createBufferSource();
     src.buffer = playBuffer;
-    src.playbackRate.value = Math.max(0.1, Math.min(8, effSpeed));
+    src.playbackRate.value = Math.max(0.1, Math.min(8, effSpeed * (opts.previewRate ?? 1)));
+    // Web Audio pitch preservation: when enabled, stretching stays at the
+    // original pitch instead of raising/lowering voices with the speed.
+    try {
+      (src as AudioBufferSourceNode & { preservesPitch?: boolean }).preservesPitch = clip.preservePitch ?? false;
+    } catch { /* not supported in this browser */ }
 
     let node: AudioNode = src;
     for (const e of clip.effects) {

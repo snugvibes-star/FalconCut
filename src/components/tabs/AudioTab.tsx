@@ -179,6 +179,20 @@ export function AudioTab() {
           <>
             <DragSlider label="Volume" value={clip.volume} min={0} max={2} step={0.01} fmt={(v) => `${Math.round(v * 100)}%`} commitKey={`${clip.id}:vol`}
               onCommit={(v) => commit([{ type: 'set_clip_props', clipId: clip.id, patch: { volume: v } }], 'Volume', `${clip.id}:vol`)} />
+            <div>
+              <span className="label">Audio speed</span>
+              <div className="flex flex-wrap gap-1">
+                {[0.5, 0.75, 1, 1.25, 1.5, 2, 3].map((s) => (
+                  <button key={s} className={`chip border ${Math.abs(clip.speed - s) < 0.01 ? 'bg-signal/15 border-signal/50 text-signal' : 'border-line text-paper-dim hover:text-paper'}`}
+                    onClick={() => commit([{ type: 'set_speed', clipId: clip.id, speed: s }], `Audio speed ${s}×`)}>{s}×</button>
+                ))}
+              </div>
+            </div>
+            <button className={`chip w-full justify-center border ${clip.preservePitch ? 'bg-signal/15 border-signal/50 text-signal' : 'border-line text-paper-dim'}`}
+              title="Keep voices at their original pitch when speed changes"
+              onClick={() => commit([{ type: 'set_clip_props', clipId: clip.id, patch: { preservePitch: !clip.preservePitch } }], clip.preservePitch ? 'Pitch follows speed' : 'Preserve pitch')}>
+              Preserve pitch {clip.preservePitch ? 'on' : 'off'}
+            </button>
             <DragSlider label="Fade in" value={clip.fades.in} min={0} max={3} step={0.05} fmt={(v) => `${v.toFixed(2)}s`} commitKey={`${clip.id}:fi`}
               onCommit={(v) => commit([{ type: 'set_fades', clipId: clip.id, fadeIn: v }], 'Fade in', `${clip.id}:fi`)} />
             <DragSlider label="Fade out" value={clip.fades.out} min={0} max={3} step={0.05} fmt={(v) => `${v.toFixed(2)}s`} commitKey={`${clip.id}:fo`}

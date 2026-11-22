@@ -13,6 +13,7 @@
  */
 import { useEffect, useRef } from 'react';
 import { useStore } from '../state/store';
+import { useUI } from '../state/ui';
 import { buildAudioGraph, activeClips, projectDuration, getMedia, trackAudible, type AudioGraphHandle, type Clip, type MediaAsset } from '../../engine';
 
 function activeWithAssets(project: ReturnType<typeof useStore.getState>['project'], t: number) {
@@ -57,7 +58,9 @@ export function usePlayback() {
       }
       try {
         const when = ctx.currentTime + 0.03;
-        graphRef.current = buildAudioGraph(s.project, ctx, ctx.destination, buffers, { startAt: at, when });
+        graphRef.current = buildAudioGraph(s.project, ctx, ctx.destination, buffers, {
+          startAt: at, when, previewRate: useUI.getState().previewRate,
+        });
         anchorRef.current = { startAt: at, when };
       } catch { /* audio unavailable for this container; preview stays silent */ }
       // Element-audio fallback: codecs the browser cannot decode (e.g. AC3 in
@@ -92,7 +95,9 @@ export function usePlayback() {
     const clockTime = (): number => {
       const a = anchorRef.current;
       const ctx = ctxRef.current;
-      if (a && ctx && ctx.state === 'running') return a.startAt + Math.max(0, ctx.currentTime - a.when);
+      if (a && ctx && ctx.state === 'running') {
+        return a.startAt + Math.max(0, ctx.currentTime - a.when) * useUI.getState().previewRate;
+      }
       return -1;
     };
 
@@ -111,7 +116,7 @@ export function usePlayback() {
         return true;
       }
       s.setPlayhead(stopT, { fromPlayback: true });
-      s.pool.syncPlayback(activeWithAssets(s.project, stopT), stopT, false);
+      s.pool.syncPlayback(activeWithAssets(s.project, stopT), stopT, false, useUI.getState().previewRate);
       s.pause();
       return true;
     };
@@ -125,7 +130,7 @@ export function usePlayback() {
       const t = clock >= 0 ? clock : s.playhead + 0.016;
       if (endAtZoneOrEnd(s, t)) return;
       if (t > s.playhead) s.setPlayhead(t, { fromPlayback: true });
-      s.pool.syncPlayback(activeWithAssets(s.project, t), t, true);
+      s.pool.syncPlayback(activeWithAssets(s.project, t), t, true, useUI.getState().previewRate);
       rafRef.current = requestAnimationFrame(tick);
     };
 
@@ -143,7 +148,7 @@ export function usePlayback() {
         lastRef.current = performance.now();
         if (endAtZoneOrEnd(s, clock)) return;
         s.setPlayhead(clock, { fromPlayback: true });
-        s.pool.syncPlayback(activeWithAssets(s.project, clock), clock, true);
+        s.pool.syncPlayback(activeWithAssets(s.project, clock), clock, true, useUI.getState().previewRate);
         return;
       }
       if (gap < 0.3) return; // rAF is healthy
@@ -151,7 +156,7 @@ export function usePlayback() {
       const t = s.playhead + Math.min(0.3, gap);
       if (endAtZoneOrEnd(s, t)) return;
       s.setPlayhead(t, { fromPlayback: true });
-      s.pool.syncPlayback(activeWithAssets(s.project, t), t, true);
+      s.pool.syncPlayback(activeWithAssets(s.project, t), t, true, useUI.getState().previewRate);
     }, 250);
 
     let prevPlaying = useStore.getState().playing;
@@ -194,15 +199,24 @@ export function usePlayback() {
         rafRef.current = null;
         s.pool.pauseAll();
         s.pool.muteAllElements();
-        s.pool.syncPlayback(activeWithAssets(s.project, s.playhead), s.playhead, false);
+        s.pool.syncPlayback(activeWithAssets(s.project, s.playhead), s.playhead, false, useUI.getState().previewRate);
       }
     });
 
     // Late audio decodes (register/analyze can finish after play started).
     useStore.getState().pool.onBufferReady = scheduleRebuild;
 
+    // Preview rate changes rebuild the audio graph at the new rate. Export is
+    // unaffected because it never reads UI state.
+    const unsubUI = useUI.subscribe((ui, prev) => {
+      if (ui.previewRate !== prev.previewRate && useStore.getState().playing) {
+        startAudio(useStore.getState().playhead);
+      }
+    });
+
     return () => {
       unsub();
+      unsubUI();
       useStore.getState().pool.onBufferReady = null;
       window.clearInterval(fallback);
       stopAudio();

@@ -28,7 +28,7 @@ export type Action =
   | { type: 'set_speed'; clipId: string; speed: number }
   | { type: 'set_speed_ramp'; clipId: string; points: SpeedPoint[] }
   | { type: 'set_transform'; clipId: string; patch: Partial<Transform> }
-  | { type: 'set_clip_props'; clipId: string; patch: Partial<Pick<Clip, 'volume' | 'fit' | 'label' | 'name' | 'locked' | 'groupId' | 'blendMode' | 'reversed'>> }
+  | { type: 'set_clip_props'; clipId: string; patch: Partial<Pick<Clip, 'volume' | 'fit' | 'label' | 'name' | 'locked' | 'groupId' | 'blendMode' | 'reversed' | 'preservePitch'>> }
   | { type: 'set_fades'; clipId: string; fadeIn?: number; fadeOut?: number }
   | { type: 'add_effect'; clipId: string; effect: Partial<Effect> & { type: Effect['type'] } }
   | { type: 'remove_effect'; clipId: string; effectId: string }
