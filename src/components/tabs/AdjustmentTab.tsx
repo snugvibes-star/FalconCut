@@ -1,11 +1,34 @@
+import { Plus, Layers } from 'lucide-react';
 import { useStore } from '../../state/store';
 import { commit, DragSlider, Section, Hint, useSelectedClip } from './shared';
 
 export function AdjustmentTab() {
   const project = useStore((s) => s.project);
+  const playhead = useStore((s) => s.playhead);
   const clip = useSelectedClip();
 
-  if (!clip) return <Hint>Select a clip to adjust its transform and crop.</Hint>;
+  const addAdjustmentLayer = () => {
+    const track = project.tracks.find((t) => t.kind === 'video' && !t.locked) ?? project.tracks.find((t) => t.kind === 'video');
+    const trackId = track?.id;
+    if (!trackId) return;
+    commit([{
+      type: 'add_clip',
+      clip: {
+        trackId, start: playhead, duration: 5, kind: 'adjustment', name: 'Adjustment layer',
+        effects: [{ id: `fx_adj_${Date.now()}`, type: 'color', enabled: true, params: { brightness: 1, contrast: 1, saturation: 1, temperature: 0 } }],
+      },
+    }], 'Add adjustment layer');
+  };
+
+  if (!clip) return (
+    <div>
+      <Section title="Adjustment layers" action={<Layers size={14} className="text-paper-faint" />}>
+        <button className="btn-signal w-full justify-center text-xs" onClick={addAdjustmentLayer}><Plus size={13} /> Add adjustment layer at playhead</button>
+        <Hint>Place an adjustment layer above your clips, then add effects to it in the Effects tab. Its effects apply to the composited video underneath it in preview and export.</Hint>
+      </Section>
+      <Hint>Select a clip to adjust its transform and crop.</Hint>
+    </div>
+  );
   const id = clip.id;
   const tf = clip.transform;
 
@@ -14,6 +37,9 @@ export function AdjustmentTab() {
 
   return (
     <div>
+      <Section title="Adjustment layers" action={<Layers size={14} className="text-paper-faint" />}>
+        <button className="btn-solid w-full justify-center text-xs" onClick={addAdjustmentLayer}><Plus size={13} /> Add adjustment layer at playhead</button>
+      </Section>
       <Section title="Transform">
         <DragSlider label="Opacity" value={tf.opacity} min={0} max={1} step={0.01} fmt={(v) => `${Math.round(v * 100)}%`} commitKey={`${id}:op`}
           onCommit={(v) => set({ opacity: v }, 'Opacity', `${id}:op`)} />

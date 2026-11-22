@@ -31,6 +31,33 @@ describe('editor customization actions', () => {
     expect(p.clips[0].effects[0].enabled).toBe(false);
   });
 
+  it('reorders stacked effects', () => {
+    let p = createProject('Custom');
+    p = applyActions(p, [
+      { type: 'add_track', track: { kind: 'video', id: 'v1' } },
+      { type: 'add_clip', clip: { trackId: 'v1', start: 0, duration: 2, mediaId: '' } },
+    ]);
+    const id = p.clips[0].id;
+    p = applyActions(p, [
+      { type: 'add_effect', clipId: id, effect: { type: 'color', enabled: true, params: {} } },
+      { type: 'add_effect', clipId: id, effect: { type: 'blur', enabled: true, params: { amount: 2 } } },
+    ]);
+    const [first, second] = p.clips[0].effects;
+    p = applyActions(p, [{ type: 'move_effect', clipId: id, effectId: second.id, direction: -1 }]);
+    expect(p.clips[0].effects[0].id).toBe(second.id);
+    expect(p.clips[0].effects[1].id).toBe(first.id);
+  });
+
+  it('accepts an adjustment layer clip with effects', () => {
+    let p = createProject('Custom');
+    p = applyActions(p, [
+      { type: 'add_track', track: { kind: 'video', id: 'v1' } },
+      { type: 'add_clip', clip: { trackId: 'v1', start: 0, duration: 5, kind: 'adjustment', name: 'Adjustment', effects: [{ id: 'fx1', type: 'color', enabled: true, params: { brightness: 1.2, contrast: 1, saturation: 1, temperature: 0 } }] } },
+    ]);
+    expect(p.clips[0].kind).toBe('adjustment');
+    expect(p.clips[0].effects[0].enabled).toBe(true);
+  });
+
   it('stores audio pitch preservation on the clip', () => {
     let p = createProject('Custom');
     p = applyActions(p, [

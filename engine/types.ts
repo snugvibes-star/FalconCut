@@ -218,6 +218,14 @@ export type TransitionType =
   | 'blend-darken' | 'blend-color-dodge' | 'blend-color-burn'
   | 'blend-hue' | 'blend-saturation' | 'blend-color' | 'blend-luminosity';
 
+export const TRANSITION_TYPES: TransitionType[] = [
+  'crossfade', 'dip-black', 'dip-white', 'wipe-left', 'slide-left', 'zoom-in',
+  'blend-multiply', 'blend-screen', 'blend-overlay', 'blend-soft-light',
+  'blend-hard-light', 'blend-difference', 'blend-exclusion', 'blend-lighten',
+  'blend-darken', 'blend-color-dodge', 'blend-color-burn', 'blend-hue',
+  'blend-saturation', 'blend-color', 'blend-luminosity',
+];
+
 export interface Transition {
   type: TransitionType;
   duration: number;
@@ -254,7 +262,7 @@ export interface Clip {
   id: string;
   trackId: string;
   mediaId?: string; // absent for text/motif/drawing clips
-  kind: 'media' | 'text' | 'motif' | 'drawing';
+  kind: 'media' | 'text' | 'motif' | 'drawing' | 'adjustment';
   start: number; // timeline
   duration: number; // timeline
   inPoint: number; // source

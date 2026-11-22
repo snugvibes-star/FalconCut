@@ -90,8 +90,10 @@ export function FiltersTab() {
   const onIntensityCommit = (v: number) => {
     setIntensity(v);
     if (!colorFx || !id) return;
-    // Re-scale using the stored delta direction (deltas from 1.0 scale; temperature scales directly).
-    commit([{ type: 'set_effect', clipId: id, effectId: colorFx.id, params: rescale(colorFx, v) }], 'Filter intensity', `${colorFx.id}:int`);
+    // Always derive params from the neutral preset + intensity. Re-scaling the
+    // already-scaled params compounds deltas on every drag (1→1.5→2 became ~3×).
+    const key = matchPreset(colorFx.params)?.key ?? current ?? Object.keys(COLOR_PRESETS)[0];
+    commit([{ type: 'set_effect', clipId: id, effectId: colorFx.id, params: scaledParams(key, v) }], 'Filter intensity', `${colorFx.id}:int`);
   };
 
   const applyAll = () => {
@@ -174,13 +176,4 @@ export function FiltersTab() {
   );
 }
 
-/** Rescale an existing color effect toward neutral as intensity changes, using
- * the stored delta direction (deltas from 1.0 scale; temperature scales directly). */
-function rescale(fx: Effect, intensity: number): Record<string, number> {
-  const out: Record<string, number> = {};
-  for (const [k, v] of Object.entries(fx.params)) {
-    if (typeof v !== 'number') continue;
-    out[k] = k in BASE ? 1 + (v - 1) * intensity : v * intensity;
-  }
-  return out;
-}
+

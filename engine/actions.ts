@@ -33,7 +33,9 @@ export type Action =
   | { type: 'add_effect'; clipId: string; effect: Partial<Effect> & { type: Effect['type'] } }
   | { type: 'remove_effect'; clipId: string; effectId: string }
   | { type: 'set_effect'; clipId: string; effectId: string; params?: Record<string, number | string | boolean>; enabled?: boolean }
+  | { type: 'move_effect'; clipId: string; effectId: string; direction: -1 | 1 }
   | { type: 'add_keyframe'; clipId: string; path: string; time: number; value: number; easing?: Keyframe['easing'] }
+  | { type: 'update_keyframe'; clipId: string; keyframeId: string; time?: number; value?: number; easing?: Keyframe['easing'] }
   | { type: 'remove_keyframe'; clipId: string; keyframeId: string }
   | { type: 'clear_keyframes'; clipId: string; path?: string }
   | { type: 'add_text'; trackId?: string; start: number; duration: number; text: string; style?: Partial<TextData['style']>; words?: TextData['words']; role?: TextData['role']; preset?: TextData['style']['preset'] }
@@ -86,7 +88,9 @@ export const ACTION_SCHEMA: Record<Action['type'], string> = {
   add_effect: 'Add an effect: color, blur, sharpen, vignette, chromaKey, eq, gate, deess, denoise.',
   remove_effect: 'Remove an effect by id.',
   set_effect: 'Update effect params or enable/disable it.',
+  move_effect: 'Move an effect one step up/down in the stacking order. Params: clipId, effectId, direction (-1 or 1).',
   add_keyframe: 'Animate a property. path like transform.scale or volume. time is clip-local seconds.',
+  update_keyframe: 'Move or edit an existing keyframe. Params: clipId, keyframeId, time?, value?, easing?.',
   remove_keyframe: 'Delete one keyframe.',
   clear_keyframes: 'Remove all keyframes of a clip (optionally only one path).',
   add_text: 'Add a text/caption clip. preset: clean | karaoke | bold-keywords | word-pop. words[] enables karaoke timing.',
@@ -429,12 +433,33 @@ export function applyAction(project: Project, action: Action): Project {
         }
         break;
       }
+      case 'move_effect': {
+        const c = clip(action.clipId);
+        if (c) {
+          const i = c.effects.findIndex((x) => x.id === action.effectId);
+          const j = i + action.direction;
+          if (i >= 0 && j >= 0 && j < c.effects.length) {
+            [c.effects[i], c.effects[j]] = [c.effects[j], c.effects[i]];
+          }
+        }
+        break;
+      }
       case 'add_keyframe': {
         const c = clip(action.clipId);
         if (!c) break;
         const existing = c.keyframes.find((k) => k.path === action.path && Math.abs(k.time - action.time) < 0.005);
         if (existing) { existing.value = action.value; existing.easing = action.easing ?? existing.easing; }
         else c.keyframes.push({ id: detUid('kf'), path: action.path, time: clamp(action.time, 0, c.duration), value: action.value, easing: action.easing ?? 'easeInOut' });
+        break;
+      }
+      case 'update_keyframe': {
+        const c = clip(action.clipId);
+        const k = c?.keyframes.find((x) => x.id === action.keyframeId);
+        if (k) {
+          if (action.time != null) k.time = Math.max(0, action.time);
+          if (action.value != null) k.value = action.value;
+          if (action.easing) k.easing = action.easing;
+        }
         break;
       }
       case 'remove_keyframe': {

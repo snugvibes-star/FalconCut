@@ -7,6 +7,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Download, Play, Square, Trash2, RefreshCw, CheckCircle2, Info, Pause, RotateCcw } from 'lucide-react';
 import { useStore } from '../../state/store';
+import { useUI } from '../../state/ui';
 import { getBlob } from '../../state/persistence';
 import { transcriptClient } from '../../../analysis/transcript';
 import { toMono, resampleLinear } from '../../../analysis/audioAnalysis';
@@ -38,6 +39,7 @@ function loadPrefs(): Prefs {
 export function AiCaptionPanel() {
   const project = useStore((s) => s.project);
   const playhead = useStore((s) => s.playhead);
+  const ui = useUI();
   const [prefs, setPrefs] = useState<Prefs>(loadPrefs);
   const [phase, setPhase] = useState<Phase>('idle');
   const [progress, setProgress] = useState(0);
@@ -146,7 +148,11 @@ export function AiCaptionPanel() {
           setStage(p.stage);
           setElapsed(p.elapsed);
         },
-        onDone: (result) => { applyResult(result); setPhase('done'); },
+        onDone: (result) => {
+          applyResult(result);
+          setPhase('done');
+          ui.toast('Transcription complete — review your captions', 'success');
+        },
         onError: (message, partial) => {
           if (partial) applyResult(partial, true);
           setError(message);
@@ -318,6 +324,20 @@ export function AiCaptionPanel() {
 
       {cues.length > 0 && (
         <Section title={`Transcription result (${cues.length} cues)`}>
+          {phase === 'done' && (
+            <div className="rounded-xl border border-heat-green/40 bg-heat-green/10 p-3 flex items-start gap-2">
+              <span className="w-7 h-7 shrink-0 rounded-full bg-heat-green/20 border border-heat-green/40 flex items-center justify-center">
+                <CheckCircle2 size={16} className="text-heat-green" />
+              </span>
+              <div className="min-w-0">
+                <p className="text-xs font-semibold text-heat-green">Transcription complete</p>
+                <p className="text-[10px] text-paper-dim">
+                  {cues.length} caption cues · {cues.reduce((n, c) => n + (c.words?.length ?? 0), 0)} words · {model.label}
+                </p>
+                <p className="text-[10px] text-paper-faint">Review below, then add them to the timeline.</p>
+              </div>
+            </div>
+          )}
           <Hint>Review below, then add the captions to the timeline. Nothing is added until you confirm.</Hint>
           {timingNote && <div className="rounded-lg border border-heat-amber/40 p-2 text-[11px] text-heat-amber">
             <Info size={11} className="inline mr-1" />{timingNote}

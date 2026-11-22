@@ -3,6 +3,7 @@ import { useStore } from '../../state/store';
 import { commit, DragSlider, Section } from './shared';
 import { useSelectedClip } from './shared';
 import type { Transition, TransitionType } from '../../../engine';
+import { FALCONCUT_MIME } from '../MediaTab';
 
 const BASIC: TransitionType[] = ['crossfade', 'dip-black', 'dip-white', 'wipe-left', 'slide-left', 'zoom-in'];
 const BLEND: TransitionType[] = [
@@ -61,8 +62,12 @@ export function TransitionsTab() {
         </div>
         <div className="grid grid-cols-3 gap-1.5">
           {(category === 'basic' ? BASIC : BLEND).map((t) => (
-            <button key={t} disabled={disabled} onClick={() => apply({ type: t, duration: current?.duration ?? 0.4 })}
-              title={t}
+            <button key={t} draggable={!disabled} disabled={disabled} onClick={() => apply({ type: t, duration: current?.duration ?? 0.4 })}
+              onDragStart={(e) => {
+                e.dataTransfer.setData(FALCONCUT_MIME, JSON.stringify({ kind: 'transition', edge, type: t, duration: current?.duration ?? 0.4 }));
+                e.dataTransfer.effectAllowed = 'copy';
+              }}
+              title={`${t} — click or drag onto a clip`}
               className={`rounded-lg py-1.5 text-[11px] font-medium capitalize transition-colors border ${current?.type === t ? 'bg-ink-700 text-paper border-signal/40' : 'text-paper-dim hover:text-paper hover:bg-ink-800 border-line'}`}>
               {label(t)}
             </button>

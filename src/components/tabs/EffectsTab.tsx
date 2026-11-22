@@ -1,6 +1,8 @@
-import { Trash2, MousePointerClick } from 'lucide-react';
+import { useState } from 'react';
+import { Trash2, MousePointerClick, ChevronUp, ChevronDown, Save, Layers } from 'lucide-react';
 import { commit, DragSlider, Section, Hint, useSelectedClip, EFFECT_RANGES } from './shared';
-import type { EffectType, Transition } from '../../../engine';
+import { FALCONCUT_MIME } from '../MediaTab';
+import type { EffectType, Effect, Transition } from '../../../engine';
 
 const TRANSITIONS: Transition['type'][] = ['crossfade', 'dip-black', 'dip-white', 'wipe-left', 'slide-left', 'zoom-in'];
 
@@ -24,8 +26,27 @@ const EFFECT_BUTTONS: { label: string; type: EffectType; params: Record<string, 
   { label: 'Deep vignette', type: 'vignette', params: { amount: 0.9 } },
 ];
 
+const EFFECT_PRESETS_KEY = 'falconcut.effectPresets';
+function loadPresets(): Record<string, Effect[]> {
+  try { return JSON.parse(localStorage.getItem(EFFECT_PRESETS_KEY) || '{}') as Record<string, Effect[]>; }
+  catch { return {}; }
+}
+
 export function EffectsTab() {
   const clip = useSelectedClip();
+  const [name, setName] = useState('');
+  const [presets, setPresets] = useState<Record<string, Effect[]>>(loadPresets);
+  const persist = (next: Record<string, Effect[]>) => {
+    setPresets(next);
+    try { localStorage.setItem(EFFECT_PRESETS_KEY, JSON.stringify(next)); } catch { /* ignore */ }
+  };
+
+  const savePreset = () => {
+    if (!clip || !clip.effects.length) return;
+    const key = name.trim() || `Preset ${Object.keys(presets).length + 1}`;
+    persist({ ...presets, [key]: JSON.parse(JSON.stringify(clip.effects)) as Effect[] });
+    setName('');
+  };
 
   return (
     <div>
@@ -38,7 +59,11 @@ export function EffectsTab() {
         {clip && (
           <div className="grid grid-cols-2 gap-1.5">
             {EFFECT_BUTTONS.map((b) => (
-              <button key={b.label} className="btn-solid justify-start text-xs px-2 py-1.5" title={`Add ${b.label}`}
+              <button key={b.label} draggable className="btn-solid justify-start text-xs px-2 py-1.5" title={`Add ${b.label} — click or drag onto a clip`}
+                onDragStart={(e) => {
+                  e.dataTransfer.setData(FALCONCUT_MIME, JSON.stringify({ kind: 'effect', effectType: b.type, params: b.params }));
+                  e.dataTransfer.effectAllowed = 'copy';
+                }}
                 onClick={() => commit([{ type: 'add_effect', clipId: clip.id, effect: { type: b.type, enabled: true, params: { ...b.params } } }], `Add ${b.label}`)}>
                 {b.label}
               </button>
@@ -47,10 +72,14 @@ export function EffectsTab() {
         )}
       </Section>
 
-      <Section title="Clip effects">
+      <Section title="Clip effects" action={
+        clip && clip.effects.length > 0 ? (
+          <button className="icon-btn" title="Save current stack as preset" onClick={savePreset}><Save size={14} /></button>
+        ) : undefined
+      }>
         {!clip && <Hint>No clip selected.</Hint>}
         {clip && clip.effects.length === 0 && <Hint>No effects on this clip yet.</Hint>}
-        {clip && clip.effects.map((ef) => {
+        {clip && clip.effects.map((ef, i) => {
           const numeric = Object.entries(ef.params).filter(([, v]) => typeof v === 'number') as [string, number][];
           return (
             <div key={ef.id} className="rounded-lg border border-line bg-ink-850 px-2 py-1.5 space-y-1.5">
@@ -61,6 +90,10 @@ export function EffectsTab() {
                   {ef.enabled ? 'On' : 'Off'}
                 </button>
                 <span className={`text-xs flex-1 capitalize ${ef.enabled ? 'text-paper' : 'text-paper-faint line-through'}`}>{ef.type}</span>
+                <button className="icon-btn p-0.5" disabled={i === 0} title="Move effect up"
+                  onClick={() => commit([{ type: 'move_effect', clipId: clip.id, effectId: ef.id, direction: -1 }], 'Move effect up')}><ChevronUp size={12} /></button>
+                <button className="icon-btn p-0.5" disabled={i === clip.effects.length - 1} title="Move effect down"
+                  onClick={() => commit([{ type: 'move_effect', clipId: clip.id, effectId: ef.id, direction: 1 }], 'Move effect down')}><ChevronDown size={12} /></button>
                 <button className="icon-btn p-0.5 hover:text-heat" title="Remove effect"
                   onClick={() => commit([{ type: 'remove_effect', clipId: clip.id, effectId: ef.id }], 'Remove effect')}>
                   <Trash2 size={12} />
@@ -76,6 +109,23 @@ export function EffectsTab() {
             </div>
           );
         })}
+      </Section>
+
+      <Section title="Saved effect stacks" action={<Layers size={14} className="text-paper-faint" />}>
+        <div className="flex gap-1.5">
+          <input className="field flex-1 min-w-0 py-1 text-xs" placeholder="Preset name" value={name} onChange={(e) => setName(e.target.value)} />
+          <button className="btn-solid text-[11px] px-2" disabled={!clip || !clip.effects.length} onClick={savePreset}>Save</button>
+        </div>
+        {Object.keys(presets).length === 0 && <Hint>Save the current effect stack to reuse it on any clip.</Hint>}
+        {Object.entries(presets).map(([key, effects]) => (
+          <button key={key} className="w-full text-left rounded-lg border border-line px-2 py-1.5 text-xs text-paper hover:border-signal/40"
+            disabled={!clip} onClick={() => clip && commit([
+              ...clip.effects.map((e) => ({ type: 'remove_effect' as const, clipId: clip.id, effectId: e.id })),
+              ...effects.map((e) => ({ type: 'add_effect' as const, clipId: clip.id, effect: { ...e, id: undefined } })),
+            ], `Apply effect preset ${key}`)}>
+            {key} <span className="text-paper-faint">· {effects.length} effect{effects.length === 1 ? '' : 's'}</span>
+          </button>
+        ))}
       </Section>
     </div>
   );

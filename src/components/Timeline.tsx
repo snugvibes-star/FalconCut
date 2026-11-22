@@ -4,7 +4,7 @@ import { useStore } from '../state/store';
 import { useUI } from '../state/ui';
 import { ClipContextMenu, type CtxMenuState } from './ClipContextMenu';
 import { buildStyledText, type TextEffect, type TextRole, type TextTransition } from './tabs/textPresets';
-import { projectDuration, clipsOnTrack, getMedia, uid, COLOR_PRESETS, type Action, type Clip, type Track, type MediaAsset, type TextData, type EffectType, type Transition } from '../../engine';
+import { projectDuration, clipsOnTrack, getMedia, uid, COLOR_PRESETS, TRANSITION_TYPES, type Action, type Clip, type Track, type MediaAsset, type TextData, type EffectType, type Transition } from '../../engine';
 
 const HEADER_W = 150;
 const ROW_H = 56; // default track height (per-track overrides live on Track.height)
@@ -127,8 +127,6 @@ type DropPayload =
   | { kind: 'effect'; effectType: string; params?: Record<string, number | string | boolean> }
   | { kind: 'transition'; edge: 'in' | 'out'; type: string; duration: number };
 
-const TRANSITION_TYPES: Transition['type'][] = ['crossfade', 'dip-black', 'dip-white', 'wipe-left', 'slide-left', 'zoom-in'];
-
 /** Neutral color base — filter params are deltas from this (same math as FiltersTab). */
 const FILTER_BASE: Record<string, number> = { brightness: 1, contrast: 1, saturation: 1, temperature: 0 };
 
@@ -156,7 +154,7 @@ const EFFECT_DEFAULTS: Record<EffectType, Record<string, number | string | boole
   denoise: { thresholdDb: -45 },
   negate: { invert: 1 },
   normalize: { strength: 0.8 },
-  lut: { strength: 1 },
+  lut: { strength: 1 }, // requires a lut id; generic drops are ignored by the renderer
   compressor: { thresholdDb: -24, ratio: 4 },
   limiter: { ceilingDb: -1 },
   echo: { delayMs: 250, feedback: 0.3, mix: 0.35 },

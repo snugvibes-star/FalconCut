@@ -162,6 +162,13 @@ function prevClipOnTrack(p: Project, clip: Clip): Clip | undefined {
     .sort((a, b) => b.start + b.duration - (a.start + a.duration))[0];
 }
 
+function nextClipOnTrack(p: Project, clip: Clip): Clip | undefined {
+  return p.clips
+    .filter((c) => c.trackId === clip.trackId && c.kind === 'media' && c.id !== clip.id
+      && c.start >= clip.start + clip.duration - 0.06 && c.start < clip.start + clip.duration + 0.5)
+    .sort((a, b) => a.start - b.start)[0];
+}
+
 export type BlendTransitionType =
   | 'blend-multiply' | 'blend-screen' | 'blend-overlay' | 'blend-soft-light'
   | 'blend-hard-light' | 'blend-difference' | 'blend-exclusion' | 'blend-lighten'
@@ -238,11 +245,71 @@ function drawMediaClip(p: Project, clip: Clip, t: number, ctx: Ctx2D, resolver: 
   const tout = clip.transitionOut;
   if (tout && localT > clip.duration - tout.duration) {
     const prog = Math.max(0, Math.min(1, (localT - (clip.duration - tout.duration)) / tout.duration));
-    ctx.save();
-    if (tout.type === 'dip-white') { ctx.globalAlpha = prog; ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, W, H); }
-    else { ctx.globalAlpha = prog; ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, H); }
-    ctx.restore();
+    const e = prog * prog * (3 - 2 * prog);
+    const next = nextClipOnTrack(p, clip);
+    if (next) {
+      // Out transitions are the mirror of in transitions: the following clip
+      // is composited over the current one using the selected type.
+      const nextT = Math.max(next.start + 0.001, t);
+      switch (tout.type) {
+        case 'crossfade':
+        case 'dip-black':
+        case 'dip-white':
+          drawMediaLayer(p, next, nextT, ctx, resolver, { alpha: e });
+          if (tout.type !== 'crossfade') {
+            ctx.save();
+            ctx.globalAlpha = tout.type === 'dip-white' ? 4 * e * (1 - e) * 0.9 : 2 * Math.abs(e - 0.5) * 0.8;
+            ctx.fillStyle = tout.type === 'dip-white' ? '#fff' : '#000';
+            ctx.fillRect(0, 0, W, H);
+            ctx.restore();
+          }
+          break;
+        case 'wipe-left':
+          drawMediaLayer(p, next, nextT, ctx, resolver, { clipRect: [0, 0, e * W, H] });
+          break;
+        case 'slide-left':
+          drawMediaLayer(p, next, nextT, ctx, resolver, { dx: (1 - e) * W });
+          break;
+        case 'zoom-in':
+          drawMediaLayer(p, next, nextT, ctx, resolver, { alpha: e, extraScale: 1.12 - 0.12 * e });
+          break;
+        default: {
+          const op = BLEND_TRANSITIONS[tout.type as BlendTransitionType];
+          if (op) drawMediaLayer(p, next, nextT, ctx, resolver, { alpha: e, composite: op });
+          break;
+        }
+      }
+    } else {
+      // No successor on this track: the only honest visual is a fade to black.
+      ctx.save();
+      ctx.globalAlpha = prog;
+      ctx.fillStyle = tout.type === 'dip-white' ? '#fff' : '#000';
+      ctx.fillRect(0, 0, W, H);
+      ctx.restore();
+    }
   }
+}
+
+/** Adjustment layers: their effects are applied to the already-composited
+ * frame, so they affect everything underneath without touching source media. */
+function applyAdjustmentLayers(p: Project, t: number, ctx: Ctx2D) {
+  const layers = p.clips.filter((c) => c.kind === 'adjustment' && t >= c.start && t < c.start + c.duration);
+  const effects = layers.flatMap((c) => c.effects).filter((e) => e.enabled);
+  if (!layers.length || !effects.length) return;
+  const synthetic: Clip = { ...layers[0], effects };
+  const fx = resolveEffects(synthetic, t, supportsFilter(ctx));
+  const w = ctx.canvas.width, h = ctx.canvas.height;
+  const scratch = getFx(w, h);
+  scratch.ctx.setTransform(1, 0, 0, 1, 0, 0);
+  scratch.ctx.clearRect(0, 0, w, h);
+  scratch.ctx.drawImage(ctx.canvas, 0, 0);
+  if (fx.needsPixels) applyPixelOps(scratch.canvas, fx, supportsFilter(ctx));
+  ctx.save();
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.clearRect(0, 0, w, h);
+  if (!fx.needsPixels && fx.filter && supportsFilter(ctx)) ctx.filter = fx.filter;
+  ctx.drawImage(scratch.canvas, 0, 0);
+  ctx.restore();
 }
 
 /* ---------------- Drawing clips (vector overlay layers) ---------------- */
@@ -342,6 +409,7 @@ export function renderFrame(p: Project, t: number, ctx: Ctx2D, resolver: MediaRe
     }
   }
   ctx.restore();
+  applyAdjustmentLayers(p, t, ctx);
 }
 
 /** Editor-only overlay (never part of exported pixels). */

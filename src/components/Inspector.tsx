@@ -219,8 +219,10 @@ export function Inspector() {
   // Context-sensitive tool tabs: only show what applies to this clip kind.
   const relevantTabs: Tab[] = !clip
     ? TABS.map((t) => t.id)
-    : clip.kind === 'text'
-      ? ['text', 'animation', 'ai']
+    : clip.kind === 'adjustment'
+      ? ['effects', 'color', 'ai']
+      : clip.kind === 'text'
+        ? ['text', 'animation', 'ai']
       : clip.kind === 'motif'
         ? ['animation', 'ai']
         : asset && (asset.type === 'audio' || !asset.hasAudio)
@@ -518,9 +520,16 @@ export function Inspector() {
               {[...clip.keyframes].sort((a, b) => a.time - b.time).map((k) => (
                 <div key={k.id} className="flex items-center gap-1.5 text-[11px] bg-ink-850 rounded-md px-2 py-1 border border-line">
                   <Diamond size={10} className="text-signal shrink-0" />
-                  <span className="text-paper-dim font-mono">{k.time.toFixed(2)}s</span>
-                  <span className="text-paper truncate flex-1">{k.path.split('.').pop()} = {k.value.toFixed(2)}</span>
-                  <select className="bg-transparent text-[10px] text-paper-faint cursor-pointer" value={k.easing} onChange={(e) => set([{ type: 'remove_keyframe', clipId: id, keyframeId: k.id }, { type: 'add_keyframe', clipId: id, path: k.path, time: k.time, value: k.value, easing: e.target.value as Easing }], 'Keyframe easing')}>
+                  <input type="number" step={0.01} min={0} className="w-14 bg-transparent text-[10px] text-paper-dim font-mono"
+                    value={Number(k.time.toFixed(2))}
+                    title="Keyframe time (seconds)"
+                    onChange={(e) => set([{ type: 'update_keyframe', clipId: id, keyframeId: k.id, time: Number(e.target.value) }], 'Move keyframe', `${k.id}:time`)} />
+                  <input type="number" step={0.01} className="w-14 bg-transparent text-[10px] text-paper font-mono"
+                    value={Number(k.value.toFixed(2))}
+                    title="Keyframe value"
+                    onChange={(e) => set([{ type: 'update_keyframe', clipId: id, keyframeId: k.id, value: Number(e.target.value) }], 'Keyframe value', `${k.id}:value`)} />
+                  <span className="text-paper-dim truncate flex-1">{k.path.split('.').pop()}</span>
+                  <select className="bg-transparent text-[10px] text-paper-faint cursor-pointer" value={k.easing} onChange={(e) => set([{ type: 'update_keyframe', clipId: id, keyframeId: k.id, easing: e.target.value as Easing }], 'Keyframe easing')}>
                     {EASINGS.map((ea) => <option key={ea} value={ea}>{ea}</option>)}
                   </select>
                   <button className="icon-btn p-0.5 hover:text-heat" onClick={() => set([{ type: 'remove_keyframe', clipId: id, keyframeId: k.id }], 'Remove keyframe')}><Trash2 size={11} /></button>
