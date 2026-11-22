@@ -80,5 +80,11 @@ describe('AI control tools', () => {
     const after = applyActions(p, settings.actions);
     expect(after.settings.fps).toBe(60);
     expect(after.settings.background).toBe('#101820');
+
+    const reframe = await runTool(after, 'set_project_settings_ai', { aspect: '9:16' });
+    const reframed = applyActions(after, reframe.actions);
+    expect(reframed.settings.aspect).toBe('9:16');
+    expect(reframed.settings.width).toBe(1080);
+    expect(reframed.settings.height).toBe(1920);
   });
 });

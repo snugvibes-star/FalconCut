@@ -53,8 +53,8 @@ export function CaptionProperties({ style, onPatch, onPatchHighlight }: Props) {
           fmt={(v) => v.toFixed(2)} onCommit={(v) => onPatch({ textOpacity: v }, 'Caption text opacity')} />
         <DragSlider label="Sharpness" value={style.sharpness ?? 1} min={0} max={1} step={0.01}
           fmt={(v) => v.toFixed(2)} onCommit={(v) => onPatch({ sharpness: v }, 'Caption sharpness')} />
-        <DragSlider label="Background blur" value={style.backgroundBlur ?? 0} min={0} max={1} step={0.01}
-          fmt={(v) => v.toFixed(2)} onCommit={(v) => onPatch({ backgroundBlur: v }, 'Caption background blur')} />
+        <DragSlider label="Background plate blur" value={style.backgroundBlur ?? 0} min={0} max={1} step={0.01}
+          fmt={(v) => v.toFixed(2)} onCommit={(v) => onPatch({ backgroundBlur: v }, 'Caption background plate blur')} />
         <button className={`chip w-full justify-center border ${glow.enabled ? 'bg-signal/15 border-signal/50 text-signal' : 'border-line text-paper-dim'}`}
           onClick={() => onPatch({ glow: { ...glow, enabled: !glow.enabled } }, 'Caption glow')}>
           Glow {glow.enabled ? 'on' : 'off'}

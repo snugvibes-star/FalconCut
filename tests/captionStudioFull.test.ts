@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { createProject, applyActions, layoutCaption, drawCaption, parseSubtitles, serializeSubtitles } from '../engine';
+import { createProject, applyActions, layoutCaption, drawCaption, parseSubtitles, serializeSubtitles, buildCues } from '../engine';
 import { CAPTION_MODELS, MODEL_SIZE_LIMIT, modelsWithinLimit, modelBytes } from '../src/features/captionStudio/models';
 import { presetTextStyle } from '../src/components/tabs/textPresets';
 
@@ -85,6 +85,17 @@ describe('extended caption customization', () => {
     expect(saved.caseMode).toBe('lower');
     expect(saved.highlight.offset).toBe(0.15);
     expect(saved.glow.enabled).toBe(true);
+  });
+});
+
+describe('transcription timing honesty', () => {
+  it('marks estimated word timing as it flows into caption cues', () => {
+    const cues = buildCues([
+      { word: 'hello', start: 0, end: 0.5, estimated: true },
+      { word: 'world', start: 0.6, end: 1.2 },
+    ], 40, 2);
+    expect(cues[0].words[0].timingEstimated).toBe(true);
+    expect(cues[0].words[1].timingEstimated).toBeUndefined();
   });
 });
 

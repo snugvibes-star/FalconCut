@@ -23,9 +23,21 @@ export class TranscriptClient {
         const { type, id } = e.data;
         const p = this.pending.get(id);
         if (!p) return;
-        if (type === 'progress') p.onProgress?.({ stage: 'download', pct: e.data.pct ?? 0, note: e.data.file });
+        if (type === 'progress') {
+          const note = e.data.note ?? e.data.file;
+          const stage = e.data.file === 'timing' ? 'transcribe'
+            : /Model ready|Downloading/i.test(String(note ?? '')) ? 'download' : 'transcribe';
+          p.onProgress?.({ stage, pct: e.data.pct ?? 0, note });
+        }
         else if (type === 'ready') { this.pending.delete(id); p.resolve(true); }
-        else if (type === 'result') { this.pending.delete(id); p.resolve(e.data.out); }
+        else if (type === 'result') {
+          this.pending.delete(id);
+          p.resolve({ out: e.data.out, estimated: !!e.data.estimated, mode: e.data.mode ?? 'word' });
+        }
+        else if (type === 'chunk_result') {
+          this.pending.delete(id);
+          p.resolve({ out: e.data.out, estimated: !!e.data.estimated, mode: e.data.mode ?? 'word', offset: e.data.offset });
+        }
         else if (type === 'error') { this.pending.delete(id); p.reject(new Error(e.data.message)); }
       };
       this.worker.onerror = (e) => {
@@ -56,14 +68,17 @@ export class TranscriptClient {
     model: WhisperModel,
     language: string | undefined,
     onProgress?: (p: TranscriptProgress) => void
-  ): Promise<{ segments: TranscriptSegment[]; words: TranscriptWord[]; language?: string; model: string }> {
+  ): Promise<{ segments: TranscriptSegment[]; words: TranscriptWord[]; language?: string; model: string; estimated: boolean; note?: string }> {
     await this.load(model, onProgress);
     onProgress?.({ stage: 'transcribe', pct: 0.05, note: 'Preparing audio' });
     const mono = toMono(buffer);
     const audio = resampleLinear(mono, buffer.sampleRate, 16000);
     onProgress?.({ stage: 'transcribe', pct: 0.15, note: 'Running Whisper (this can take a while on CPU)' });
-    const out = await this.call('transcribe', { audio, language }, (p) => onProgress?.(p));
-    onProgress?.({ stage: 'transcribe', pct: 0.95, note: 'Aligning words' });
+    const response = await this.call('transcribe', { audio, language }, (p) => onProgress?.(p));
+    const out = response?.out ?? response;
+    const estimated = !!response?.estimated || !!out?.estimatedTimestamps;
+    const mode = response?.mode ?? (estimated ? 'chunk' : 'word');
+    onProgress?.({ stage: 'transcribe', pct: 0.95, note: estimated ? 'Estimating word timing' : 'Aligning words' });
 
     const words: TranscriptWord[] = [];
     const chunks: { text: string; timestamp: [number, number] }[] = out?.chunks ?? [];
@@ -73,8 +88,9 @@ export class TranscriptClient {
         if (!text) continue;
         const [s, e] = ch.timestamp ?? [0, 0];
         const parts = text.split(/\s+/);
+        const flag = (mode !== 'word' || parts.length > 1) ? { estimated: true } : {};
         if (parts.length === 1) {
-          words.push({ word: parts[0], start: s ?? 0, end: Math.max((s ?? 0) + 0.08, e ?? s + 0.2) });
+          words.push({ word: parts[0], start: s ?? 0, end: Math.max((s ?? 0) + 0.08, e ?? s + 0.2), ...flag });
         } else {
           // chunk contains several words: distribute time by character length
           const total = parts.reduce((a, w) => a + w.length, 0);
@@ -82,7 +98,7 @@ export class TranscriptClient {
           const span = Math.max(0.1, (e ?? t + 0.3) - t);
           for (const part of parts) {
             const d = (part.length / total) * span;
-            words.push({ word: part, start: t, end: t + d });
+            words.push({ word: part, start: t, end: t + d, estimated: true });
             t += d;
           }
         }
@@ -91,7 +107,7 @@ export class TranscriptClient {
       // no timestamps: interpolate across the whole audio
       const parts = out.text.trim().split(/\s+/);
       const per = buffer.duration / Math.max(1, parts.length);
-      parts.forEach((w: string, i: number) => words.push({ word: w, start: i * per, end: (i + 1) * per }));
+      parts.forEach((w: string, i: number) => words.push({ word: w, start: i * per, end: (i + 1) * per, estimated: true }));
     }
     // sanity: monotonic times
     for (let i = 1; i < words.length; i++) {
@@ -100,7 +116,10 @@ export class TranscriptClient {
     }
     const segments = segmentWords(words);
     onProgress?.({ stage: 'transcribe', pct: 1 });
-    return { segments, words, language: out?.language, model };
+    const note = estimated
+      ? 'This model has no word-level timestamps. Word timing is estimated from recognized text and is fully editable.'
+      : undefined;
+    return { segments, words, language: out?.language, model, estimated, note };
   }
 
   /** Stop any in-flight load/transcription and clean up the worker. */

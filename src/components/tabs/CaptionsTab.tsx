@@ -582,6 +582,7 @@ export function CaptionsTab() {
                   title={`${w.w} · ${w.start.toFixed(2)}s → ${w.end.toFixed(2)}s`}
                   className={`chip border ${selectedWords.includes(i) ? 'bg-signal/15 border-signal/50 text-signal' : 'border-line text-paper-dim hover:text-paper'}`}>
                   {w.w}<span className="ml-1 text-[9px] text-paper-faint">{w.start.toFixed(1)}s</span>
+                  {w.timingEstimated && <span className="ml-1 text-[9px] text-heat-amber" title="Estimated timing — drag the word handles or edit start/end to correct it">~</span>}
                 </button>
               ))}
             </div>

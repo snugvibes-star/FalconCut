@@ -113,6 +113,7 @@ export function addCaptions(ctx: ToolContext, params: AddCaptionsParams = {}): T
         start: Math.max(0, (sourceToTimeline(p, clip.mediaId!, cue.start + w.start) ?? tlStart) - tlStart),
         end: Math.max(0.05, (sourceToTimeline(p, clip.mediaId!, cue.start + w.end) ?? tlEnd) - tlStart),
         filler: w.filler,
+        timingEstimated: w.timingEstimated,
       }));
       if (highlight) words = markKeywords(words);
       actions.push({

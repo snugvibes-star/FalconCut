@@ -171,9 +171,14 @@ export function drawCaption(
   if (style.bgColor && style.bgColor !== 'transparent') {
     const pad = fontSize * style.bgPadding;
     const bw = blockW + pad * 2, bh = blockH + pad * 1.2;
+    ctx.save();
+    if ((style.backgroundBlur ?? 0) > 0.001 && 'filter' in ctx) {
+      try { (ctx as CanvasRenderingContext2D).filter = `blur(${(fontSize * style.backgroundBlur! * 0.6).toFixed(2)}px)`; } catch { /* filter unavailable */ }
+    }
     ctx.fillStyle = style.bgColor;
     roundRect(ctx, -bw / 2, -bh / 2, bw, bh, fontSize * 0.22);
     ctx.fill();
+    ctx.restore();
   }
 
   const spaceW = ctx.measureText(' ').width * (style.wordSpacing || 1);
@@ -351,7 +356,7 @@ const HESITATIONS = new Set(['uh', 'uhh', 'uhm', 'um', 'umm', 'erm', 'er', 'ah',
 const isHesitation = (w: string) => HESITATIONS.has(w.toLowerCase().replace(/[^a-z]/g, ''));
 
 export function buildCues(
-  words: { word: string; start: number; end: number }[],
+  words: { word: string; start: number; end: number; estimated?: boolean }[],
   maxCharsPerLine: number,
   maxLines = 2,
   maxGapSec = 0.7,
@@ -395,7 +400,7 @@ export function buildCues(
       if (lines >= maxLines) flush();
       else { lines++; lineChars = 0; }
     }
-    cur.push({ w: clean, start: w.start, end: w.end });
+    cur.push({ w: clean, start: w.start, end: w.end, timingEstimated: w.estimated });
     lineChars += clean.length + 1;
   }
   flush();

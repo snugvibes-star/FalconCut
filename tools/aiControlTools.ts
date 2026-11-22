@@ -4,7 +4,7 @@
  * and previewable through the existing tool pipeline.
  */
 import type { Action } from '../engine/actions';
-import type { CaptionWord, TextStyle } from '../engine';
+import { ASPECT_SIZES, BLEND_MODES, type CaptionWord, type TextStyle } from '../engine';
 import type { ToolContext, ToolResult } from './cutTools';
 import { presetTextStyle } from '../src/components/tabs/textPresets';
 
@@ -211,7 +211,7 @@ export function setClipLookAdvanced(
   for (const c of clips) {
     const patch: NonNullable<Extract<Action, { type: 'set_clip_props' }>['patch']> = {};
     const blend = str(params.blendMode);
-    if (blend) patch.blendMode = blend as typeof patch.blendMode;
+    if (blend && (BLEND_MODES as readonly string[]).includes(blend)) patch.blendMode = blend as typeof patch.blendMode;
     const fit = str(params.fit);
     if (fit === 'cover' || fit === 'contain' || fit === 'fill') patch.fit = fit;
     const name = str(params.name); if (name) patch.name = name;
@@ -240,6 +240,12 @@ export function setProjectSettingsAI(
   const aspect = str(params.aspect);
   if (aspect === '16:9' || aspect === '9:16' || aspect === '1:1' || aspect === '4:5') patch.aspect = aspect;
   const width = num(params.width), height = num(params.height);
+  // Changing aspect alone must also resize the frame, otherwise a 9:16 project
+  // keeps a 1920x1080 canvas and the preview/export stay letterboxed.
+  if (patch.aspect && width === undefined && height === undefined) {
+    const [aw, ah] = ASPECT_SIZES[patch.aspect as keyof typeof ASPECT_SIZES];
+    patch.width = aw; patch.height = ah;
+  }
   if (width !== undefined && width >= 320 && width <= 3840) patch.width = Math.round(width);
   if (height !== undefined && height >= 320 && height <= 3840) patch.height = Math.round(height);
   const background = str(params.background);

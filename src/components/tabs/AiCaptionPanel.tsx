@@ -42,7 +42,8 @@ export function AiCaptionPanel() {
   const [error, setError] = useState('');
   const [installed, setInstalled] = useState<string[]>([]);
   const [storage, setStorage] = useState<{ usage?: number; quota?: number }>({});
-  const [cues, setCues] = useState<{ text: string; start: number; end: number; words?: { w: string; start: number; end: number }[] }[]>([]);
+  const [cues, setCues] = useState<{ text: string; start: number; end: number; words?: { w: string; start: number; end: number; timingEstimated?: boolean }[] }[]>([]);
+  const [timingNote, setTimingNote] = useState('');
   const mediaIdRef = useRef<string>('');
   const startedRef = useRef(0);
 
@@ -84,7 +85,7 @@ export function AiCaptionPanel() {
 
   const transcribe = async () => {
     if (!selectedMedia) { setError('Import a video or audio file first.'); setPhase('error'); return; }
-    setError(''); setCues([]); setPhase('extracting'); setProgress(0); setStage('Decoding local audio…');
+    setError(''); setCues([]); setTimingNote(''); setPhase('extracting'); setProgress(0); setStage('Decoding local audio…');
     startedRef.current = performance.now();
     try {
       const blob = await getBlob(selectedMedia.blobKey!);
@@ -101,7 +102,11 @@ export function AiCaptionPanel() {
       const built = buildCues(result.words, 34, 2, 0.7, {
         maxCueSec: prefs.maxSeconds, targetCps: 18, sentenceBreak: true, removeFillers: false,
       });
-      setCues(built.map((c) => ({ text: c.text, start: c.start, end: c.end, words: c.words })));
+      setCues(built.map((c) => ({
+        text: c.text, start: c.start, end: c.end,
+        words: c.words.map((w) => ({ ...w, timingEstimated: w.timingEstimated || result.estimated })),
+      })));
+      setTimingNote(result.note ?? '');
       setPhase('done');
     } catch (e) {
       const err = e as Error;
@@ -225,6 +230,9 @@ export function AiCaptionPanel() {
       {cues.length > 0 && (
         <Section title={`Transcription result (${cues.length} cues)`}>
           <Hint>Review below, then add the captions to the timeline. Nothing is added until you confirm.</Hint>
+          {timingNote && <div className="rounded-lg border border-heat-amber/40 p-2 text-[11px] text-heat-amber">
+            <Info size={11} className="inline mr-1" />{timingNote}
+          </div>}
           <div className="max-h-52 overflow-y-auto space-y-1">
             {cues.map((c, i) => <div key={i} className="rounded border border-line px-2 py-1 text-[11px] text-paper-dim">
               <span className="font-mono text-paper-faint mr-1">{c.start.toFixed(1)}s</span>{c.text}

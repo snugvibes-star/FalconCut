@@ -108,7 +108,7 @@ export interface WordStyle {
   highlightColor?: string;
 }
 
-export interface CaptionWord { w: string; start: number; end: number; keyword?: boolean; filler?: boolean; style?: WordStyle }
+export interface CaptionWord { w: string; start: number; end: number; keyword?: boolean; filler?: boolean; style?: WordStyle; timingEstimated?: boolean }
 
 export type CaptionStyleId = 'clean' | 'karaoke' | 'bold-keywords' | 'word-pop';
 
@@ -321,7 +321,7 @@ export interface Tack {
 
 /* ---------------- Analysis (Phase 2) ---------------- */
 
-export interface TranscriptWord { word: string; start: number; end: number; conf?: number }
+export interface TranscriptWord { word: string; start: number; end: number; conf?: number; estimated?: boolean }
 export interface TranscriptSegment { start: number; end: number; text: string; words: TranscriptWord[]; speaker?: string }
 export interface SilenceSpan { start: number; end: number }
 export interface FillerHit { start: number; end: number; text: string; wordIndices: [number, number] }
