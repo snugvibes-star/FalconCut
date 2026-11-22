@@ -273,3 +273,40 @@ input[type='color']::-webkit-color-swatch { border: 1px solid #3e3e46; border-ra
 .cf-thin-scroll::-webkit-scrollbar { width: 6px; }
 .cf-thin-scroll::-webkit-scrollbar-thumb { background: rgb(64 64 64); border-radius: 3px; }
 .cf-thin-scroll::-webkit-scrollbar-track { background: transparent; }
+
+/* ---------- Multi-device responsive tuning ---------- */
+
+/* Compact density: more controls fit on tablets and small laptops. */
+.cf-density-compact .p-3 { padding: 0.5rem 0.75rem; }
+.cf-density-compact .space-y-2\.5 > :not([hidden]) ~ :not([hidden]) { margin-top: 0.4rem; }
+.cf-density-compact .text-xs { font-size: 0.7rem; }
+.cf-density-compact .icon-btn { min-width: 28px; min-height: 28px; padding: 4px; }
+
+/* Phone: real touch targets and full-width panel drawers. */
+@media (max-width: 639px) {
+  .icon-btn { min-width: 44px; min-height: 44px; padding: 10px; }
+  .btn, .btn-solid, .btn-ghost, .btn-signal { min-height: 44px; }
+  .field, select, input[type='number'], input[type='text'] { min-height: 44px; font-size: 16px; }
+  .chip { min-height: 36px; padding-left: 10px; padding-right: 10px; }
+  .cf-phone-only { display: block !important; }
+  .cf-desktop-only { display: none !important; }
+  /* Keep the timeline ruler legible when the pane is short on a phone. */
+  .cf-timeline-compact { font-size: 10px; }
+}
+
+/* Tablet: comfortable touch targets without sacrificing panel width. */
+@media (min-width: 640px) and (max-width: 1023px) {
+  .icon-btn { min-width: 40px; min-height: 40px; padding: 8px; }
+  .btn, .btn-solid, .btn-ghost, .btn-signal { min-height: 40px; }
+  .chip { min-height: 34px; }
+  .cf-phone-only { display: none !important; }
+}
+
+@media (min-width: 1024px) {
+  .cf-phone-only { display: none !important; }
+}
+
+/* Users who prefer reduced motion get no animated panel transitions. */
+@media (prefers-reduced-motion: reduce) {
+  .cf-drawer, .cf-panel { transition: none !important; }
+}

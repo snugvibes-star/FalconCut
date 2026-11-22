@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Scissors, Trash2, ZoomIn, ZoomOut, Magnet, Lock, Unlock, Volume2, VolumeX, Eye, EyeOff, Plus, Flag, Maximize, ChevronsRightLeft, Headphones, Focus } from 'lucide-react';
+import { Scissors, Trash2, ZoomIn, ZoomOut, Magnet, Lock, Unlock, Volume2, VolumeX, Eye, EyeOff, Plus, Flag, Maximize, ChevronsRightLeft, Headphones, Focus, ChevronUp, ChevronDown } from 'lucide-react';
 import { useStore } from '../state/store';
 import { useUI } from '../state/ui';
 import { ClipContextMenu, type CtxMenuState } from './ClipContextMenu';
@@ -783,6 +783,19 @@ export function Timeline() {
     try { e.currentTarget.releasePointerCapture(e.pointerId); } catch { /* already released */ }
   };
 
+  if (ui.timelineCollapsed) {
+    return (
+      <div className="shrink-0 flex bg-ink-900 border-t border-line" style={{ height: 40 }}>
+        <div className="h-full w-full flex items-center gap-2 px-2">
+          <button className="icon-btn" title="Expand timeline" onClick={() => ui.setTimelineCollapsed(false)}><ChevronUp size={15} /></button>
+          <span className="text-[11px] text-paper-faint">Timeline collapsed — expand to edit clips</span>
+          <div className="flex-1" />
+          <span className="text-[11px] text-paper-faint font-mono">{project.clips.length} clips</span>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className={`shrink-0 flex flex-col bg-ink-900 border-t border-line ${paneResizing ? 'no-select' : ''}`} style={{ height: ui.timelineHeight }}>
       {/* pane resize handle */}
@@ -796,6 +809,7 @@ export function Timeline() {
         <div className={`h-px w-full transition-colors ${paneResizing ? 'bg-signal/70' : 'bg-line group-hover:bg-signal/60'}`} />
       </div>
       <div className="h-9 shrink-0 flex items-center gap-1 px-2 border-b border-line cf-hscroll">
+        <button className="icon-btn" title="Collapse timeline" onClick={() => ui.setTimelineCollapsed(true)}><ChevronDown size={15} /></button>
         <button className="icon-btn" onClick={splitAtPlayhead} title="Split at playhead (S)"><Scissors size={15} /></button>
         <button className="icon-btn" onClick={deleteSel} disabled={!selection.length} title="Ripple delete selected (Del)"><Trash2 size={15} /></button>
         <button className={`icon-btn ${snap ? 'text-signal' : ''}`} onClick={() => ui.setSnap(!ui.snap)} title={`Snapping ${snap ? 'on' : 'off'} (N) — hold Alt while dragging to bypass`}><Magnet size={15} /></button>

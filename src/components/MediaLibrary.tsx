@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import { useUI, type LeftTab } from '../state/ui';
 import { useMediaQuery } from '../hooks/useMediaQuery';
+import { useDeviceClass } from '../hooks/useDeviceClass';
 import { usePanelWidth } from '../hooks/usePanelLayout';
 import { MediaTab } from './MediaTab';
 import { ToolsTab } from './ToolsTab';
@@ -64,6 +65,7 @@ export function MediaLibrary({ overlayOpen, onOverlayClose }: MediaLibraryProps)
   const leftTab = useUI((s) => s.leftTab);
   const setLeftTab = useUI((s) => s.setLeftTab);
   const desktop = useMediaQuery('(min-width: 1024px)');
+  const device = useDeviceClass();
   const [collapsed, setCollapsed] = useState(false);
   const { width, dragging, onHandlePointerDown } = usePanelWidth('left', MIN_W, MAX_W, DEFAULT_W);
   const Panel = PANELS[leftTab];
@@ -102,7 +104,7 @@ export function MediaLibrary({ overlayOpen, onOverlayClose }: MediaLibraryProps)
     return (
       <aside
         className="absolute inset-y-0 left-0 z-30 flex flex-col bg-ink-900 border-r border-line shadow-panel"
-        style={{ width: `min(${width}px, 85vw)` }}
+        style={{ width: device === 'phone' ? '100vw' : `min(${width}px, 85vw)` }}
       >
         {strip()}
         {body}

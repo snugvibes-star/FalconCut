@@ -47,7 +47,7 @@ function canvasFill(ctx: Ctx2D, color: string, x: number, width: number): string
 }
 
 export function fontString(style: TextStyle, fontSize: number): string {
-  return `${style.fontWeight} ${fontSize}px "${style.fontFamily}", "Inter Variable", system-ui, sans-serif`;
+  return `${style.fontStyle === 'italic' ? 'italic ' : ''}${style.fontWeight} ${fontSize}px "${style.fontFamily}", "Inter Variable", system-ui, sans-serif`;
 }
 
 export function wrapWords(words: { w: string; keyword?: boolean; filler?: boolean; start?: number; end?: number; style?: WordStyle }[], maxW: number, maxLines: number, measure: (s: string) => number, spaceW: number): LayoutLine[] {
@@ -102,7 +102,8 @@ export function layoutCaption(
   } else {
     source = (words?.length ? words.map((w) => ({ w: w.w, keyword: w.keyword, start: w.start, end: w.end, style: w.style })) : text.split(/\s+/).filter(Boolean).map((w) => ({ w })));
   }
-  if (style.uppercase) source = source.map((s) => ({ ...s, w: s.w.toUpperCase() }));
+  if (style.caseMode === 'upper' || (style.caseMode == null && style.uppercase)) source = source.map((s) => ({ ...s, w: s.w.toUpperCase() }));
+  if (style.caseMode === 'lower') source = source.map((s) => ({ ...s, w: s.w.toLowerCase() }));
 
   // Fit guarantee: if the wrapped text would lose words to maxLines, shrink
   // the font (up to ~35%) until every word fits. Dropped caption words are
@@ -194,16 +195,18 @@ export function drawCaption(
   };
   // Hold the highlight on the last spoken word in the natural gaps between
   // words. Without this, the highlight blinks off on every micro-pause.
-  let activeIdx = placed.findIndex((p) => p.lw.active);
+  const highlightT = localT + (hl.offset ?? 0);
+  let activeIdx = placed.findIndex((p) => p.lw.start != null && highlightT >= p.lw.start && highlightT < (p.lw.end ?? 0));
   if (activeIdx < 0 && style.revealWords) {
     for (let i = placed.length - 1; i >= 0; i--) {
-      if (placed[i].lw.sung) { activeIdx = i; break; }
+      const wStart = placed[i].lw.start;
+      if (wStart != null && highlightT >= wStart) { activeIdx = i; break; }
     }
   }
   const activeWordIndex = activeIdx >= 0 ? placed[activeIdx].lw.index : -1;
   const prevIdx = activeIdx > 0 ? activeIdx - 1 : -1;
   const speed = Math.max(0.01, hl.speed || 0.12);
-  const progress = activeIdx >= 0 ? clamp01((localT - (placed[activeIdx].lw.start ?? 0)) / speed) : 1;
+  const progress = activeIdx >= 0 ? clamp01((highlightT - (placed[activeIdx].lw.start ?? 0)) / speed) : 1;
   const eased = ease('easeOutExpo', progress);
 
   const rectFor = (idx: number) => {
@@ -266,7 +269,7 @@ export function drawCaption(
     const ws = lw.style;
     const fs = fontSize * (ws?.fontSize ?? 1);
     const weight = ws?.fontWeight ?? style.fontWeight;
-    ctx.font = `${weight} ${fs}px "${ws?.fontFamily ?? style.fontFamily}", "Inter Variable", system-ui, sans-serif`;
+    ctx.font = fontString({ ...style, fontFamily: ws?.fontFamily ?? style.fontFamily, fontWeight: weight, fontStyle: ws?.fontStyle === 'italic' ? 'italic' : style.fontStyle }, fs);
     if ('letterSpacing' in ctx) (ctx as CanvasRenderingContext2D).letterSpacing = `${ws?.letterSpacing ?? style.letterSpacing ?? 0}em`;
     ctx.save();
     ctx.translate(x + lw.width / 2, y);
@@ -277,6 +280,11 @@ export function drawCaption(
       ctx.shadowColor = ws?.outlineColor ?? 'rgba(0,0,0,0.75)';
       ctx.shadowBlur = fs * 0.12;
       ctx.shadowOffsetY = fs * 0.04;
+    }
+    if (style.glow?.enabled) {
+      ctx.shadowColor = style.glow.color;
+      ctx.shadowBlur = Math.max(0, fs * style.glow.radius * Math.max(0, style.glow.intensity) * 2);
+      ctx.shadowOffsetY = 0;
     }
     // Keep outlines subtle. Older projects can carry very heavy stroke values;
     // clamp them so reopened captions stay legible instead of looking boxed in.
@@ -291,6 +299,17 @@ export function drawCaption(
       visible = lw.w.slice(0, Math.ceil(lw.w.length * p));
     }
     if (!visible) { ctx.restore(); continue; }
+    if (style.blur?.enabled && 'filter' in ctx) {
+      const amount = Math.max(0, style.blur.amount * (1 - clamp01(style.sharpness ?? 1)) + style.blur.amount * 0.25);
+      try {
+        ctx.save();
+        (ctx as CanvasRenderingContext2D).filter = `blur(${Math.max(0.4, fs * amount).toFixed(2)}px)`;
+        ctx.globalAlpha *= 0.5;
+        ctx.fillStyle = canvasFill(ctx, color, -lw.width / 2, lw.width);
+        ctx.fillText(visible, -lw.width / 2, 0);
+        ctx.restore();
+      } catch { /* filter unsupported — the sharp text below still renders */ }
+    }
     if (ow > 0.002) {
       ctx.strokeStyle = ws?.outlineColor ?? style.outlineColor;
       ctx.lineWidth = fs * ow * 2;

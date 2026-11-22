@@ -35,6 +35,8 @@ interface UIPrefs {
   previewZoom: 'fit' | number;
   workspace: Workspace;
   snap: boolean;
+  density: 'compact' | 'comfortable';
+  timelineCollapsed: boolean;
 }
 
 export const TIMELINE_H_MIN = 160;
@@ -83,6 +85,10 @@ interface UIState {
   timelineHeight: number;
   /** Magnetic snapping for timeline drags (N toggles; Alt temporarily disables). */
   snap: boolean;
+  /** Compact vs comfortable control density — useful on phones and tablets. */
+  density: 'compact' | 'comfortable';
+  /** Collapse the bottom timeline to give the preview more room on small devices. */
+  timelineCollapsed: boolean;
   /** Direct-manipulation / drawing tool active on the preview. */
   draw: DrawState;
   setDrawTool: (t: PreviewTool) => void;
@@ -92,6 +98,8 @@ interface UIState {
   setRailVisible: (v: boolean) => void;
   setTimelineHeight: (h: number) => void;
   setSnap: (v: boolean) => void;
+  setDensity: (v: 'compact' | 'comfortable') => void;
+  setTimelineCollapsed: (v: boolean) => void;
   setRightTab: (t: RightTab) => void;
   setLeftTab: (t: LeftTab) => void;
   setWorkspace: (w: Workspace) => void;
@@ -115,6 +123,8 @@ export const useUI = create<UIState>((set, get) => ({
     ? clampTimelineHeight(prefs.timelineHeight)
     : 240,
   snap: prefs.snap !== false,
+  density: prefs.density === 'compact' ? 'compact' : 'comfortable',
+  timelineCollapsed: prefs.timelineCollapsed === true,
   draw: { tool: 'select', color: '#4C9AFF', size: 8, opacity: 1, fill: false, char: '✨' },
   setDrawTool: (t) => set((s) => ({ draw: { ...s.draw, tool: t } })),
   patchDraw: (patch) => set((s) => ({ draw: { ...s.draw, ...patch } })),
@@ -123,6 +133,8 @@ export const useUI = create<UIState>((set, get) => ({
   setRailVisible: (v) => { set({ railVisible: v }); persistUI({ railVisible: v }); },
   setTimelineHeight: (h) => { const clamped = clampTimelineHeight(h); set({ timelineHeight: clamped }); persistUI({ timelineHeight: clamped }); },
   setSnap: (v) => { set({ snap: v }); persistUI({ snap: v }); },
+  setDensity: (v) => { set({ density: v }); persistUI({ density: v }); },
+  setTimelineCollapsed: (v) => { set({ timelineCollapsed: v }); persistUI({ timelineCollapsed: v }); },
   setWorkspace: (w) => { set({ workspace: w }); persistUI({ workspace: w }); },
   setRightTab: (t) => set({ rightTab: t }),
   setLeftTab: (t) => set({ leftTab: t }),

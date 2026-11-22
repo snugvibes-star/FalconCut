@@ -6,6 +6,7 @@ import {
 import { useUI, type RightTab } from '../state/ui';
 import { useStore } from '../state/store';
 import { useMediaQuery } from '../hooks/useMediaQuery';
+import { useDeviceClass } from '../hooks/useDeviceClass';
 import { usePanelWidth } from '../hooks/usePanelLayout';
 import { Inspector } from './Inspector';
 import { AudioTab } from './tabs/AudioTab';
@@ -39,6 +40,7 @@ export function RightPanel({ overlayOpen, onOverlayClose }: RightPanelProps) {
   const issueCount = useStore((s) => s.lint.issues.length);
   const tackCount = useStore((s) => s.project.tacks.filter((t) => !t.resolved).length);
   const desktop = useMediaQuery('(min-width: 1024px)');
+  const device = useDeviceClass();
   const [collapsed, setCollapsed] = useState(false);
   const { width, dragging, onHandlePointerDown } = usePanelWidth('right', MIN_W, MAX_W, DEFAULT_W);
 
@@ -91,7 +93,7 @@ export function RightPanel({ overlayOpen, onOverlayClose }: RightPanelProps) {
     return (
       <aside
         className="absolute inset-y-0 right-0 z-30 flex flex-col bg-ink-900 border-l border-line shadow-panel"
-        style={{ width: `min(${width}px, 85vw)` }}
+        style={{ width: device === 'phone' ? '100vw' : `min(${width}px, 85vw)` }}
       >
         <div
           data-side="left"

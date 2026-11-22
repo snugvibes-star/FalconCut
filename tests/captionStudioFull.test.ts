@@ -64,6 +64,30 @@ describe('caption studio presets and rendering', () => {
   });
 });
 
+describe('extended caption customization', () => {
+  it('persists advanced style fields through actions', () => {
+    let p = createProject('Custom captions', '9:16');
+    p = applyActions(p, [
+      { type: 'add_track', track: { kind: 'text', id: 'txt' } },
+      { type: 'add_text', trackId: 'txt', start: 0, duration: 2, text: 'hello', role: 'caption', preset: 'clean' },
+    ]);
+    const id = p.clips[0].id;
+    const style = {
+      fontFamily: 'Georgia', fontStyle: 'italic' as const, caseMode: 'lower' as const,
+      textOpacity: 0.8, sharpness: 0.5, backgroundBlur: 0.2,
+      glow: { enabled: true, color: '#22D3EE', radius: 0.1, intensity: 0.7 },
+      highlight: { enabled: true, anim: 'slide' as const, bgColor: '#FFEB00', textColor: '#000000', padding: 0.1, radius: 0.1, opacity: 1, speed: 0.2, glow: 0, shadow: 0, offset: 0.15, prevColor: '#94A3B8', nextColor: '#FFFFFF' },
+    };
+    p = applyActions(p, [{ type: 'set_text_style', clipId: id, patch: style }]);
+    const saved = p.clips[0].text!.style;
+    expect(saved.fontFamily).toBe('Georgia');
+    expect(saved.fontStyle).toBe('italic');
+    expect(saved.caseMode).toBe('lower');
+    expect(saved.highlight.offset).toBe(0.15);
+    expect(saved.glow.enabled).toBe(true);
+  });
+});
+
 describe('subtitle interchange', () => {
   it('parses ASS and preserves text/timestamps as editable cues', () => {
     const ass = `[Script Info]\nScriptType: v4.00+\n\n[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\nDialogue: 0,0:00:01.00,0:00:03.00,Default,,0,0,0,,Hello\\Nworld`;

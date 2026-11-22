@@ -16,6 +16,7 @@ import {
 } from './textPresets';
 import { AiCaptionPanel } from './AiCaptionPanel';
 import { ManualCaptionTools } from './ManualCaptionTools';
+import { CaptionProperties } from './CaptionProperties';
 
 const SAVED_PRESETS_KEY = 'falconcut.captionPresets';
 
@@ -673,6 +674,10 @@ export function CaptionsTab() {
           </>
         )}
       </Section>
+
+      {currentStyle && (
+        <CaptionProperties style={currentStyle} onPatch={patchStyle} onPatchHighlight={patchHighlight} />
+      )}
 
       <Section title="My caption presets">
         <div className="flex gap-1.5">

@@ -138,6 +138,8 @@ export type TextPath =
 export interface TextStyle {
   preset: CaptionStyleId;
   fontFamily: string;
+  fontStyle?: 'normal' | 'italic';
+  caseMode?: 'none' | 'upper' | 'lower';
   fontSize: number; // fraction of project height, e.g. 0.045
   fontWeight: number;
   color: string;
@@ -189,6 +191,7 @@ export interface TextStyle {
     shadow: number; // drop-shadow blur in font-size fractions
     prevColor?: string; // styling of the previously spoken word
     nextColor?: string; // styling of the upcoming word
+    offset?: number; // shift highlight timing relative to speech (seconds)
   };
 }
 
@@ -431,6 +434,8 @@ export const defaultTransform = (): Transform => ({ x: 0, y: 0, scale: 1, rotati
 export const defaultTextStyle = (preset: CaptionStyleId = 'clean'): TextStyle => ({
   preset,
   fontFamily: 'Inter Variable',
+  fontStyle: 'normal',
+  caseMode: 'none',
   fontSize: preset === 'word-pop' ? 0.075 : 0.046,
   fontWeight: 800,
   color: '#FFFFFF',
@@ -469,6 +474,7 @@ export const defaultTextStyle = (preset: CaptionStyleId = 'clean'): TextStyle =>
     speed: 0.12,
     glow: 0,
     shadow: 0,
+    offset: 0,
   },
 });
 

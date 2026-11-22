@@ -26,6 +26,7 @@ export default function App() {
   const dialogs = useUI((s) => s.dialogs);
   const workspace = useUI((s) => s.workspace);
   const focusMode = useUI((s) => s.focusMode);
+  const density = useUI((s) => s.density);
   usePlayback();
   useKeyboard();
   const sessionToken = useStore((s) => s.session?.token);
@@ -62,7 +63,7 @@ export default function App() {
   }
 
   return (
-    <div className="h-full flex flex-col bg-ink-950 text-paper">
+    <div className={`h-full flex flex-col bg-ink-950 text-paper ${density === 'compact' ? 'cf-density-compact' : ''}`}>
       <TopBar
         leftOpen={leftOverlay}
         rightOpen={rightOverlay}
