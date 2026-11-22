@@ -3,7 +3,7 @@
 import { useEffect } from 'react';
 import { useStore } from '../state/store';
 import { useUI } from '../state/ui';
-import { activeClips, projectDuration } from '../../engine';
+import { activeClips, projectDuration, defaultTextStyle, type Action } from '../../engine';
 import { toggleMarkerLoop } from '../features/zoneLoop';
 import { copySelection, cutSelection, duplicateSelection, pasteClipboard } from '../features/clipClipboard';
 
@@ -44,6 +44,53 @@ export function useKeyboard() {
           ui.toast(`Split ${targets.length} clip${targets.length > 1 ? 's' : ''} at playhead`);
         } else ui.toast('Move the playhead inside a clip to split', 'info');
         return;
+      }
+      // ---- caption studio shortcuts (Ctrl/Cmd+Alt to avoid NLE conflicts) ----
+      if (mod && e.altKey) {
+        const captionClips = s.project.clips.filter((c) => c.kind === 'text' && c.text?.role === 'caption');
+        const selectedCaptions = captionClips.filter((c) => s.selection.includes(c.id));
+        const k = e.key.toLowerCase();
+        if (k === 'c') {
+          e.preventDefault();
+          const trackId = s.project.tracks.find((t) => t.kind === 'text' && !t.locked)?.id;
+          if (!trackId) { ui.toast('No text track', 'info'); return; }
+          const text = 'New caption';
+          const words = text.split(/\s+/).map((w, i, a) => ({ w, start: i * 2 / a.length, end: (i + 1) * 2 / a.length }));
+          s.commit([{ type: 'add_text', trackId, start: s.playhead, duration: 2, text, role: 'caption', preset: 'clean', style: defaultTextStyle('clean'), words }], 'Add caption (shortcut)');
+          ui.toast('Caption added at playhead', 'success');
+          return;
+        }
+        if (k === 'd' && selectedCaptions.length) {
+          e.preventDefault();
+          const actions: Action[] = selectedCaptions.map((c) => ({
+            type: 'add_text', trackId: c.trackId, start: c.start + c.duration, duration: c.duration,
+            text: c.text!.text, role: 'caption', preset: c.text!.style.preset,
+            style: { ...c.text!.style }, words: c.text!.words?.map((w) => ({ ...w })),
+          }));
+          s.commit(actions, 'Duplicate caption (shortcut)');
+          return;
+        }
+        if (k === 's' && selectedCaptions.length) {
+          e.preventDefault();
+          const t = s.playhead;
+          s.commit(selectedCaptions.map((c) => ({
+            type: 'split_clip' as const, clipId: c.id,
+            time: t > c.start && t < c.start + c.duration ? t : c.start + c.duration / 2,
+          })), 'Split caption (shortcut)');
+          return;
+        }
+        if (e.key === 'Backspace' && selectedCaptions.length) {
+          e.preventDefault();
+          s.commit(selectedCaptions.map((c) => ({ type: 'remove_clip' as const, clipId: c.id, ripple: false })), 'Delete caption (shortcut)');
+          return;
+        }
+        if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+          if (!selectedCaptions.length) return;
+          e.preventDefault();
+          const dt = (e.key === 'ArrowRight' ? 1 : -1) * (e.shiftKey ? 1 : 0.1);
+          s.commit(selectedCaptions.map((c) => ({ type: 'move_clip' as const, clipId: c.id, start: Math.max(0, c.start + dt) })), 'Nudge caption (shortcut)');
+          return;
+        }
       }
       if (mod && e.key === '/') { e.preventDefault(); ui.toggle('palette'); return; }
       if (mod && e.key.toLowerCase() === 'e') { e.preventDefault(); ui.open('export'); return; }

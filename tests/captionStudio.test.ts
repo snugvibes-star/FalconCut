@@ -38,10 +38,13 @@ const sampleWords = [
 
 describe('cinematic caption presets', () => {
   it('ships the six reference presets with distinct highlight behavior', () => {
-    expect(CAPTION_PRESETS.map((p) => p.id)).toEqual(['default', 'tiktok', 'karaoke', 'beast', 'focus', 'mogul']);
+    expect(CAPTION_PRESETS.map((p) => p.id)).toEqual([
+      'default', 'tiktok', 'karaoke', 'beast', 'focus', 'mogul',
+      'minimal', 'documentary', 'podcast', 'gaming', 'cinematic',
+    ]);
     for (const p of CAPTION_PRESETS) {
       const s = presetTextStyle(p.id, 'caption', '9:16');
-      expect(s.revealWords).toBe(true);
+      if (p.id !== 'documentary') expect(s.revealWords).toBe(true);
       expect(s.presetId).toBe(p.id);
       expect(s.highlight).toBeTruthy();
       expect(s.y).toBeLessThanOrEqual(0.73); // 9:16 safe zone

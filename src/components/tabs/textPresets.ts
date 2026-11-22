@@ -7,6 +7,29 @@ import {
   type Action, type CaptionStyleId, type CaptionWord, type Project, type TextStyle, type Transition,
 } from '../../../engine';
 
+/** A wider palette for caption text, highlights and backgrounds. */
+export const CAPTION_COLORS: { name: string; value: string }[] = [
+  { name: 'White', value: '#FFFFFF' }, { name: 'Off white', value: '#F8FAFC' },
+  { name: 'Black', value: '#0B1220' }, { name: 'Slate', value: '#94A3B8' },
+  { name: 'Lime', value: '#C6F24E' }, { name: 'Green', value: '#22C55E' },
+  { name: 'Cyan', value: '#22D3EE' }, { name: 'Sky', value: '#38BDF8' },
+  { name: 'Blue', value: '#3B82F6' }, { name: 'Indigo', value: '#6366F1' },
+  { name: 'Violet', value: '#A78BFA' }, { name: 'Purple', value: '#C084FC' },
+  { name: 'Pink', value: '#FF2D95' }, { name: 'Rose', value: '#FB7185' },
+  { name: 'Red', value: '#EF4444' }, { name: 'Orange', value: '#FB923C' },
+  { name: 'Amber', value: '#FBBF24' }, { name: 'Yellow', value: '#FFEB00' },
+  { name: 'Gold', value: '#FCD34D' }, { name: 'Mint', value: '#5EEAD4' },
+];
+
+export const CAPTION_GRADIENTS: { name: string; value: string }[] = [
+  { name: 'Sunset', value: 'linear-gradient(#FFEB3B, #FF2D95)' },
+  { name: 'Ocean', value: 'linear-gradient(#22D3EE, #3B82F6)' },
+  { name: 'Forest', value: 'linear-gradient(#C6F24E, #22C55E)' },
+  { name: 'Candy', value: 'linear-gradient(#FF2D95, #A78BFA)' },
+  { name: 'Gold', value: 'linear-gradient(#FFFFFF, #FCD34D)' },
+  { name: 'Aurora', value: 'linear-gradient(#5EEAD4, #6366F1)' },
+];
+
 export type TextRole = 'title' | 'caption' | 'hook';
 export type TextEffect = 'none' | 'shadow' | 'halo' | 'pop' | 'rise' | 'fade' | 'typewriter' | 'glow' | 'blur' | 'gradient' | 'glass' | 'reflection';
 
@@ -38,7 +61,9 @@ export const TEXT_TRANSITIONS: { id: TextTransition; label: string; hint: string
   { id: 'wipe', label: 'Wipe', hint: 'Wipe transition' },
 ];
 
-export type CinematicPresetId = 'default' | 'tiktok' | 'karaoke' | 'beast' | 'focus' | 'mogul';
+export type CinematicPresetId =
+  | 'default' | 'tiktok' | 'karaoke' | 'beast' | 'focus' | 'mogul'
+  | 'minimal' | 'documentary' | 'podcast' | 'gaming' | 'cinematic';
 
 export interface CaptionPreset {
   id: CinematicPresetId;
@@ -103,6 +128,48 @@ export const CAPTION_PRESETS: CaptionPreset[] = [
       uppercase: false, shadow: true, outlineWidth: 0.03, bgColor: 'transparent',
       highlightColor: '#22D3EE',
       highlight: { enabled: true, anim: 'slide', bgColor: '#22D3EE', textColor: '#06121F', padding: 0.14, radius: 0.07, opacity: 0.95, speed: 0.2, glow: 0.08, shadow: 0 },
+    },
+  },
+  {
+    id: 'minimal', label: 'Minimal', styleId: 'clean', effect: 'none', transition: 'both',
+    style: {
+      presetId: 'minimal', revealWords: true, color: '#F8FAFC', fontSize: 0.044, fontWeight: 500,
+      uppercase: false, shadow: true, outlineWidth: 0, bgColor: 'transparent',
+      highlight: { enabled: false, anim: 'fade', bgColor: 'rgba(255,255,255,0.16)', textColor: '#FFFFFF', padding: 0.12, radius: 0.1, opacity: 0.8, speed: 0.2, glow: 0, shadow: 0 },
+    },
+  },
+  {
+    id: 'documentary', label: 'Documentary', styleId: 'clean', effect: 'shadow', transition: 'both',
+    style: {
+      presetId: 'documentary', revealWords: false, color: '#F1F5F9', fontSize: 0.04, fontWeight: 600,
+      uppercase: false, shadow: true, outlineWidth: 0.02, bgColor: 'rgba(2,6,23,0.55)',
+      bgPadding: 0.28, maxWidth: 0.8,
+      highlight: { enabled: false, anim: 'color', bgColor: 'rgba(0,0,0,0)', textColor: '#E2E8F0', padding: 0, radius: 0, opacity: 0, speed: 0.15, glow: 0, shadow: 0 },
+    },
+  },
+  {
+    id: 'podcast', label: 'Podcast', styleId: 'clean', effect: 'shadow', transition: 'both',
+    style: {
+      presetId: 'podcast', revealWords: true, color: '#E2E8F0', fontSize: 0.048, fontWeight: 700,
+      uppercase: false, shadow: true, outlineWidth: 0.02, bgColor: 'transparent',
+      highlight: { enabled: true, anim: 'wipe', bgColor: '#A78BFA', textColor: '#0B1220', padding: 0.16, radius: 0.14, opacity: 0.95, speed: 0.18, glow: 0.04, shadow: 0 },
+    },
+  },
+  {
+    id: 'gaming', label: 'Gaming', styleId: 'word-pop', effect: 'glow', transition: 'both',
+    style: {
+      presetId: 'gaming', revealWords: true, color: '#FFFFFF', fontSize: 0.068, fontWeight: 900,
+      uppercase: true, shadow: true, outlineWidth: 0.035, bgColor: 'transparent', letterSpacing: 0.015,
+      highlight: { enabled: true, anim: 'glitch', bgColor: '#FF2D95', textColor: '#0B1220', padding: 0.14, radius: 0.04, opacity: 1, speed: 0.1, glow: 0.18, shadow: 0 },
+    },
+  },
+  {
+    id: 'cinematic', label: 'Cinematic', styleId: 'clean', effect: 'reflection', transition: 'both',
+    style: {
+      presetId: 'cinematic', revealWords: true,
+      color: 'linear-gradient(#FFFFFF, #FCD34D)', fontSize: 0.058, fontWeight: 700,
+      uppercase: false, shadow: true, outlineWidth: 0.02, bgColor: 'transparent', letterSpacing: 0.02,
+      highlight: { enabled: true, anim: 'fade', bgColor: 'rgba(252,211,77,0.22)', textColor: '#FFF7D6', padding: 0.18, radius: 0.16, opacity: 0.9, speed: 0.28, glow: 0.12, shadow: 0 },
     },
   },
 ];

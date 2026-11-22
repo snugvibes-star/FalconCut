@@ -10,10 +10,12 @@ import { commit, Section, Hint, DragSlider } from './shared';
 import { defaultTextStyle, type CaptionStyleId, type CaptionWord, type WordStyle, type TextStyle, type HighlightAnim } from '../../../engine';
 import { projectSRT, projectVTT, downloadBlob } from '../../../exporter/artifacts';
 import {
-  TEXT_EFFECTS, TEXT_TRANSITIONS, CAPTION_PRESETS, buildStyledText, effectPatch, transitionActions,
-  presetTextStyle, presetActions, evenWords,
+  TEXT_EFFECTS, TEXT_TRANSITIONS, CAPTION_PRESETS, CAPTION_COLORS, CAPTION_GRADIENTS,
+  buildStyledText, effectPatch, transitionActions, presetTextStyle, presetActions, evenWords,
   type CinematicPresetId, type TextEffect, type TextTransition,
 } from './textPresets';
+import { AiCaptionPanel } from './AiCaptionPanel';
+import { ManualCaptionTools } from './ManualCaptionTools';
 
 const SAVED_PRESETS_KEY = 'falconcut.captionPresets';
 
@@ -30,6 +32,11 @@ const PRESET_SAMPLES: Record<CinematicPresetId, { text: string; hi: string }> = 
   beast: { text: 'EVERY STORY', hi: 'STORY' },
   focus: { text: 'your STORY', hi: 'STORY' },
   mogul: { text: 'YOUR STORY', hi: 'STORY' },
+  minimal: { text: 'your story', hi: '' },
+  documentary: { text: 'your story', hi: '' },
+  podcast: { text: 'your STORY', hi: 'STORY' },
+  gaming: { text: 'YOUR STORY', hi: 'STORY' },
+  cinematic: { text: 'your STORY', hi: 'STORY' },
 };
 
 const ANIMATIONS: TextStyle['animation'][] = [
@@ -100,15 +107,20 @@ export function StylePreview({ style, sample = 'your story', hi = 'story' }: {
             const isHi = hi && word.toLowerCase() === hi.toLowerCase();
             const hiBg = isHi && style.highlight?.enabled ? style.highlight.bgColor : undefined;
             const hiOpaque = !!hiBg && hiBg !== 'transparent' && !/rgba\([^)]*,\s*0\s*\)/.test(hiBg);
+            const wordColor = isHi
+              ? (style.highlight?.enabled ? (style.highlight.textColor || style.highlightColor) : (wordPop ? style.highlightColor : style.color))
+              : style.color;
+            const gradient = !isHi && wordColor.startsWith('linear-gradient(');
             return (
               <span key={i} style={{
                 ...baseStroke,
                 // A solid highlight already separates the word from the
                 // background — stroking it as well looks like a heavy box.
                 WebkitTextStrokeWidth: hiOpaque ? 0 : baseStroke.WebkitTextStrokeWidth,
-                color: isHi
-                  ? (style.highlight?.enabled ? (style.highlight.textColor || style.highlightColor) : (wordPop ? style.highlightColor : style.color))
-                  : style.color,
+                color: gradient ? 'transparent' : wordColor,
+                backgroundImage: gradient ? wordColor : undefined,
+                WebkitBackgroundClip: gradient ? 'text' : undefined,
+                WebkitTextFillColor: gradient ? 'transparent' : undefined,
                 background: hiBg,
                 padding: hiBg ? `0 ${(style.highlight!.padding * 0.7).toFixed(2)}em` : undefined,
                 borderRadius: hiBg ? `${(fs * style.highlight!.radius).toFixed(0)}px` : undefined,
@@ -129,6 +141,7 @@ export function CaptionsTab() {
   const project = useStore((s) => s.project);
   const selection = useStore((s) => s.selection);
   const playhead = useStore((s) => s.playhead);
+  const [mode, setMode] = useState<'manual' | 'ai'>('manual');
   const [style, setStyle] = useState<CaptionStyleId>('clean');
   const [presetId, setPresetId] = useState<CinematicPresetId>('default');
   const [selectedWords, setSelectedWords] = useState<number[]>([]);
@@ -321,6 +334,21 @@ export function CaptionsTab() {
 
   return (
     <div>
+      <Section title="Caption Studio — choose a workflow">
+        <div className="grid grid-cols-2 gap-1.5">
+          <button onClick={() => setMode('manual')}
+            className={`rounded-lg border p-2 text-left transition-colors ${mode === 'manual' ? 'border-signal/60 bg-signal/10' : 'border-line hover:border-signal/40 bg-ink-850'}`}>
+            <span className={`block text-xs font-semibold ${mode === 'manual' ? 'text-signal' : 'text-paper'}`}>Create captions manually</span>
+            <span className="block text-[10px] text-paper-faint">Works immediately — no AI or downloads</span>
+          </button>
+          <button onClick={() => setMode('ai')}
+            className={`rounded-lg border p-2 text-left transition-colors ${mode === 'ai' ? 'border-signal/60 bg-signal/10' : 'border-line hover:border-signal/40 bg-ink-850'}`}>
+            <span className={`block text-xs font-semibold ${mode === 'ai' ? 'text-signal' : 'text-paper'}`}>Create captions with AI</span>
+            <span className="block text-[10px] text-paper-faint">Local Whisper · on-demand models</span>
+          </button>
+        </div>
+      </Section>
+      {mode === 'manual' ? <ManualCaptionTools /> : <AiCaptionPanel />}
       <Section title="Generate">
         <button className="btn-signal w-full justify-center text-xs" disabled={busy} onClick={() => void generate()}>
           {busy ? <Loader2 size={14} className="animate-spin" /> : null} Generate captions
@@ -458,6 +486,36 @@ export function CaptionsTab() {
                     </div>
                   ))}
                 </div>
+                <div>
+                  <span className="label">Quick text colors</span>
+                  <div className="flex flex-wrap gap-1">
+                    {CAPTION_COLORS.map((c) => (
+                      <button key={c.value} title={c.name} onClick={() => patchStyle({ color: c.value }, 'Caption color')}
+                        className={`w-5 h-5 rounded border-2 ${currentStyle.color.toLowerCase() === c.value.toLowerCase() ? 'border-signal' : 'border-line'}`}
+                        style={{ background: c.value }} />
+                    ))}
+                  </div>
+                </div>
+                <div>
+                  <span className="label">Gradient text</span>
+                  <div className="flex flex-wrap gap-1">
+                    {CAPTION_GRADIENTS.map((g) => (
+                      <button key={g.value} title={g.name} onClick={() => patchStyle({ color: g.value }, 'Caption gradient')}
+                        className={`chip border ${currentStyle.color === g.value ? 'bg-signal/15 border-signal/50 text-signal' : 'border-line text-paper-dim'}`}>
+                        {g.name}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div>
+                  <span className="label">Quick highlight colors</span>
+                  <div className="flex flex-wrap gap-1">
+                    {CAPTION_COLORS.slice(4, 18).map((c) => (
+                      <button key={c.value} title={c.name} onClick={() => patchHighlight({ bgColor: c.value })}
+                        className="w-5 h-5 rounded border-2 border-line hover:border-signal" style={{ background: c.value }} />
+                    ))}
+                  </div>
+                </div>
                 <div className="flex gap-1.5 items-end">
                   <div className="flex-1">
                     <span className="label">Background</span>
@@ -573,7 +631,7 @@ export function CaptionsTab() {
             <div>
               <span className="label">Highlight animation</span>
               <div className="flex flex-wrap gap-1">
-                {(['instant', 'slide', 'pop', 'scale', 'fade', 'wipe', 'color', 'bar'] as HighlightAnim[]).map((a) => (
+                {(['instant', 'slide', 'pop', 'scale', 'fade', 'wipe', 'color', 'bar', 'glitch'] as HighlightAnim[]).map((a) => (
                   <button key={a} onClick={() => patchHighlight({ anim: a })}
                     className={`chip border capitalize ${currentStyle.highlight?.anim === a ? 'bg-signal/15 border-signal/50 text-signal' : 'border-line text-paper-dim hover:text-paper'}`}>{a}</button>
                 ))}

@@ -103,11 +103,26 @@ export class TranscriptClient {
     return { segments, words, language: out?.language, model };
   }
 
-  dispose() {
+  /** Stop any in-flight load/transcription and clean up the worker. */
+  cancelAll() {
+    for (const [, p] of this.pending) p.reject(new Error('Cancelled by user'));
+    this.pending.clear();
     this.worker?.terminate();
     this.worker = null;
     this.loadedModel = null;
-    this.pending.clear();
+  }
+
+  /** Drop the in-memory pipeline for one model after its cache was cleared. */
+  forget(model: WhisperModel) {
+    if (this.loadedModel === model) {
+      this.worker?.terminate();
+      this.worker = null;
+      this.loadedModel = null;
+    }
+  }
+
+  dispose() {
+    this.cancelAll();
   }
 }
 

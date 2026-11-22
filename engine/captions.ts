@@ -34,6 +34,18 @@ function mixColor(a: string, b: string, t: number): string {
   return `rgb(${c[0]},${c[1]},${c[2]})`;
 }
 
+/** Support `linear-gradient(#a,#b)` as a text color in the shared renderer. */
+function canvasFill(ctx: Ctx2D, color: string, x: number, width: number): string | CanvasGradient {
+  if (typeof ctx.createLinearGradient !== 'function') return color;
+  const m = /^linear-gradient\((.+)\)$/.exec(color);
+  if (!m) return color;
+  const stops = m[1].split(',').map((s) => s.trim()).filter(Boolean);
+  if (stops.length < 2) return color;
+  const g = ctx.createLinearGradient(x, 0, x + Math.max(1, width), 0);
+  stops.forEach((s, i) => g.addColorStop(i / (stops.length - 1), s));
+  return g;
+}
+
 export function fontString(style: TextStyle, fontSize: number): string {
   return `${style.fontWeight} ${fontSize}px "${style.fontFamily}", "Inter Variable", system-ui, sans-serif`;
 }
@@ -222,6 +234,9 @@ export function drawCaption(
     } else if (hl.anim === 'bar') {
       const p = placed[activeIdx];
       r = { x: p.x, y: p.y + fontSize * 0.55, w: p.lw.width * Math.max(0.05, eased), h: Math.max(2, fontSize * 0.1) };
+    } else if (hl.anim === 'glitch') {
+      const jitter = Math.sin(localT * 90) * fontSize * 0.09;
+      r = { x: target.x + jitter, y: target.y, w: target.w, h: target.h };
     }
     if (hl.glow > 0) { ctx.shadowColor = hl.bgColor; ctx.shadowBlur = fontSize * hl.glow; }
     else if (hl.shadow > 0) { ctx.shadowColor = 'rgba(0,0,0,0.65)'; ctx.shadowBlur = fontSize * hl.shadow; ctx.shadowOffsetY = fontSize * 0.04; }
@@ -268,14 +283,22 @@ export function drawCaption(
     const hlOpaque = hl.enabled && !!hl.bgColor && hl.bgColor !== 'transparent'
       && !/rgba\([^)]*,\s*0\s*\)/.test(hl.bgColor);
     const ow = isActive && hlOpaque ? 0 : Math.min(0.06, Math.max(0, ws?.outlineWidth ?? style.outlineWidth ?? 0));
+    let visible = lw.w;
+    if (anim === 'typewriter') {
+      const wStart = lw.start ?? 0;
+      const span = Math.max(0.1, (lw.end ?? duration) - wStart);
+      const p = clamp01((localT - wStart) / span);
+      visible = lw.w.slice(0, Math.ceil(lw.w.length * p));
+    }
+    if (!visible) { ctx.restore(); continue; }
     if (ow > 0.002) {
       ctx.strokeStyle = ws?.outlineColor ?? style.outlineColor;
       ctx.lineWidth = fs * ow * 2;
-      ctx.strokeText(lw.w, -lw.width / 2, 0);
+      ctx.strokeText(visible, -lw.width / 2, 0);
     }
     ctx.shadowColor = 'transparent';
-    ctx.fillStyle = color;
-    ctx.fillText(lw.w, -lw.width / 2, 0);
+    ctx.fillStyle = canvasFill(ctx, color, -lw.width / 2, lw.width);
+    ctx.fillText(visible, -lw.width / 2, 0);
     ctx.restore();
   }
   ctx.restore();

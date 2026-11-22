@@ -7,6 +7,7 @@ export * from './render';
 export * from './media';
 export * from './audio';
 export * from './captions';
+export * from './subtitles';
 export * from './effects';
 export * from './luts';
 export * from './wav';

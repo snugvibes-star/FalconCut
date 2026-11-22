@@ -113,7 +113,7 @@ export interface CaptionWord { w: string; start: number; end: number; keyword?: 
 export type CaptionStyleId = 'clean' | 'karaoke' | 'bold-keywords' | 'word-pop';
 
 /** Word-highlight transition styles used by the caption studio. */
-export type HighlightAnim = 'instant' | 'slide' | 'pop' | 'scale' | 'fade' | 'wipe' | 'color' | 'bar';
+export type HighlightAnim = 'instant' | 'slide' | 'pop' | 'scale' | 'fade' | 'wipe' | 'color' | 'bar' | 'glitch';
 
 export type TextAnimationType = 'none' | 'fade' | 'pop' | 'typewriter' | 'slide' | 'bounce' | 'zoom' | 'blur' | 'glitch' | 'wave' | 'shake' | 'karaoke';
 
