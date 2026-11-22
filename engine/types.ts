@@ -93,9 +93,27 @@ export interface Keyframe {
 
 export interface Fades { in: number; out: number }
 
-export interface CaptionWord { w: string; start: number; end: number; keyword?: boolean; filler?: boolean }
+export interface WordStyle {
+  color?: string;
+  fontFamily?: string;
+  fontSize?: number;
+  fontWeight?: number;
+  fontStyle?: 'normal' | 'italic' | 'oblique';
+  opacity?: number;
+  letterSpacing?: number;
+  outlineColor?: string;
+  outlineWidth?: number;
+  shadow?: boolean;
+  bgColor?: string;
+  highlightColor?: string;
+}
+
+export interface CaptionWord { w: string; start: number; end: number; keyword?: boolean; filler?: boolean; style?: WordStyle }
 
 export type CaptionStyleId = 'clean' | 'karaoke' | 'bold-keywords' | 'word-pop';
+
+/** Word-highlight transition styles used by the caption studio. */
+export type HighlightAnim = 'instant' | 'slide' | 'pop' | 'scale' | 'fade' | 'wipe' | 'color' | 'bar';
 
 export type TextAnimationType = 'none' | 'fade' | 'pop' | 'typewriter' | 'slide' | 'bounce' | 'zoom' | 'blur' | 'glitch' | 'wave' | 'shake' | 'karaoke';
 
@@ -133,10 +151,45 @@ export interface TextStyle {
   y: number; // 0..1
   maxLines: number;
   maxWidth: number; // fraction of project width
-  animation: 'none' | 'pop' | 'fade' | 'rise' | 'typewriter';
+  animation: 'none' | 'pop' | 'fade' | 'rise' | 'typewriter' | 'slide' | 'bounce' | 'zoom' | 'blur' | 'glitch' | 'wave' | 'shake' | 'pulse' | 'fade-in' | 'fade-out';
   shadow: boolean;
   uppercase: boolean;
   letterSpacing: number;
+  // Blur & Glow effects
+  glow: { enabled: boolean; color: string; radius: number; intensity: number };
+  blur: { enabled: boolean; amount: number; direction: 'left' | 'right' | 'up' | 'down'; edgeSoftness: number };
+  backgroundBlur: number; // blur behind the text block
+  textOpacity: number; // 0..1 overall text opacity override
+  sharpness: number; // 0..1 sharpness multiplier
+  // Motion / animation config (applied to clip-level)
+  motion: { type: 'none' | 'fade' | 'pop' | 'slide' | 'bounce' | 'zoom' | 'typewriter' | 'continuous'; duration?: number; delay?: number; easing?: Easing; speed?: number; direction?: 'left' | 'right' | 'up' | 'down'; loop?: boolean };
+  shadowColor?: string;
+  shadowBlur?: number;
+  shadowOffsetX?: number;
+  shadowOffsetY?: number;
+  /** Name of the visual caption preset this style came from (editable after applying). */
+  presetId?: string;
+  /** Reveal one word at a time using each word's own start time (speech sync). */
+  revealWords: boolean;
+  /** Extra spacing between words, fraction of a normal space (1 = default). */
+  wordSpacing: number;
+  /** Line height multiplier (1.22 default). */
+  lineSpacing: number;
+  /** Active-word highlight configuration. All fields are persisted in the project. */
+  highlight: {
+    enabled: boolean;
+    anim: HighlightAnim;
+    bgColor: string;
+    textColor: string;
+    padding: number; // fraction of font size
+    radius: number; // fraction of font size
+    opacity: number; // 0..1
+    speed: number; // transition seconds
+    glow: number; // glow blur in font-size fractions
+    shadow: number; // drop-shadow blur in font-size fractions
+    prevColor?: string; // styling of the previously spoken word
+    nextColor?: string; // styling of the upcoming word
+  };
 }
 
 export interface TextData {
@@ -395,6 +448,28 @@ export const defaultTextStyle = (preset: CaptionStyleId = 'clean'): TextStyle =>
   shadow: true,
   uppercase: preset === 'word-pop' || preset === 'bold-keywords',
   letterSpacing: 0,
+  glow: { enabled: false, color: '#00FFFF', radius: 0.08, intensity: 0.5 },
+  blur: { enabled: false, amount: 0.03, direction: 'right', edgeSoftness: 0.5 },
+  backgroundBlur: 0,
+  textOpacity: 1,
+  sharpness: 1,
+  motion: { type: 'none', duration: 0.4, delay: 0, easing: 'easeOut', speed: 1, direction: 'up', loop: false },
+  presetId: 'default',
+  revealWords: false,
+  wordSpacing: 1,
+  lineSpacing: 1.22,
+  highlight: {
+    enabled: false,
+    anim: 'instant',
+    bgColor: '#000000',
+    textColor: '#FFFFFF',
+    padding: 0.18,
+    radius: 0.12,
+    opacity: 0.9,
+    speed: 0.12,
+    glow: 0,
+    shadow: 0,
+  },
 });
 
 let uidCounter = 0;

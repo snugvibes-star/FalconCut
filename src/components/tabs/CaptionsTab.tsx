@@ -7,14 +7,14 @@ import { Loader2, Download, Copy, Trash2, Scissors, Plus, ChevronDown, Upload, W
 import { useStore } from '../../state/store';
 import { useUI } from '../../state/ui';
 import { commit, Section, Hint, DragSlider } from './shared';
-import { defaultTextStyle, type CaptionStyleId, type TextStyle } from '../../../engine';
+import { defaultTextStyle, type CaptionStyleId, type CaptionWord, type WordStyle, type TextStyle, type HighlightAnim } from '../../../engine';
 import { projectSRT, projectVTT, downloadBlob } from '../../../exporter/artifacts';
 import {
-  TEXT_EFFECTS, TEXT_TRANSITIONS, buildStyledText, effectPatch, transitionActions,
-  type TextEffect, type TextTransition,
+  TEXT_EFFECTS, TEXT_TRANSITIONS, CAPTION_PRESETS, buildStyledText, effectPatch, transitionActions,
+  presetTextStyle, presetActions, evenWords,
+  type CinematicPresetId, type TextEffect, type TextTransition,
 } from './textPresets';
 
-const STYLES: CaptionStyleId[] = ['clean', 'karaoke', 'bold-keywords', 'word-pop'];
 const DENSITIES = [
   { id: 'tight', label: 'Tight', hint: '1 line · ~3s · social' },
   { id: 'balanced', label: 'Balanced', hint: '2 lines · ~6s' },
@@ -62,24 +62,38 @@ export function StylePreview({ style }: { style: TextStyle }) {
         }}
       >
         <span
-          className="inline-block leading-tight"
+          className="inline-flex items-center gap-[0.25em] leading-tight"
           style={{
             fontSize: fs,
             fontWeight: style.fontWeight,
-            color: style.color,
+            fontFamily: style.fontFamily,
             letterSpacing: `${style.letterSpacing}em`,
             textTransform: style.uppercase ? 'uppercase' : 'none',
-            WebkitTextStrokeWidth: stroke > 0.2 ? `${stroke.toFixed(1)}px` : 0,
-            WebkitTextStrokeColor: style.outlineColor,
-            paintOrder: 'stroke fill',
             textShadow: style.shadow ? `0 ${(fs * 0.05).toFixed(1)}px ${(fs * 0.16).toFixed(1)}px rgba(0,0,0,0.75)` : 'none',
             background: bg,
             padding: bg ? `${(style.bgPadding * 0.8).toFixed(2)}em ${(style.bgPadding * 1).toFixed(2)}em` : undefined,
             borderRadius: bg ? `${(fs * 0.22).toFixed(0)}px` : undefined,
           }}
         >
-          <span>Sam</span>
-          {wordPop ? <span style={{ color: style.highlightColor }}>ple</span> : <span>ple</span>}
+          <span style={{
+            color: style.color,
+            WebkitTextStrokeWidth: stroke > 0.2 ? `${stroke.toFixed(1)}px` : 0,
+            WebkitTextStrokeColor: style.outlineColor,
+            paintOrder: 'stroke fill',
+          }}>your</span>
+          <span style={{
+            color: style.highlight?.enabled
+              ? (style.highlight.textColor || style.highlightColor)
+              : (wordPop ? style.highlightColor : style.color),
+            background: style.highlight?.enabled ? style.highlight.bgColor : undefined,
+            padding: style.highlight?.enabled ? `0 ${(style.highlight.padding * 0.7).toFixed(2)}em` : undefined,
+            borderRadius: style.highlight?.enabled ? `${(fs * style.highlight.radius).toFixed(0)}px` : undefined,
+            boxShadow: style.highlight?.enabled && style.highlight.glow > 0
+              ? `0 0 ${(fs * style.highlight.glow).toFixed(1)}px ${style.highlight.bgColor}` : undefined,
+            WebkitTextStrokeWidth: stroke > 0.2 ? `${stroke.toFixed(1)}px` : 0,
+            WebkitTextStrokeColor: style.outlineColor,
+            paintOrder: 'stroke fill',
+          }}>story</span>
         </span>
       </div>
     </div>
@@ -93,6 +107,8 @@ export function CaptionsTab() {
   const selection = useStore((s) => s.selection);
   const playhead = useStore((s) => s.playhead);
   const [style, setStyle] = useState<CaptionStyleId>('clean');
+  const [presetId, setPresetId] = useState<CinematicPresetId>('default');
+  const [selectedWords, setSelectedWords] = useState<number[]>([]);
   const [density, setDensity] = useState<Density>('balanced');
   const [cleanFillers, setCleanFillers] = useState(true);
   const [highlight, setHighlight] = useState(true);
@@ -107,7 +123,11 @@ export function CaptionsTab() {
   const selectedCaption = captions.find((c) => selection.includes(c.id));
   // Advanced editor targets: the selected caption clip if one is selected, else all caption clips.
   const targets = selectedCaption ? [selectedCaption] : captions;
-  const currentStyle = targets[0]?.text?.style;
+  const currentStyle = targets[0]?.text?.style ? {
+    ...defaultTextStyle(targets[0].text.style.preset),
+    ...targets[0].text.style,
+    highlight: { ...defaultTextStyle().highlight, ...(targets[0].text.style.highlight ?? {}) },
+  } : undefined;
   const appliesLabel = selectedCaption
     ? 'Applies to: selected caption clip'
     : captions.length
@@ -133,15 +153,23 @@ export function CaptionsTab() {
 
   /** Create a caption clip in a chosen style, directly on the video timeline.
    * It renders into the exported video — no subtitle download needed. */
-  const addStyledCaption = (preset: CaptionStyleId) => {
-    setStyle(preset);
+  const addStyledCaption = (id: CinematicPresetId) => {
+    const p = CAPTION_PRESETS.find((x) => x.id === id) ?? CAPTION_PRESETS[0];
+    setPresetId(id);
+    setStyle(p.styleId);
+    setEffect(p.effect);
+    setTransition(p.transition);
+    const text = 'EVERY CONVERSATION HAS A STORY';
+    const duration = 3.2;
     const { actions, clipId } = buildStyledText(project, {
-      start: playhead, duration: 2.5, text: 'Your caption', role: 'caption',
-      preset, effect, transition,
+      start: playhead, duration, text, role: 'caption',
+      preset: p.styleId, effect: p.effect, transition: p.transition,
+      presetId: id, words: evenWords(text, duration),
     });
-    commit(actions, `Add ${preset} caption`);
+    commit(actions, `Add ${p.label} caption`);
     if (clipId) useStore.getState().select([clipId]);
-    ui.toast(`${preset} caption added to the video — visible in preview and export`, 'success');
+    setSelectedWords([]);
+    ui.toast(`${p.label} caption added — word timing is editable and renders in export`, 'success');
   };
 
   /** Effect/transition chips: change the default for new captions and, when
@@ -196,16 +224,36 @@ export function CaptionsTab() {
     }
   };
 
-  const restyle = (preset: CaptionStyleId) => {
-    setStyle(preset);
-    const patch = defaultTextStyle(preset);
-    const actions = captions.map((c) => ({ type: 'set_text_style' as const, clipId: c.id, patch }));
-    if (actions.length) commit(actions, `Restyle captions: ${preset}`);
-  };
-
   const patchStyle = (patch: Partial<TextStyle>, label: string, key?: string) => {
     if (!targets.length) return;
     commit(targets.map((c) => ({ type: 'set_text_style' as const, clipId: c.id, patch })), label, key);
+  };
+
+  // Word timeline helpers — every edit is a real set_text action (undoable,
+  // persisted, and rendered by drawCaption using the word's own timing).
+  const captionWords: CaptionWord[] = selectedCaption
+    ? (selectedCaption.text?.words?.length
+      ? selectedCaption.text.words
+      : evenWords(selectedCaption.text?.text ?? '', selectedCaption.duration))
+    : [];
+  const writeWords = (words: CaptionWord[], label: string) => {
+    if (!selectedCaption) return;
+    commit([{ type: 'set_text', clipId: selectedCaption.id, words }], label);
+  };
+  const toggleWord = (i: number, shift: boolean) => setSelectedWords((prev) => {
+    if (shift) return prev.includes(i) ? prev.filter((n) => n !== i) : [...prev, i];
+    return prev.length === 1 && prev[0] === i ? [] : [i];
+  });
+  const patchWords = (patch: WordStyle) => {
+    writeWords(captionWords.map((w, i) => selectedWords.includes(i)
+      ? { ...w, style: { ...(w.style ?? {}), ...patch } } : w), 'Word style');
+  };
+  const patchWordTiming = (i: number, field: 'start' | 'end', value: number) => {
+    writeWords(captionWords.map((w, idx) => idx === i ? { ...w, [field]: value } : w), 'Word timing');
+  };
+  const patchHighlight = (patch: Partial<TextStyle['highlight']>) => {
+    if (!currentStyle?.highlight) return;
+    patchStyle({ highlight: { ...currentStyle.highlight, ...patch } }, 'Caption highlight');
   };
 
   const seekTo = (clipId: string, start: number) => {
@@ -220,9 +268,10 @@ export function CaptionsTab() {
     commit([{ type: 'remove_clip', clipId: c.id, ripple: true }], 'Delete caption');
 
   const addCaption = () => {
+    const text = 'New caption';
     const { actions, clipId } = buildStyledText(project, {
-      start: playhead, duration: 2, text: 'New caption', role: 'caption',
-      preset: style, effect, transition,
+      start: playhead, duration: 2, text, role: 'caption',
+      preset: style, effect, transition, presetId, words: evenWords(text, 2),
     });
     commit(actions, 'Add caption');
     if (clipId) useStore.getState().select([clipId]);
@@ -256,26 +305,40 @@ export function CaptionsTab() {
         </div>
       </Section>
 
-      <Section title="Caption styles — click to add to video">
+      <Section title="Caption presets — click to add to video">
         <div className="grid grid-cols-2 gap-1.5">
-          {STYLES.map((s) => (
-            <button key={s} onClick={() => addStyledCaption(s)}
-              title={`Add a ${s} caption at the playhead — rendered into the video, no download needed`}
-              className={`rounded-lg border overflow-hidden text-left transition-all ${style === s ? 'ring-2 ring-signal border-transparent' : 'border-line hover:border-line-bright'}`}>
+          {CAPTION_PRESETS.map((p) => (
+            <button key={p.id} onClick={() => addStyledCaption(p.id)}
+              title={`Add ${p.label} caption at the playhead with word-by-word speech sync`}
+              className={`rounded-lg border overflow-hidden text-left transition-all ${presetId === p.id ? 'ring-2 ring-signal border-transparent' : 'border-line hover:border-line-bright'}`}>
               <div className="aspect-video">
-                <StylePreview style={defaultTextStyle(s)} />
+                <StylePreview style={presetTextStyle(p.id, 'caption', project.settings.aspect)} />
               </div>
               <div className="flex items-center justify-between px-2 py-1">
-                <span className={`text-[11px] font-medium capitalize ${style === s ? 'text-signal' : 'text-paper-dim'}`}>{s}</span>
-                <Plus size={12} className={style === s ? 'text-signal' : 'text-paper-faint'} />
+                <span className={`text-[11px] font-medium ${presetId === p.id ? 'text-signal' : 'text-paper-dim'}`}>{p.label}</span>
+                <Plus size={12} className={presetId === p.id ? 'text-signal' : 'text-paper-faint'} />
               </div>
             </button>
           ))}
         </div>
-        <button className="btn-ghost w-full justify-center text-[11px]" disabled={!captions.length} onClick={() => restyle(style)}
-          title="Re-style every existing caption with the selected style">
-          <WandSparkles size={13} /> Apply “{style}” to all {captions.length} captions
-        </button>
+        <div className="flex gap-1.5">
+          <button className="btn-ghost flex-1 justify-center text-[11px]" disabled={!selectedCaption}
+            onClick={() => {
+              if (!selectedCaption) return;
+              commit(presetActions(selectedCaption.id, presetId, 'caption', project.settings.aspect, selectedCaption.text?.text, selectedCaption.duration, selectedCaption.text?.words?.length ?? 0), `Apply ${presetId} preset`);
+              ui.toast('Preset applied to selected caption', 'success');
+            }} title="Apply the selected preset to the selected caption">
+            <WandSparkles size={13} /> Apply to selected
+          </button>
+          <button className="btn-ghost flex-1 justify-center text-[11px]" disabled={!captions.length}
+            onClick={() => {
+              const actions = captions.flatMap((c) => presetActions(c.id, presetId, 'caption', project.settings.aspect, c.text?.text, c.duration, c.text?.words?.length ?? 0));
+              commit(actions, `Apply ${presetId} preset to all captions`);
+              ui.toast(`${presetId} preset applied to ${captions.length} captions`, 'success');
+            }} title="Apply the selected preset to every caption in the project">
+            <WandSparkles size={13} /> Apply to all
+          </button>
+        </div>
 
         <div>
           <span className="label">Effect {selectedCaption ? '· selected caption' : '· new captions'}</span>
@@ -400,6 +463,115 @@ export function CaptionsTab() {
               </>
             )}
           </div>
+        )}
+      </Section>
+
+      <Section title="Word timeline — click a word, Shift-click for multiple" action={
+        <button className="icon-btn" title="Distribute words evenly across the caption" disabled={!selectedCaption}
+          onClick={() => selectedCaption && writeWords(evenWords(selectedCaption.text?.text ?? '', selectedCaption.duration), 'Reset word timing')}>
+          <WandSparkles size={14} />
+        </button>
+      }>
+        {!selectedCaption ? (
+          <Hint>Select a caption below to edit its individual words and timing.</Hint>
+        ) : (
+          <>
+            <div className="flex flex-wrap gap-1">
+              {captionWords.map((w, i) => (
+                <button key={i} onClick={(e) => toggleWord(i, e.shiftKey)}
+                  title={`${w.w} · ${w.start.toFixed(2)}s → ${w.end.toFixed(2)}s`}
+                  className={`chip border ${selectedWords.includes(i) ? 'bg-signal/15 border-signal/50 text-signal' : 'border-line text-paper-dim hover:text-paper'}`}>
+                  {w.w}<span className="ml-1 text-[9px] text-paper-faint">{w.start.toFixed(1)}s</span>
+                </button>
+              ))}
+            </div>
+            {selectedWords.map((i) => {
+              const w = captionWords[i];
+              if (!w) return null;
+              return (
+                <div key={i} className="panel p-2 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] font-medium text-paper">“{w.w}”</span>
+                    <span className="text-[10px] text-paper-faint">{selectedWords.length} selected</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <input type="color" className="w-9 h-7 rounded border border-line bg-ink-850 cursor-pointer"
+                      value={toHex(w.style?.color ?? currentStyle?.color ?? '#FFFFFF')}
+                      onChange={(e) => patchWords({ color: e.target.value })} title="Word color" />
+                    {[400, 700, 900].map((wt) => (
+                      <button key={wt} className={`chip border ${(w.style?.fontWeight ?? currentStyle?.fontWeight) === wt ? 'bg-signal/15 border-signal/50 text-signal' : 'border-line'}`}
+                        onClick={() => patchWords({ fontWeight: wt })} style={{ fontWeight: wt }}>{wt}</button>
+                    ))}
+                    <button className={`chip border ${w.style?.fontStyle === 'italic' ? 'bg-signal/15 border-signal/50 text-signal' : 'border-line'}`}
+                      onClick={() => patchWords({ fontStyle: w.style?.fontStyle === 'italic' ? 'normal' : 'italic' })}>Italic</button>
+                  </div>
+                  <DragSlider label="Word start" value={w.start} min={0} max={Math.max(0.1, selectedCaption.duration)} step={0.01}
+                    fmt={(v) => `${v.toFixed(2)}s`} onCommit={(v) => patchWordTiming(i, 'start', Math.min(v, w.end - 0.01))} />
+                  <DragSlider label="Word end" value={w.end} min={0} max={Math.max(0.1, selectedCaption.duration)} step={0.01}
+                    fmt={(v) => `${v.toFixed(2)}s`} onCommit={(v) => patchWordTiming(i, 'end', Math.max(v, w.start + 0.01))} />
+                </div>
+              );
+            })}
+          </>
+        )}
+      </Section>
+
+      <Section title="Highlight & typography">
+        {!currentStyle ? (
+          <Hint>Add a caption to customize its highlight and typography.</Hint>
+        ) : (
+          <>
+            <button onClick={() => patchStyle({ revealWords: !currentStyle.revealWords }, 'Word-by-word reveal')}
+              className={`chip w-full justify-center border ${currentStyle.revealWords ? 'bg-signal/15 border-signal/50 text-signal' : 'border-line text-paper-dim'}`}>
+              Word-by-word reveal {currentStyle.revealWords ? 'on' : 'off'}
+            </button>
+            <button onClick={() => patchHighlight({ enabled: !currentStyle.highlight?.enabled })}
+              className={`chip w-full justify-center border ${currentStyle.highlight?.enabled ? 'bg-signal/15 border-signal/50 text-signal' : 'border-line text-paper-dim'}`}>
+              Active-word highlight {currentStyle.highlight?.enabled ? 'on' : 'off'}
+            </button>
+            <div>
+              <span className="label">Highlight animation</span>
+              <div className="flex flex-wrap gap-1">
+                {(['instant', 'slide', 'pop', 'scale', 'fade', 'wipe', 'color', 'bar'] as HighlightAnim[]).map((a) => (
+                  <button key={a} onClick={() => patchHighlight({ anim: a })}
+                    className={`chip border capitalize ${currentStyle.highlight?.anim === a ? 'bg-signal/15 border-signal/50 text-signal' : 'border-line text-paper-dim hover:text-paper'}`}>{a}</button>
+                ))}
+              </div>
+            </div>
+            <div className="flex gap-2.5">
+              <div className="flex-1">
+                <span className="label">Highlight bg</span>
+                <input type="color" className="w-full h-7 rounded border border-line bg-ink-850 cursor-pointer"
+                  value={toHex(currentStyle.highlight?.bgColor ?? '#FFEB00')}
+                  onChange={(e) => patchHighlight({ bgColor: e.target.value })} />
+              </div>
+              <div className="flex-1">
+                <span className="label">Highlight text</span>
+                <input type="color" className="w-full h-7 rounded border border-line bg-ink-850 cursor-pointer"
+                  value={toHex(currentStyle.highlight?.textColor ?? '#0B1220')}
+                  onChange={(e) => patchHighlight({ textColor: e.target.value })} />
+              </div>
+            </div>
+            {([
+              ['Padding', 'padding', 0, 0.5, 0.01],
+              ['Corner radius', 'radius', 0, 0.5, 0.01],
+              ['Opacity', 'opacity', 0, 1, 0.01],
+              ['Anim speed', 'speed', 0.02, 1, 0.01],
+              ['Glow', 'glow', 0, 0.5, 0.01],
+              ['Shadow', 'shadow', 0, 0.5, 0.01],
+            ] as const).map(([label, key, min, max, step]) => (
+              <DragSlider key={key} label={label} value={(currentStyle.highlight?.[key] as number) ?? 0} min={min} max={max} step={step}
+                fmt={(v) => v.toFixed(2)} onCommit={(v) => patchHighlight({ [key]: v } as never)} />
+            ))}
+            <DragSlider label="Font size" value={currentStyle.fontSize} min={0.02} max={0.12} step={0.001}
+              fmt={(v) => v.toFixed(3)} onCommit={(v) => patchStyle({ fontSize: v }, 'Caption font size', `${targets[0].id}:fs`)} />
+            <DragSlider label="Line spacing" value={currentStyle.lineSpacing || 1.22} min={0.8} max={2} step={0.01}
+              fmt={(v) => v.toFixed(2)} onCommit={(v) => patchStyle({ lineSpacing: v }, 'Caption line spacing')} />
+            <DragSlider label="Word spacing" value={currentStyle.wordSpacing || 1} min={0.5} max={2} step={0.05}
+              fmt={(v) => v.toFixed(2)} onCommit={(v) => patchStyle({ wordSpacing: v }, 'Caption word spacing')} />
+            <DragSlider label="Outline" value={currentStyle.outlineWidth} min={0} max={0.4} step={0.01}
+              fmt={(v) => v.toFixed(2)} onCommit={(v) => patchStyle({ outlineWidth: v }, 'Caption outline')} />
+          </>
         )}
       </Section>
 

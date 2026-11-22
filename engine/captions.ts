@@ -3,33 +3,57 @@
  * Handles: clean subtitles, karaoke word highlight, bold keywords, word-pop.
  * Max 2 lines, safe-zone aware, outline + shadow for mobile readability.
  */
-import type { CaptionWord, TextStyle } from './types';
+import type { CaptionWord, TextStyle, WordStyle } from './types';
 import { ease } from './easing';
 
-export interface LayoutWord { w: string; width: number; keyword: boolean; filler: boolean; active: boolean; sung: boolean; start?: number; end?: number }
+export interface LayoutWord {
+  w: string; width: number; keyword: boolean; filler: boolean; active: boolean; sung: boolean;
+  start?: number; end?: number; style?: WordStyle; index: number;
+}
 export interface LayoutLine { words: LayoutWord[]; width: number }
 export interface CaptionLayout { lines: LayoutLine[]; fontSize: number; lineHeight: number; blockW: number; blockH: number }
 
 type Ctx2D = CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D;
 
+const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
+const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
+
+function hexRgb(hex: string): [number, number, number] | null {
+  if (!hex.startsWith('#')) return null;
+  const h = hex.slice(1);
+  const full = h.length === 3 ? h.split('').map((c) => c + c).join('') : h;
+  if (full.length !== 6) return null;
+  const n = parseInt(full, 16);
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+}
+
+function mixColor(a: string, b: string, t: number): string {
+  const ca = hexRgb(a), cb = hexRgb(b);
+  if (!ca || !cb) return t < 0.5 ? a : b;
+  const c = ca.map((v, i) => Math.round(lerp(v, cb[i], t)));
+  return `rgb(${c[0]},${c[1]},${c[2]})`;
+}
+
 export function fontString(style: TextStyle, fontSize: number): string {
   return `${style.fontWeight} ${fontSize}px "${style.fontFamily}", "Inter Variable", system-ui, sans-serif`;
 }
 
-export function wrapWords(words: { w: string; keyword?: boolean; filler?: boolean; start?: number; end?: number }[], maxW: number, maxLines: number, measure: (s: string) => number, spaceW: number): LayoutLine[] {
+export function wrapWords(words: { w: string; keyword?: boolean; filler?: boolean; start?: number; end?: number; style?: WordStyle }[], maxW: number, maxLines: number, measure: (s: string) => number, spaceW: number): LayoutLine[] {
   const lines: LayoutLine[] = [];
   let cur: LayoutWord[] = [];
   let curW = 0;
+  let index = 0;
   for (const word of words) {
     const width = measure(word.w);
-    const add = cur.length ? spaceW + width : width;
+    const gap = spaceW;
+    const add = cur.length ? gap + width : width;
     if (cur.length && curW + add > maxW) {
       lines.push({ words: cur, width: curW });
       cur = []; curW = 0;
       if (lines.length >= maxLines) break;
     }
-    cur.push({ w: word.w, width, keyword: !!word.keyword, filler: !!word.filler, active: false, sung: false, start: word.start, end: word.end });
-    curW += cur.length > 1 ? spaceW + width : width;
+    cur.push({ w: word.w, width, keyword: !!word.keyword, filler: !!word.filler, active: false, sung: false, start: word.start, end: word.end, style: word.style, index: index++ });
+    curW += cur.length > 1 ? gap + width : width;
   }
   if (cur.length && lines.length < maxLines) lines.push({ words: cur, width: curW });
 
@@ -57,14 +81,14 @@ export function layoutCaption(
   let fontSize = Math.max(8, style.fontSize * H);
   const maxW = style.maxWidth * W;
 
-  let source: { w: string; keyword?: boolean; start?: number; end?: number }[];
-  if (style.preset === 'word-pop' && words?.length) {
+  let source: { w: string; keyword?: boolean; start?: number; end?: number; style?: WordStyle }[];
+  if (style.preset === 'word-pop' && words?.length && !style.revealWords) {
     const active = words.find((w) => localT >= w.start && localT < w.end) ?? (localT < words[0].start ? words[0] : words[words.length - 1]);
     const idx = words.indexOf(active);
     const chunk = words.slice(Math.max(0, idx - (active.w.length <= 2 ? 1 : 0)), idx + 1);
-    source = chunk.map((w) => ({ w: w.w, keyword: w.keyword, start: w.start, end: w.end }));
+    source = chunk.map((w) => ({ w: w.w, keyword: w.keyword, start: w.start, end: w.end, style: w.style }));
   } else {
-    source = (words?.length ? words.map((w) => ({ w: w.w, keyword: w.keyword, start: w.start, end: w.end })) : text.split(/\s+/).filter(Boolean).map((w) => ({ w })));
+    source = (words?.length ? words.map((w) => ({ w: w.w, keyword: w.keyword, start: w.start, end: w.end, style: w.style })) : text.split(/\s+/).filter(Boolean).map((w) => ({ w })));
   }
   if (style.uppercase) source = source.map((s) => ({ ...s, w: s.w.toUpperCase() }));
 
@@ -72,12 +96,12 @@ export function layoutCaption(
   // the font (up to ~35%) until every word fits. Dropped caption words are
   // worse than slightly smaller text — especially on 9:16.
   let lines: LayoutLine[] = [];
-  let lineHeight = fontSize * 1.22;
+  let lineHeight = fontSize * (style.lineSpacing || 1.22);
   let spaceW = 0;
   for (let attempt = 0; attempt < 5; attempt++) {
     ctx.font = fontString(style, fontSize);
-    spaceW = ctx.measureText(' ').width;
-    lineHeight = fontSize * 1.22;
+    spaceW = ctx.measureText(' ').width * (style.wordSpacing || 1);
+    lineHeight = fontSize * (style.lineSpacing || 1.22);
     lines = wrapWords(source, maxW, style.maxLines, (s) => ctx.measureText(s).width, spaceW);
     const laidOut = lines.reduce((n, l) => n + l.words.length, 0);
     if (laidOut >= source.length || attempt === 4) break;
@@ -105,20 +129,29 @@ export function drawCaption(
   let alpha = 1;
   let scale = 1;
   let dy = 0;
+  let dx = 0;
   const anim = style.animation;
-  if (anim === 'fade') alpha = Math.min(1, localT / 0.15, (duration - localT) / 0.15);
+  if (anim === 'fade' || anim === 'fade-in') alpha = Math.min(1, localT / 0.15);
+  if (anim === 'fade-out') alpha = Math.min(1, (duration - localT) / 0.15);
   if (anim === 'pop') { scale = 0.6 + 0.4 * ease('easeOutBack', localT / 0.22); alpha = Math.min(1, localT / 0.08); }
-  if (anim === 'rise') { dy = (1 - ease('easeOutExpo', localT / 0.3)) * fontSize * 0.8; alpha = Math.min(1, localT / 0.12); }
-  alpha = Math.max(0, Math.min(1, alpha));
+  if (anim === 'rise' || anim === 'slide') { dy = (1 - ease('easeOutExpo', localT / 0.3)) * fontSize * 0.8; alpha = Math.min(1, localT / 0.12); }
+  if (anim === 'zoom') { scale = 0.5 + 0.5 * ease('easeOutExpo', localT / 0.3); alpha = Math.min(1, localT / 0.1); }
+  if (anim === 'bounce') { scale = 0.4 + 0.6 * ease('easeOutBack', localT / 0.4); alpha = Math.min(1, localT / 0.06); }
+  if (anim === 'blur') { alpha = Math.min(1, localT / 0.25); }
+  if (anim === 'glitch') { dx = Math.sin(localT * 90) * fontSize * 0.06 * (1 - clamp01(localT / 0.4)); alpha = Math.min(1, localT / 0.05); }
+  if (anim === 'wave') { dy = Math.sin(localT * 6) * fontSize * 0.05; }
+  if (anim === 'shake') { dx = Math.sin(localT * 70) * fontSize * 0.03; dy = Math.cos(localT * 60) * fontSize * 0.02; }
+  if (anim === 'pulse') { scale = 1 + Math.sin(localT * 4) * 0.03; }
+  if (anim === 'typewriter') alpha = 1;
+  alpha = clamp01(alpha) * (style.textOpacity ?? 1);
   if (alpha <= 0.01) return;
 
-  const cx = style.x * W;
+  const cx = style.x * W + dx;
   const cy = style.y * H + dy;
   ctx.save();
   ctx.globalAlpha *= alpha;
   ctx.translate(cx, cy);
   ctx.scale(scale, scale);
-  ctx.font = fontString(style, fontSize);
   ctx.textBaseline = 'middle';
   ctx.lineJoin = 'round';
 
@@ -130,33 +163,108 @@ export function drawCaption(
     ctx.fill();
   }
 
-  const spaceW = ctx.measureText(' ').width;
+  const spaceW = ctx.measureText(' ').width * (style.wordSpacing || 1);
+  // Place every word once so the highlight can interpolate between positions.
+  const placed: { lw: LayoutWord; x: number; y: number }[] = [];
   let y = -blockH / 2 + lineHeight / 2;
   for (const line of lines) {
     let x = style.align === 'left' ? -blockW / 2 : style.align === 'right' ? blockW / 2 - line.width : -line.width / 2;
     for (const lw of line.words) {
-      let color = style.color;
-      let wScale = 1;
-      if (style.preset === 'karaoke' && lw.sung) color = style.highlightColor;
-      if (style.preset === 'karaoke' && lw.active) wScale = 1.06;
-      if (style.preset === 'bold-keywords' && lw.keyword) { color = style.highlightColor; wScale = 1.04; }
-      if (style.preset === 'word-pop' && lw.active) { color = style.highlightColor; wScale = 1.0 + 0.08 * (1 - ease('easeOutExpo', Math.min(1, (localT - (lw.start ?? 0)) / 0.18))); }
-      ctx.save();
-      ctx.translate(x + lw.width / 2, y);
-      ctx.scale(wScale, wScale);
-      if (style.shadow) { ctx.shadowColor = 'rgba(0,0,0,0.75)'; ctx.shadowBlur = fontSize * 0.12; ctx.shadowOffsetY = fontSize * 0.04; }
-      if (style.outlineWidth > 0) {
-        ctx.strokeStyle = style.outlineColor;
-        ctx.lineWidth = fontSize * style.outlineWidth * 2;
-        ctx.strokeText(lw.w, -lw.width / 2, 0);
-      }
-      ctx.shadowColor = 'transparent';
-      ctx.fillStyle = color;
-      ctx.fillText(lw.w, -lw.width / 2, 0);
-      ctx.restore();
+      placed.push({ lw, x, y });
       x += lw.width + spaceW;
     }
     y += lineHeight;
+  }
+
+  const hl = style.highlight ?? {
+    enabled: false, anim: 'instant' as const, bgColor: '#000000', textColor: '#FFFFFF',
+    padding: 0.18, radius: 0.12, opacity: 0.9, speed: 0.12, glow: 0, shadow: 0,
+  };
+  const activeIdx = placed.findIndex((p) => p.lw.active);
+  const prevIdx = activeIdx > 0 ? activeIdx - 1 : -1;
+  const speed = Math.max(0.01, hl.speed || 0.12);
+  const progress = activeIdx >= 0 ? clamp01((localT - (placed[activeIdx].lw.start ?? 0)) / speed) : 1;
+  const eased = ease('easeOutExpo', progress);
+
+  const rectFor = (idx: number) => {
+    const p = placed[idx];
+    const pad = fontSize * hl.padding;
+    return { x: p.x - pad, y: p.y - fontSize * 0.62 - pad * 0.35, w: p.lw.width + pad * 2, h: fontSize * 1.24 + pad * 0.7 };
+  };
+
+  if (hl.enabled && activeIdx >= 0) {
+    ctx.save();
+    const target = rectFor(activeIdx);
+    let r = { ...target };
+    let hAlpha = hl.opacity;
+    if (hl.anim === 'slide' || hl.anim === 'wipe') {
+      const from = prevIdx >= 0 ? rectFor(prevIdx) : target;
+      r = {
+        x: lerp(from.x, target.x, eased),
+        y: lerp(from.y, target.y, eased),
+        w: hl.anim === 'wipe' ? lerp(from.w, target.w, eased) : lerp(from.w, target.w, eased),
+        h: lerp(from.h, target.h, eased),
+      };
+      if (hl.anim === 'wipe') r.w = Math.max(1, target.w * eased);
+    } else if (hl.anim === 'pop' || hl.anim === 'scale') {
+      const k = hl.anim === 'pop' ? 0.6 + 0.4 * ease('easeOutBack', progress) : 0.85 + 0.15 * eased;
+      r = { x: target.x + target.w * (1 - k) / 2, y: target.y + target.h * (1 - k) / 2, w: target.w * k, h: target.h * k };
+    } else if (hl.anim === 'fade') {
+      hAlpha *= progress;
+    } else if (hl.anim === 'bar') {
+      const p = placed[activeIdx];
+      r = { x: p.x, y: p.y + fontSize * 0.55, w: p.lw.width * Math.max(0.05, eased), h: Math.max(2, fontSize * 0.1) };
+    }
+    if (hl.glow > 0) { ctx.shadowColor = hl.bgColor; ctx.shadowBlur = fontSize * hl.glow; }
+    else if (hl.shadow > 0) { ctx.shadowColor = 'rgba(0,0,0,0.65)'; ctx.shadowBlur = fontSize * hl.shadow; ctx.shadowOffsetY = fontSize * 0.04; }
+    ctx.fillStyle = hl.bgColor;
+    ctx.globalAlpha *= hAlpha;
+    roundRect(ctx, r.x, r.y, r.w, r.h, fontSize * hl.radius);
+    ctx.fill();
+    ctx.shadowColor = 'transparent';
+    ctx.restore();
+  }
+
+  for (const { lw, x, y } of placed) {
+    if (style.revealWords && lw.start != null && localT < lw.start) continue;
+    const isActive = lw.active;
+    const isPrev = prevIdx >= 0 && placed[prevIdx].lw.index === lw.index;
+    let color = style.color;
+    if (style.preset === 'karaoke' && lw.sung) color = style.highlightColor;
+    if (style.preset === 'bold-keywords' && lw.keyword) color = style.highlightColor;
+    if (hl.enabled && isActive) color = hl.anim === 'color' ? mixColor(style.color, hl.textColor || style.highlightColor, eased) : (hl.textColor || style.highlightColor);
+    if (hl.prevColor && isPrev) color = hl.prevColor;
+    if (hl.nextColor && !isActive && !isPrev && lw.start != null && localT < lw.start) color = hl.nextColor;
+    let wScale = 1;
+    if (style.preset === 'karaoke' && lw.active) wScale = 1.06;
+    if (style.preset === 'bold-keywords' && lw.keyword) wScale = 1.04;
+    if (style.preset === 'word-pop' && lw.active) wScale = 1.0 + 0.08 * (1 - ease('easeOutExpo', Math.min(1, (localT - (lw.start ?? 0)) / 0.18)));
+    if (hl.enabled && isActive && (hl.anim === 'pop' || hl.anim === 'scale')) wScale *= 0.85 + 0.15 * eased;
+    const ws = lw.style;
+    const fs = fontSize * (ws?.fontSize ?? 1);
+    const weight = ws?.fontWeight ?? style.fontWeight;
+    ctx.font = `${weight} ${fs}px "${ws?.fontFamily ?? style.fontFamily}", "Inter Variable", system-ui, sans-serif`;
+    if ('letterSpacing' in ctx) (ctx as CanvasRenderingContext2D).letterSpacing = `${ws?.letterSpacing ?? style.letterSpacing ?? 0}em`;
+    ctx.save();
+    ctx.translate(x + lw.width / 2, y);
+    ctx.scale(wScale, wScale);
+    const revealAlpha = style.revealWords && lw.start != null ? clamp01((localT - lw.start) / Math.min(0.18, speed)) : 1;
+    ctx.globalAlpha *= clamp01(ws?.opacity ?? 1) * revealAlpha;
+    if (ws?.shadow ?? style.shadow) {
+      ctx.shadowColor = ws?.outlineColor ?? 'rgba(0,0,0,0.75)';
+      ctx.shadowBlur = fs * 0.12;
+      ctx.shadowOffsetY = fs * 0.04;
+    }
+    const ow = ws?.outlineWidth ?? style.outlineWidth;
+    if (ow > 0) {
+      ctx.strokeStyle = ws?.outlineColor ?? style.outlineColor;
+      ctx.lineWidth = fs * ow * 2;
+      ctx.strokeText(lw.w, -lw.width / 2, 0);
+    }
+    ctx.shadowColor = 'transparent';
+    ctx.fillStyle = color;
+    ctx.fillText(lw.w, -lw.width / 2, 0);
+    ctx.restore();
   }
   ctx.restore();
 }
