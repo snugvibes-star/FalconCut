@@ -135,6 +135,13 @@ export function ClipContextMenu({ menu, onClose }: { menu: CtxMenuState; onClose
                 })} />
             );
           })()}
+          <Item icon={Gauge} label="Adjust speed in Inspector"
+            title="Open the Inspector's Speed tab with curve editor, presets and audio options"
+            onClick={run(() => {
+              s.select([clip.id]);
+              useUI.getState().setRightTab('inspector');
+              window.dispatchEvent(new CustomEvent('falconcut:inspector-tab', { detail: 'speed' }));
+            })} />
           <div className="h-px bg-line my-1" />
           <div className="px-2.5 py-1 flex items-center gap-1.5">
             <Gauge size={12} className="text-paper-faint" />

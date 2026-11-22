@@ -206,6 +206,18 @@ export function Inspector() {
   const selection = useStore((s) => s.selection);
   const playhead = useStore((s) => s.playhead);
   const [tab, setTab] = useState<Tab>('video');
+
+  // Context-menu shortcuts can request a specific Inspector tab.
+  useEffect(() => {
+    const onTab = (e: Event) => {
+      const wanted = (e as CustomEvent<string>).detail;
+      if (wanted && ['video', 'audio', 'color', 'text', 'animation', 'effects', 'speed', 'mask', 'ai'].includes(wanted)) {
+        setTab(wanted as Tab);
+      }
+    };
+    window.addEventListener('falconcut:inspector-tab', onTab);
+    return () => window.removeEventListener('falconcut:inspector-tab', onTab);
+  }, []);
   const [newVisualEffect, setNewVisualEffect] = useState<EffectType>('blur');
   const [newAudioEffect, setNewAudioEffect] = useState<EffectType>('eq');
   const [kfPath, setKfPath] = useState('transform.scale');
@@ -607,6 +619,20 @@ export function Inspector() {
                   Add speed ramp
                 </button>
               )}
+              {!ramp && (
+                <div className="flex flex-wrap gap-1">
+                  {([
+                    ['Smooth slow-mo', [{ t: 0, speed: 1 }, { t: clip.duration / 2, speed: 0.4 }, { t: clip.duration, speed: 1 }]],
+                    ['Accelerate', [{ t: 0, speed: 0.5 }, { t: clip.duration, speed: 2 }]],
+                    ['Decelerate', [{ t: 0, speed: 2 }, { t: clip.duration, speed: 0.5 }]],
+                  ] as const).map(([label, points]) => (
+                    <button key={label} className="chip border border-line text-[10px] text-paper-dim hover:text-paper"
+                      onClick={() => set([{ type: 'set_speed_ramp', clipId: id, points: [...points] }], `Speed curve: ${label}`)}>
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              )}
               <button
                 className={`btn-ghost text-[11px] px-2 py-1 w-full justify-center ${clip.reversed ? 'text-signal' : ''}`}
                 title={clip.reversed
@@ -637,15 +663,39 @@ export function Inspector() {
         <div className="p-3 text-[11px] text-paper-faint">Speed is not adjustable on text clips.</div>
       )}
 
-      {tab === 'mask' && (
-        <Section title="Masks">
-          <ul className="space-y-1.5 text-[11px] text-paper-dim">
-            <li>Shape masks (linear, circle, rectangle) — Not implemented yet.</li>
-            <li>Chroma key (green screen) is available in the Effects tab.</li>
-            <li>Rotoscope brush — Not possible in a browser (performance).</li>
-          </ul>
-        </Section>
-      )}
+      {tab === 'mask' && (() => {
+        const mask = clip.mask ?? { shape: 'none' as const, x: 0.1, y: 0.1, w: 0.8, h: 0.8, feather: 0 };
+        const patchMask = (patch: Partial<typeof mask>, label: string) =>
+          set([{ type: 'set_clip_props', clipId: id, patch: { mask: { ...mask, ...patch } } }], label);
+        return (
+          <>
+            <Section title="Shape mask">
+              <div className="flex gap-1">
+                {(['none', 'rect', 'ellipse'] as const).map((shape) => (
+                  <button key={shape} className={`chip flex-1 justify-center capitalize border ${mask.shape === shape ? 'bg-signal/15 border-signal/50 text-signal' : 'border-line text-paper-dim'}`}
+                    onClick={() => patchMask({ shape }, `Mask ${shape}`)}>{shape === 'none' ? 'None' : shape}</button>
+                ))}
+              </div>
+              {(mask.shape === 'rect' || mask.shape === 'ellipse') && (
+                <>
+                  <Slider label="X" value={mask.x} min={0} max={1} step={0.01} fmt={(v) => `${Math.round(v * 100)}%`} onChange={(v) => patchMask({ x: v }, 'Mask X')} />
+                  <Slider label="Y" value={mask.y} min={0} max={1} step={0.01} fmt={(v) => `${Math.round(v * 100)}%`} onChange={(v) => patchMask({ y: v }, 'Mask Y')} />
+                  <Slider label="Width" value={mask.w} min={0.02} max={1} step={0.01} fmt={(v) => `${Math.round(v * 100)}%`} onChange={(v) => patchMask({ w: v }, 'Mask width')} />
+                  <Slider label="Height" value={mask.h} min={0.02} max={1} step={0.01} fmt={(v) => `${Math.round(v * 100)}%`} onChange={(v) => patchMask({ h: v }, 'Mask height')} />
+                </>
+              )}
+              <p className="text-[11px] text-paper-faint">Masks crop this clip in the composited frame. Chroma key is available in the Effects tab.</p>
+            </Section>
+            <Section title="Green screen">
+              <button className="btn-ghost w-full justify-center text-[11px]"
+                onClick={() => set([{ type: 'add_effect', clipId: id, effect: { type: 'chromaKey', enabled: true, params: { color: '#00FF00', tolerance: 0.28, softness: 0.12 } } }], 'Add chroma key')}>
+                Add chroma key effect
+              </button>
+              <p className="text-[11px] text-paper-faint">Adjust tolerance, softness and key color in the Effects tab. Works in preview and export.</p>
+            </Section>
+          </>
+        );
+      })()}
 
       {tab === 'ai' && <AITab runTool={runTool} />}
 

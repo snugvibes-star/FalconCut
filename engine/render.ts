@@ -110,6 +110,14 @@ function drawMediaLayer(p: Project, clip: Clip, t: number, ctx: Ctx2D, resolver:
   const fx = resolveEffects(clip, localT, supportsFilter(ctx));
   ctx.save();
   if (o.clipRect) { ctx.beginPath(); ctx.rect(...o.clipRect); ctx.clip(); }
+  const mask = clip.mask;
+  if (mask && mask.shape !== 'none' && mask.w > 0 && mask.h > 0) {
+    const mx = mask.x * W, my = mask.y * H, mw = mask.w * W, mh = mask.h * H;
+    ctx.beginPath();
+    if (mask.shape === 'ellipse') ctx.ellipse(mx + mw / 2, my + mh / 2, mw / 2, mh / 2, 0, 0, Math.PI * 2);
+    else ctx.rect(mx, my, mw, mh);
+    ctx.clip();
+  }
   ctx.globalAlpha = alpha;
   // Blend mode: transition-level composite wins over the clip-level one.
   if (o.composite) ctx.globalCompositeOperation = o.composite;

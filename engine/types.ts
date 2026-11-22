@@ -276,6 +276,8 @@ export interface Clip {
   reversed?: boolean;
   /** Keep the original pitch when the clip speed is changed (preview + export). */
   preservePitch?: boolean;
+  /** Shape mask applied to this clip in frame-normalized coordinates. */
+  mask?: { shape: 'none' | 'rect' | 'ellipse'; x: number; y: number; w: number; h: number; feather?: number };
   /** Blend mode of this layer against everything under it (canvas
    * globalCompositeOperation). 'normal'/absent = plain over. */
   blendMode?: BlendMode;

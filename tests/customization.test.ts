@@ -48,6 +48,18 @@ describe('editor customization actions', () => {
     expect(p.clips[0].effects[1].id).toBe(first.id);
   });
 
+  it('stores a shape mask on a clip', () => {
+    let p = createProject('Mask');
+    p = applyActions(p, [
+      { type: 'add_track', track: { kind: 'video', id: 'v1' } },
+      { type: 'add_clip', clip: { trackId: 'v1', start: 0, duration: 2, mediaId: '' } },
+    ]);
+    const id = p.clips[0].id;
+    p = applyActions(p, [{ type: 'set_clip_props', clipId: id, patch: { mask: { shape: 'ellipse', x: 0.1, y: 0.2, w: 0.8, h: 0.6, feather: 0 } } }]);
+    expect(p.clips[0].mask?.shape).toBe('ellipse');
+    expect(p.clips[0].mask?.w).toBe(0.8);
+  });
+
   it('accepts an adjustment layer clip with effects', () => {
     let p = createProject('Custom');
     p = applyActions(p, [
