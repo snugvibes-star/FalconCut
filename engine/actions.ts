@@ -6,7 +6,7 @@
  */
 import { produce } from 'immer';
 import {
-  Clip, Effect, Keyframe, Lut, Marker, MediaAsset, Project, Rule, SpeedPoint, StylePack, Tack, Track,
+  Clip, Effect, Keyframe, Lut, Marker, MediaAsset, MediaAnalysis, Project, Rule, SpeedPoint, StylePack, Tack, Track,
   Transform, Transition, TextData, MotifData, DrawingStroke, defaultTransform, defaultTextStyle,
   detUid, enterDeterministicIds, exitDeterministicIds, getMedia, speedAtLocal, speedPointsOf, sourceTimeOf,
 } from './types';
@@ -54,6 +54,7 @@ export type Action =
   | { type: 'reply_tack'; tackId: string; author: 'user' | 'ai'; text: string }
   | { type: 'resolve_tack'; tackId: string; resolved: boolean }
   | { type: 'remove_tack'; tackId: string }
+  | { type: 'set_transcript'; mediaId: string; transcript: MediaAnalysis['transcript'] }
   | { type: 'set_settings'; patch: Partial<Project['settings']> }
   | { type: 'set_style_pack'; packId: string }
   | { type: 'upsert_pack'; pack: StylePack }
@@ -106,6 +107,7 @@ export const ACTION_SCHEMA: Record<Action['type'], string> = {
   reply_tack: 'Reply to a tack as the user or the AI.',
   resolve_tack: 'Mark a tack resolved or reopen it.',
   remove_tack: 'Delete a tack and all of its replies.',
+  set_transcript: 'Store a local transcription result for a media asset so caption tools can use it. Params: mediaId, transcript.',
   set_settings: 'Change width/height/fps/aspect/background.',
   set_style_pack: 'Switch the active style pack (editing taste preset).',
   upsert_pack: 'Create or update a custom style pack.',
@@ -217,6 +219,21 @@ export function applyAction(project: Project, action: Action): Project {
         p.luts = (p.luts ?? []).filter((l) => l.id !== action.lutId);
         // Effects referencing a removed LUT are dropped so renders never see a dangling id.
         for (const c of p.clips) c.effects = c.effects.filter((e) => !(e.type === 'lut' && e.params.lut === action.lutId));
+        break;
+      }
+      case 'set_transcript': {
+        if (!p.analysis) p.analysis = {
+          byMedia: {}, settings: { silenceThresholdDb: -38, silenceMinMs: 600 }, storyboard: '', updatedAt: Date.now(),
+        };
+        const existing = p.analysis.byMedia[action.mediaId];
+        p.analysis.byMedia[action.mediaId] = existing ?? {
+          mediaId: action.mediaId, duration: 0, silences: [], fillers: [], retakes: [], scenes: [], faces: [],
+          faceMethod: 'none', loudness: [], integratedLoudness: 0, truePeak: 0, speechRatio: 0,
+          isMusic: false, beats: [], bpm: 0, emphasis: [], keywords: [], analyzedAt: Date.now(), flags: [],
+        };
+        p.analysis.byMedia[action.mediaId].transcript = action.transcript;
+        p.analysis.byMedia[action.mediaId].analyzedAt = Date.now();
+        p.analysis.updatedAt = Date.now();
         break;
       }
       case 'remove_media': {

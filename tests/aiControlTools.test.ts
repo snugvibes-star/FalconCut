@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { createProject, applyActions } from '../engine';
+import { createProject, applyActions, type MediaAsset } from '../engine';
 import { validateActions } from '../engine/actions';
 import { runTool, TOOL_MAP, toolManifest, toolsPromptText } from '../tools/registry';
 
@@ -21,6 +21,39 @@ const newTools = [
   'set_caption_style_advanced', 'set_caption_highlight', 'set_caption_effects',
   'edit_caption_word', 'set_clip_look_advanced', 'set_project_settings_ai',
 ];
+
+describe('AI transcription feeds normal caption generation', () => {
+  it('stores a transcript that add_captions can consume', async () => {
+    let p = createProject('Transcript', '9:16');
+    const asset: MediaAsset = {
+      id: 'vid1', name: 'talk.mp4', type: 'video', duration: 6, width: 1080, height: 1920,
+      hasAudio: true, source: 'file',
+    };
+    p = applyActions(p, [
+      { type: 'add_media', asset },
+      { type: 'add_clip', clip: { trackId: p.tracks[0].id, mediaId: 'vid1', start: 0, duration: 6, inPoint: 0 } },
+    ]);
+    p = applyActions(p, [{
+      type: 'set_transcript', mediaId: 'vid1',
+      transcript: {
+        segments: [{ start: 0, end: 2, text: 'hello world', words: [
+          { word: 'hello', start: 0.1, end: 0.6 }, { word: 'world', start: 0.7, end: 1.2 },
+        ] }],
+        words: [
+          { word: 'hello', start: 0.1, end: 0.6 }, { word: 'world', start: 0.7, end: 1.2, estimated: true },
+        ],
+        model: 'test', complete: true,
+      },
+    }]);
+    expect(p.analysis?.byMedia.vid1.transcript?.complete).toBe(true);
+    const result = await runTool(p, 'add_captions', {});
+    expect(result.actions.some((a) => a.type === 'add_text')).toBe(true);
+    expect(validateActions(p, result.actions)).toEqual([]);
+    const after = applyActions(p, result.actions);
+    const cap = after.clips.find((c) => c.text?.role === 'caption')!;
+    expect(cap.text!.words?.[1].timingEstimated).toBe(true);
+  });
+});
 
 describe('AI control tools', () => {
   it('registers all six tools with valid descriptions, examples and manifest entries', () => {

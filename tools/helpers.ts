@@ -23,7 +23,9 @@ export function speechClips(p: Project): Clip[] {
     if (c.kind !== 'media') return false;
     const a = getMedia(p, c.mediaId);
     const ma = p.analysis?.byMedia[c.mediaId ?? ''];
-    return a?.type === 'video' && a.hasAudio && !!ma?.transcript?.words.length;
+    // A completed transcript is stronger evidence of speech than the asset's
+    // hasAudio flag, which is often wrong for demuxed/unknown video formats.
+    return a?.type === 'video' && !!ma?.transcript?.words.length;
   });
 }
 

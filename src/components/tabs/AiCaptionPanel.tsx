@@ -48,7 +48,12 @@ export function AiCaptionPanel() {
   const startedRef = useRef(0);
 
   const media = project.media.filter((m) => (m.type === 'video' || m.type === 'audio') && m.blobKey && m.duration > 0);
-  const selectedMedia = media.find((m) => m.id === mediaIdRef.current) ?? media[0];
+  const onTimeline = new Set(project.clips.filter((c) => c.kind === 'media' && c.mediaId).map((c) => c.mediaId!));
+  // Prefer the asset that is actually on the timeline: otherwise duplicate
+  // imports produce a transcript for a clip that does not exist in the edit.
+  const selectedMedia = media.find((m) => m.id === mediaIdRef.current)
+    ?? media.find((m) => onTimeline.has(m.id))
+    ?? media[0];
   const model = CAPTION_MODELS.find((m) => m.id === prefs.modelId) ?? CAPTION_MODELS[0];
 
   useEffect(() => {
@@ -107,6 +112,15 @@ export function AiCaptionPanel() {
         words: c.words.map((w) => ({ ...w, timingEstimated: w.timingEstimated || result.estimated })),
       })));
       setTimingNote(result.note ?? '');
+      // Persist the real transcript in the project so the existing "Generate
+      // captions" tool and the rest of the editor can use it too.
+      useStore.getState().commit([{
+        type: 'set_transcript', mediaId: selectedMedia.id,
+        transcript: {
+          segments: result.segments, words: result.words,
+          language: result.language, model: result.model, complete: true,
+        },
+      }], 'Store AI transcription');
       setPhase('done');
     } catch (e) {
       const err = e as Error;
@@ -127,9 +141,13 @@ export function AiCaptionPanel() {
     const style = presetTextStyle(prefs.preset, 'caption', project.settings.aspect);
     let added = 0;
     for (const c of cues) {
-      const start = sourceToTimeline(project, selectedMedia.id, c.start);
-      const end = sourceToTimeline(project, selectedMedia.id, c.end);
-      if (start == null || end == null || end - start < 0.1) continue;
+      const mappedStart = sourceToTimeline(project, selectedMedia.id, c.start);
+      const mappedEnd = sourceToTimeline(project, selectedMedia.id, c.end);
+      // If this asset is not on the timeline yet, keep the source times so the
+      // captions are still created instead of silently disappearing.
+      const start = mappedStart ?? c.start;
+      const end = mappedEnd ?? c.end;
+      if (end - start < 0.1) continue;
       const words = c.words ?? [];
       actions.push({
         type: 'add_text', trackId: tid, start, duration: end - start,
