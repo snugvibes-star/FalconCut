@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { createProject, applyActions, layoutCaption, drawCaption, parseSubtitles, serializeSubtitles, buildCues } from '../engine';
 import { CAPTION_MODELS, MODEL_SIZE_LIMIT, modelsWithinLimit, modelBytes } from '../src/features/captionStudio/models';
+import { wordsFromAsr } from '../analysis/transcript';
 import { presetTextStyle } from '../src/components/tabs/textPresets';
 
 describe('verified local model catalog', () => {
@@ -85,6 +86,28 @@ describe('extended caption customization', () => {
     expect(saved.caseMode).toBe('lower');
     expect(saved.highlight.offset).toBe(0.15);
     expect(saved.glow.enabled).toBe(true);
+  });
+});
+
+describe('chunked transcription conversion', () => {
+  it('converts chunk ASR output and marks subdivided words as estimated', () => {
+    const words = wordsFromAsr({
+      chunks: [{ text: 'hello world', timestamp: [1, 2] }],
+    }, 30, true, 'chunk');
+    expect(words).toHaveLength(2);
+    expect(words[0].start).toBe(1);
+    expect(words.every((w) => w.estimated)).toBe(true);
+  });
+
+  it('keeps verified word timing unmarked', () => {
+    const words = wordsFromAsr({
+      chunks: [
+        { text: 'hello', timestamp: [0.2, 0.6] },
+        { text: 'world', timestamp: [0.7, 1.1] },
+      ],
+    }, 30, false, 'word');
+    expect(words).toHaveLength(2);
+    expect(words.some((w) => w.estimated)).toBe(false);
   });
 });
 

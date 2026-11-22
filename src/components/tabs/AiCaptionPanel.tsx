@@ -22,9 +22,9 @@ import {
 type Phase = 'idle' | 'installing' | 'ready' | 'extracting' | 'transcribing' | 'done' | 'error';
 
 const PREFERENCES_KEY = 'falconcut.captionStudio.prefs';
-interface Prefs { modelId: string; language: string; preset: CinematicPresetId; maxWords: number; maxSeconds: number }
+interface Prefs { modelId: string; language: string; preset: CinematicPresetId; maxWords: number; maxSeconds: number; chunkSec: number }
 const DEFAULT_PREFS: Prefs = {
-  modelId: CAPTION_MODELS[0].id, language: '', preset: 'tiktok', maxWords: 12, maxSeconds: 6,
+  modelId: CAPTION_MODELS[0].id, language: '', preset: 'tiktok', maxWords: 12, maxSeconds: 6, chunkSec: 30,
 };
 function loadPrefs(): Prefs {
   try { return { ...DEFAULT_PREFS, ...JSON.parse(localStorage.getItem(PREFERENCES_KEY) || '{}') }; }
@@ -103,7 +103,7 @@ export function AiCaptionPanel() {
       const result = await transcriptClient.transcribe(buffer, model.id, prefs.language.trim() || undefined, (p) => {
         setProgress(Math.max(0, Math.min(1, p.pct)));
         setStage(p.note ?? p.stage);
-      });
+      }, { chunkSec: prefs.chunkSec, overlapSec: 2 });
       const built = buildCues(result.words, 34, 2, 0.7, {
         maxCueSec: prefs.maxSeconds, targetCps: 18, sentenceBreak: true, removeFillers: false,
       });
@@ -225,10 +225,21 @@ export function AiCaptionPanel() {
         </label>
         <div className="flex gap-1.5">
           <label className="flex-1"><span className="label">Max words / cue</span>
-            <input type="number" min={3} max={30} className="field py-1 text-xs" value={prefs.maxWords} onChange={(e) => update({ maxWords: Number(e.target.value) })} disabled={busy} /></label>
+            <input type="number" min={3} max={30} className="field py-1 text-xs" value={prefs.maxWords}
+              onChange={(e) => update({ maxWords: Math.max(3, Math.min(30, Number(e.target.value) || 12)) })} disabled={busy} /></label>
           <label className="flex-1"><span className="label">Max cue sec</span>
-            <input type="number" min={1} max={20} className="field py-1 text-xs" value={prefs.maxSeconds} onChange={(e) => update({ maxSeconds: Number(e.target.value) })} disabled={busy} /></label>
+            <input type="number" min={1} max={20} className="field py-1 text-xs" value={prefs.maxSeconds}
+              onChange={(e) => update({ maxSeconds: Math.max(1, Math.min(20, Number(e.target.value) || 6)) })} disabled={busy} /></label>
         </div>
+        <label className="block">
+          <span className="label">Chunk duration (long videos)</span>
+          <select className="field py-1 text-xs" value={prefs.chunkSec} onChange={(e) => update({ chunkSec: Number(e.target.value) })} disabled={busy}>
+            <option value={15}>15 seconds — low memory</option>
+            <option value={30}>30 seconds — balanced</option>
+            <option value={45}>45 seconds — fewer chunks</option>
+          </select>
+        </label>
+        <Hint>Long videos are processed in overlapping chunks with preserved timestamps. Shorter chunks use less memory on low-RAM devices.</Hint>
         {busy && (
           <div className="space-y-1">
             <div className="h-1.5 rounded-full bg-ink-800 overflow-hidden"><div className="h-full cf-progress-bar" style={{ width: `${Math.round(progress * 100)}%` }} /></div>
