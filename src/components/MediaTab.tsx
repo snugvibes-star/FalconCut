@@ -1,11 +1,20 @@
 import { useEffect, useRef, useState } from 'react';
-import { Upload, Plus, Trash2, Film, Music, Image as ImageIcon, Sparkles, Loader2 } from 'lucide-react';
+import { Upload, Plus, Trash2, Film, Music, Image as ImageIcon, Sparkles, Loader2, Search } from 'lucide-react';
 import { useStore } from '../state/store';
 import { useUI } from '../state/ui';
 import { projectDuration, uid, type MediaAsset, type GeneratorSpec, type Action } from '../../engine';
 
 /** MIME type shared with the Timeline drop zone. */
 export const FALCONCUT_MIME = 'application/x-falconcut';
+
+type MediaFilter = 'all' | 'video' | 'audio' | 'image' | 'generator';
+const FILTERS: { id: MediaFilter; label: string }[] = [
+  { id: 'all', label: 'All' },
+  { id: 'video', label: 'Video' },
+  { id: 'audio', label: 'Audio' },
+  { id: 'image', label: 'Image' },
+  { id: 'generator', label: 'Gen' },
+];
 
 const thumbCache = new Map<string, string>();
 
@@ -46,6 +55,12 @@ export function MediaTab() {
   const [dragging, setDragging] = useState(false);
   const [genOpen, setGenOpen] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [query, setQuery] = useState('');
+  const [typeFilter, setTypeFilter] = useState<MediaFilter>('all');
+
+  const q = query.trim().toLowerCase();
+  const filtered = project.media.filter((m) =>
+    (typeFilter === 'all' || m.type === typeFilter) && (!q || m.name.toLowerCase().includes(q)));
 
   const importFiles = async (files: File[]) => {
     if (!files.length) return;
@@ -123,8 +138,41 @@ export function MediaTab() {
           Import files or generate a background. Videos never leave this device.
         </div>
       ) : (
+        <>
+          {/* search + type filter */}
+          <div className="mb-2 space-y-1.5">
+            <div className="relative">
+              <Search size={13} className="absolute left-2 top-1/2 -translate-y-1/2 text-paper-faint pointer-events-none" />
+              <input
+                className="field pl-7 py-1.5 text-xs"
+                placeholder="Search media…"
+                aria-label="Search media"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+              />
+            </div>
+            <div className="flex flex-wrap gap-1" role="group" aria-label="Filter media by type">
+              {FILTERS.map((f) => (
+                <button
+                  key={f.id}
+                  type="button"
+                  aria-pressed={typeFilter === f.id}
+                  className={`rounded-md px-2 py-0.5 text-[10px] font-medium transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-signal ${typeFilter === f.id ? 'bg-signal/15 text-signal' : 'text-paper-dim hover:text-paper hover:bg-ink-750'}`}
+                  onClick={() => setTypeFilter(f.id)}
+                >
+                  {f.label}
+                </button>
+              ))}
+            </div>
+          </div>
+          {!filtered.length ? (
+            <div className="rounded-xl border border-dashed border-line-bright text-center text-paper-faint text-[11px] py-6 px-3">
+              No media matches {query ? `“${query}”` : 'this filter'}.
+              <button className="block mx-auto mt-2 text-signal hover:underline" onClick={() => { setQuery(''); setTypeFilter('all'); }}>Clear filters</button>
+            </div>
+          ) : (
         <div className="grid grid-cols-2 gap-2">
-          {project.media.map((m) => {
+          {filtered.map((m) => {
             const ma = project.analysis?.byMedia[m.id];
             const selected = selectedId === m.id;
             return (
@@ -159,6 +207,8 @@ export function MediaTab() {
             );
           })}
         </div>
+          )}
+        </>
       )}
 
       {queue && (

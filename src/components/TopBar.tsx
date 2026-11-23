@@ -76,6 +76,18 @@ export function TopBar({ leftOpen, rightOpen, onToggleLeft, onToggleRight }: Top
   const autoEdit = async () => {
     setBusy(true);
     try {
+      // Preview first, exactly like the 24 registry tools: a one-click wand
+      // must never rewrite a whole edit without showing what it will do.
+      const preview = await useStore.getState().previewTool('auto_edit', {});
+      if (!preview.actions.length) {
+        ui.toast('Auto edit found nothing to change in this project.', 'info');
+        return;
+      }
+      const warning = preview.warnings?.length ? `\n\nNotes: ${preview.warnings.join('; ')}` : '';
+      const ok = window.confirm(
+        `Apply this edit?\n\n${preview.summary || 'Automatic edit'}\n\n${preview.actions.length} change${preview.actions.length === 1 ? '' : 's'}. You can undo with Ctrl+Z.${warning}`,
+      );
+      if (!ok) return;
       const r = await useStore.getState().applyTool('auto_edit', {});
       ui.toast(r.summary || 'Auto edit complete', 'success');
       ui.setRightTab('quality');

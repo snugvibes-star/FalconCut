@@ -101,7 +101,7 @@ export function VersionsPanel() {
           <input id={`${id}-name`} className={`field text-xs ${focus}`} value={name} onChange={(event) => setName(event.target.value)} placeholder="Before tightening the intro" required />
         </div>
         <button type="submit" className={`btn-signal w-full text-xs ${focus}`} disabled={!name.trim()}><Plus size={13} aria-hidden="true" /> Save snapshot</button>
-        <p className="text-[11px] leading-relaxed text-paper-dim">Session-only: snapshots are not saved with the project and disappear on reload. The latest 40 are kept in memory.</p>
+        <p className="text-[11px] leading-relaxed text-paper-dim">Snapshots are saved on this device with their project and survive reloads. The latest 40 are kept per project. Press Ctrl+S for a manual checkpoint.</p>
       </form>
       <div className="flex items-center justify-between gap-2 text-[11px] text-paper-dim">
         <h3 className="font-medium">Snapshots for this project</h3>

@@ -7,6 +7,11 @@
 
 :root {
   color-scheme: dark;
+  /* Accent theme (rgb triplets consumed by tailwind). Defaults match the
+     original #4C9AFF palette; Settings → Appearance overrides these live. */
+  --accent: 76 154 255;
+  --accent-dim: 47 124 216;
+  --accent-dark: 23 58 94;
 }
 
 html, body, #root {
@@ -59,10 +64,10 @@ input[type='range']::-webkit-slider-runnable-track {
 input[type='range']::-webkit-slider-thumb {
   -webkit-appearance: none; appearance: none;
   width: 13px; height: 13px; margin-top: -4.5px; border-radius: 50%;
-  background: #4C9AFF; border: 2px solid #101012; box-shadow: 0 0 0 1px #173A5E;
+  background: rgb(var(--accent)); border: 2px solid #101012; box-shadow: 0 0 0 1px rgb(var(--accent-dark));
 }
 input[type='range']::-moz-range-track { height: 4px; border-radius: 4px; background: #33333a; }
-input[type='range']::-moz-range-thumb { width: 13px; height: 13px; border-radius: 50%; background: #4C9AFF; border: 2px solid #101012; }
+input[type='range']::-moz-range-thumb { width: 13px; height: 13px; border-radius: 50%; background: rgb(var(--accent)); border: 2px solid #101012; }
 
 input[type='color'] {
   @apply appearance-none bg-transparent border-0 p-0 cursor-pointer;

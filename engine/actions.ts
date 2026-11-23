@@ -51,6 +51,7 @@ export type Action =
   | { type: 'group_clips'; clipIds: string[] }
   | { type: 'ungroup'; groupId: string }
   | { type: 'add_marker'; marker: Partial<Marker> & { time: number; label: string } }
+  | { type: 'update_marker'; markerId: string; patch: Partial<Pick<Marker, 'time' | 'label' | 'color' | 'kind'>> }
   | { type: 'remove_marker'; markerId: string }
   | { type: 'add_tack'; tack: Partial<Tack> & { time: number; text: string } }
   | { type: 'reply_tack'; tackId: string; author: 'user' | 'ai'; text: string }
@@ -106,6 +107,7 @@ export const ACTION_SCHEMA: Record<Action['type'], string> = {
   group_clips: 'Group clips so they move/select together.',
   ungroup: 'Break a clip group so clips move independently again.',
   add_marker: 'Add a timeline marker (kind: user, scene, broll, beat, chapter, retake).',
+  update_marker: 'Edit an existing marker: patch any of time, label, color, kind. Params: markerId, patch.',
   remove_marker: 'Delete a timeline marker by its id.',
   add_tack: 'Leave a note pinned to a moment (and optionally a clip) for the human or AI.',
   reply_tack: 'Reply to a tack as the user or the AI.',
@@ -606,6 +608,16 @@ export function applyAction(project: Project, action: Action): Project {
       }
       case 'add_marker': {
         p.markers.push({ id: action.marker.id ?? detUid('mk'), time: action.marker.time, label: action.marker.label, color: action.marker.color ?? '#38BDF8', kind: action.marker.kind ?? 'user' });
+        break;
+      }
+      case 'update_marker': {
+        const m = p.markers.find((x) => x.id === action.markerId);
+        if (m) {
+          if (action.patch.time !== undefined && Number.isFinite(action.patch.time)) m.time = Math.max(0, action.patch.time);
+          if (action.patch.label !== undefined) m.label = action.patch.label;
+          if (action.patch.color !== undefined) m.color = action.patch.color;
+          if (action.patch.kind !== undefined) m.kind = action.patch.kind;
+        }
         break;
       }
       case 'remove_marker': {

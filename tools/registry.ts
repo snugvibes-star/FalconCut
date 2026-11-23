@@ -546,6 +546,17 @@ export const TOOLS: ToolDef[] = [
 
 export const TOOL_MAP = new Map(TOOLS.map((t) => [t.name, t]));
 
+/** Human-readable name for a tool's machine identifier, for UI surfaces
+ * (command palette, tool runner) — e.g. "remove_dead_air" → "Remove dead air".
+ * Small acronyms and already-capitalized words are preserved. */
+export function toolLabel(name: string): string {
+  return name
+    .split('_')
+    .map((word) => word ? word[0].toUpperCase() + word.slice(1) : '')
+    .join(' ')
+    .replace(/\bAi\b/g, 'AI').replace(/\bSrt\b/g, 'SRT').replace(/\bSfx\b/g, 'SFX');
+}
+
 /** Filter out actions that touch human-locked clips (co-editing priority). */
 export function filterLocked(actions: Action[], locked?: Set<string>): { actions: Action[]; skipped: number } {
   if (!locked?.size) return { actions, skipped: 0 };

@@ -32,14 +32,30 @@ const KIND_BADGE: Record<Track['kind'], { text: string; cls: string }> = {
 };
 
 const stripCache = new Map<string, { i: number; url: string }[]>();
+const STRIP_CACHE_MAX = 200;
+const stripCacheGet = (key: string) => {
+  const v = stripCache.get(key);
+  if (v) { stripCache.delete(key); stripCache.set(key, v); } // LRU touch
+  return v;
+};
+const stripCacheSet = (key: string, v: { i: number; url: string }[]) => {
+  stripCache.delete(key);
+  stripCache.set(key, v);
+  while (stripCache.size > STRIP_CACHE_MAX) {
+    const oldest = stripCache.keys().next().value;
+    if (oldest === undefined) break;
+    stripCache.delete(oldest);
+  }
+};
 
 function Filmstrip({ clip, asset, width }: { clip: Clip; asset: MediaAsset; width: number }) {
   const pool = useStore((s) => s.pool);
   const count = Math.max(2, Math.min(10, Math.round(width / 72)));
   const key = `${asset.id}:${clip.inPoint.toFixed(2)}:${clip.duration.toFixed(2)}:${clip.speed}:${count}`;
-  const [thumbs, setThumbs] = useState<{ i: number; url: string }[]>(stripCache.get(key) ?? []);
+  const [thumbs, setThumbs] = useState<{ i: number; url: string }[]>(stripCacheGet(key) ?? []);
   useEffect(() => {
-    if (stripCache.has(key)) { setThumbs(stripCache.get(key)!); return; }
+    const cached = stripCacheGet(key);
+    if (cached) { setThumbs(cached); return; }
     if (asset.type !== 'video' && asset.type !== 'image') return;
     let alive = true;
     (async () => {
@@ -51,7 +67,7 @@ function Filmstrip({ clip, asset, width }: { clip: Clip; asset: MediaAsset; widt
           if (url) out.push({ i, url });
         } catch { /* ignore */ }
       }
-      if (alive && out.length) { stripCache.set(key, out); setThumbs(out); }
+      if (alive && out.length) { stripCacheSet(key, out); setThumbs(out); }
     })();
     return () => { alive = false; };
   }, [key, asset.id, asset.type, clip.inPoint, clip.duration, clip.speed, count, pool]);
@@ -1106,8 +1122,22 @@ export function Timeline() {
                     return (
                       <div
                         key={clip.id}
-                        className={`cf-clip absolute top-1 rounded border overflow-hidden no-select ${baseColor} ${clip.locked ? 'cursor-not-allowed' : 'cursor-grab active:cursor-grabbing'} ${selected ? 'ring-2 ring-signal brightness-110' : ''} ${isDrag ? 'opacity-80 z-10' : ''}`}
+                        className={`cf-clip absolute top-1 rounded border overflow-hidden no-select ${baseColor} ${clip.locked ? 'cursor-not-allowed' : 'cursor-grab active:cursor-grabbing'} ${selected ? 'ring-2 ring-signal brightness-110' : ''} ${isDrag ? 'opacity-80 z-10' : ''} focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-signal/80`}
                         style={{ left: start * zoom, width, height: trackH - 8 }}
+                        role="button"
+                        tabIndex={0}
+                        aria-label={`${label}, ${fmt(start)} to ${fmt(start + duration)} on ${track.name}${selected ? ', selected' : ''}${clip.locked ? ', locked' : ''}`}
+                        onKeyDown={(e) => {
+                          // Enter selects the focused clip. Space must keep
+                          // propagating: a clip stays focused after ordinary
+                          // mouse selection, and swallowing Space there would
+                          // silently kill the global play/pause shortcut.
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            if (!selection.includes(clip.id)) useStore.getState().select([clip.id]);
+                          }
+                        }}
                         onPointerDown={(e) => beginDrag(e, clip, 'move')}
                         onPointerMove={onDragMove}
                         onPointerUp={endDrag}

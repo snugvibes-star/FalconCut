@@ -10,6 +10,10 @@ vi.mock('../src/state/persistence', () => ({
   getBlob: vi.fn(async () => undefined),
   deleteBlob: vi.fn(async () => {}),
   listBlobKeys: vi.fn(async () => []),
+  garbageCollectBlobs: vi.fn(async () => 0),
+  saveVersion: vi.fn(async () => {}),
+  loadVersions: vi.fn(async () => []),
+  deleteVersionRecord: vi.fn(async () => {}),
 }));
 
 import { useStore } from '../src/state/store';
@@ -33,8 +37,8 @@ function fixture(): Project {
   return { ...p, analysis: { byMedia: { vid1: ma }, settings: { silenceThresholdDb: -38, silenceMinMs: 600 }, storyboard: '', updatedAt: Date.now() } };
 }
 
-beforeEach(() => {
-  useStore.getState().newProject('Test');
+beforeEach(async () => {
+  await useStore.getState().newProject('Test');
   useStore.setState({ locks: {}, versions: [], chat: [], plan: null, session: null, autopilot: true, aiBusy: false, planRunning: false });
 });
 

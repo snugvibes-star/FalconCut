@@ -1,6 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { Search, Upload } from 'lucide-react';
 import type { Project } from '../../engine/types';
-import { deleteProject, listProjects } from '../state/persistence';
+import { uid } from '../../engine';
+import { deleteProject, listProjects, saveProject } from '../state/persistence';
 import { useStore } from '../state/store';
 import { useUI } from '../state/ui';
 import { Dialog } from './Dialog';
@@ -12,9 +14,11 @@ export function ProjectsDialog() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [selectedId, setSelectedId] = useState(currentId);
   const [loading, setLoading] = useState(true);
-  const [busy, setBusy] = useState<'open' | 'delete' | null>(null);
+  const [busy, setBusy] = useState<'open' | 'delete' | 'import' | null>(null);
   const [error, setError] = useState('');
   const [reload, setReload] = useState(0);
+  const [query, setQuery] = useState('');
+  const fileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -33,6 +37,8 @@ export function ProjectsDialog() {
   }, [reload]);
 
   const selected = projects.find((project) => project.id === selectedId);
+  const q = query.trim().toLowerCase();
+  const visible = projects.filter((project) => !q || project.name.toLowerCase().includes(q));
   const onClose = () => { if (!busy) close('projects'); };
 
   const openSelected = async () => {
@@ -48,6 +54,34 @@ export function ProjectsDialog() {
       setError(`Could not open project. ${e instanceof Error ? e.message : 'Try again.'}`);
     } finally {
       setBusy(null);
+    }
+  };
+
+  const importProject = async (file: File) => {
+    setBusy('import');
+    setError('');
+    try {
+      const parsed = JSON.parse(await file.text()) as Project;
+      if (!parsed || typeof parsed !== 'object' || typeof parsed.name !== 'string'
+        || !Array.isArray(parsed.clips) || !Array.isArray(parsed.tracks)
+        || !Array.isArray(parsed.media) || !parsed.settings || typeof parsed.settings !== 'object') {
+        throw new Error('This is not a FalconCut project JSON file.');
+      }
+      const imported: Project = { ...parsed, updatedAt: Date.now() };
+      // Never overwrite a project already on this device — import as a copy.
+      if ((await listProjects()).some((p) => p.id === imported.id)) {
+        imported.id = uid('proj');
+        imported.name = `${imported.name} (imported)`;
+      }
+      await saveProject(imported);
+      setReload((value) => value + 1);
+      setSelectedId(imported.id);
+      toast(`Imported ${imported.name}. Media files are not in the JSON — re-import matching sources on this device to see video/audio.`, 'info');
+    } catch (e) {
+      setError(`Import failed. ${e instanceof Error ? e.message : 'The file could not be read.'}`);
+    } finally {
+      setBusy(null);
+      if (fileRef.current) fileRef.current.value = '';
     }
   };
 
@@ -74,15 +108,30 @@ export function ProjectsDialog() {
     <Dialog title="Local projects" onClose={onClose}>
       <div className="space-y-3" aria-busy={loading || Boolean(busy)}>
         <p className="text-xs leading-relaxed text-paper-dim">Projects are stored in this browser on this device. Save or export your current project before opening another one.</p>
-        <div className="flex items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
           <h3 className="font-display text-sm font-semibold">Saved projects</h3>
-          <button type="button" className="btn-solid text-xs focus-visible:outline focus-visible:outline-2 focus-visible:outline-signal" disabled={loading || Boolean(busy)} onClick={() => setReload((value) => value + 1)}>Refresh list</button>
+          <div className="flex flex-wrap gap-1.5">
+            <button type="button" className="btn-solid text-xs focus-visible:outline focus-visible:outline-2 focus-visible:outline-signal" disabled={loading || Boolean(busy)} onClick={() => setReload((value) => value + 1)}>Refresh list</button>
+            <button type="button" className="btn-solid text-xs focus-visible:outline focus-visible:outline-2 focus-visible:outline-signal"
+              disabled={Boolean(busy)} onClick={() => fileRef.current?.click()} title="Import a FalconCut project JSON file">
+              <Upload size={13} /> {busy === 'import' ? 'Importing…' : 'Import JSON'}
+            </button>
+            <input ref={fileRef} type="file" accept=".json,application/json" className="hidden" aria-label="Import project JSON"
+              onChange={(e) => { const file = e.target.files?.[0]; if (file) void importProject(file); }} />
+          </div>
         </div>
         {error && <p role="alert" className="panel border-heat/30 bg-heat/10 p-3 text-xs leading-relaxed text-heat">{error}</p>}
-        {loading ? <p role="status" className="py-6 text-center text-xs text-paper-dim">Loading local projects…</p> : projects.length ? (
+        {projects.length > 2 && (
+          <div className="relative">
+            <Search size={13} className="absolute left-2 top-1/2 -translate-y-1/2 text-paper-faint pointer-events-none" />
+            <input className="field pl-7 py-1.5 text-xs" placeholder="Find a project…" aria-label="Search projects"
+              value={query} onChange={(e) => setQuery(e.target.value)} />
+          </div>
+        )}
+        {loading ? <p role="status" className="py-6 text-center text-xs text-paper-dim">Loading local projects…</p> : visible.length ? (
           <fieldset disabled={Boolean(busy)} className="space-y-2">
             <legend className="sr-only">Choose a saved project</legend>
-            {projects.map((project) => (
+            {visible.map((project) => (
               <label key={project.id} className={`panel flex cursor-pointer items-start gap-3 p-3 transition-colors focus-within:ring-1 focus-within:ring-signal ${selectedId === project.id ? 'border-signal/50 bg-signal/5' : 'bg-ink-850 hover:border-line-bright'}`}>
                 <input type="radio" name="saved-project" value={project.id} checked={selectedId === project.id}
                   onChange={() => setSelectedId(project.id)} className="mt-0.5 shrink-0 accent-signal" />
@@ -97,7 +146,7 @@ export function ProjectsDialog() {
               </label>
             ))}
           </fieldset>
-        ) : !error ? <p className="panel bg-ink-850 p-4 text-xs leading-relaxed text-paper-dim">No saved projects yet. Start editing; local autosave will add your project here. Then refresh this list.</p> : null}
+        ) : !error ? <p className="panel bg-ink-850 p-4 text-xs leading-relaxed text-paper-dim">{q ? `No saved project matches “${query}”.` : 'No saved projects yet. Start editing; local autosave will add your project here. Import JSON to restore a backup from another device.'}</p> : null}
         <p className="text-[11px] leading-relaxed text-paper-dim">The current project cannot be deleted. Deleting another project keeps all media blobs, including files shared with other projects.</p>
         <div className="flex flex-wrap justify-between gap-2 border-t border-line pt-3">
           <button type="button" className="btn-danger focus-visible:outline focus-visible:outline-2 focus-visible:outline-heat"

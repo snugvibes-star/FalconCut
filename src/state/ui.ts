@@ -3,7 +3,7 @@
 import { create } from 'zustand';
 import { uid, type DrawTool } from '../../engine';
 
-export type RightTab = 'inspector' | 'audio' | 'ai' | 'versions' | 'quality' | 'notes';
+export type RightTab = 'inspector' | 'audio' | 'ai' | 'versions' | 'quality' | 'notes' | 'markers';
 export type LeftTab = 'media' | 'audio' | 'text' | 'stickers' | 'effects' | 'transitions' | 'filters' | 'templates' | 'captions' | 'adjustment' | 'tools' | 'styles' | 'stock';
 export type Dialog = 'connect' | 'export' | 'palette' | 'settings' | 'analysis' | 'projects' | 'newProject';
 export type Workspace = 'edit' | 'color' | 'audio';
@@ -28,6 +28,9 @@ export interface DrawState {
 
 const PREFS_KEY = 'cutflow.ui.prefs';
 
+/** Default accent — matches the CSS :root fallbacks exactly. */
+export const DEFAULT_ACCENT = '#4C9AFF';
+
 /** The customization fields persisted to localStorage. */
 interface UIPrefs {
   railVisible: boolean;
@@ -38,6 +41,8 @@ interface UIPrefs {
   density: 'compact' | 'comfortable';
   timelineCollapsed: boolean;
   previewRate: number;
+  /** Hex accent color for the whole UI ('#RRGGBB'); absent = default blue. */
+  accent?: string;
 }
 
 export const TIMELINE_H_MIN = 160;
@@ -63,6 +68,36 @@ const sanitizeZoom = (z: unknown): 'fit' | number => {
 const sanitizeWorkspace = (w: unknown): Workspace =>
   w === 'color' || w === 'audio' ? w : 'edit';
 
+const sanitizeAccent = (a: unknown): string => {
+  if (typeof a !== 'string') return DEFAULT_ACCENT;
+  const t = a.trim().toLowerCase();
+  if (!/^#[0-9a-f]{6}$/.test(t)) return DEFAULT_ACCENT;
+  // Canonicalize the default (case-insensitive) so comparisons against
+  // DEFAULT_ACCENT always succeed.
+  return t === DEFAULT_ACCENT.toLowerCase() ? DEFAULT_ACCENT : t;
+};
+
+/** Push an accent into the CSS variables the tailwind `signal` tokens read.
+ * The default accent removes the overrides so the :root values (the original
+ * palette, exact) win again. */
+export function applyAccent(hex: string) {
+  if (typeof document === 'undefined') return;
+  const root = document.documentElement;
+  const clean = sanitizeAccent(hex);
+  if (clean === DEFAULT_ACCENT) {
+    root.style.removeProperty('--accent');
+    root.style.removeProperty('--accent-dim');
+    root.style.removeProperty('--accent-dark');
+    return;
+  }
+  const n = parseInt(clean.slice(1), 16);
+  const r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255;
+  const mix = (v: number, f: number) => Math.round(v * f);
+  root.style.setProperty('--accent', `${r} ${g} ${b}`);
+  root.style.setProperty('--accent-dim', `${mix(r, 0.66)} ${mix(g, 0.66)} ${mix(b, 0.66)}`);
+  root.style.setProperty('--accent-dark', `${mix(r, 0.22)} ${mix(g, 0.22)} ${mix(b, 0.22)}`);
+}
+
 function loadPrefs(): Partial<UIPrefs> {
   try {
     return JSON.parse(localStorage.getItem(PREFS_KEY) ?? '{}') as Partial<UIPrefs>;
@@ -77,6 +112,9 @@ function persistUI(patch: Partial<UIPrefs>) {
 }
 
 const prefs = loadPrefs();
+
+// Restore a saved accent before first paint (no-op for the default blue).
+if (prefs.accent) applyAccent(prefs.accent);
 
 interface UIState {
   rightTab: RightTab;
@@ -100,6 +138,8 @@ interface UIState {
   timelineCollapsed: boolean;
   /** Preview-only playback rate. Never applied to clips or export. */
   previewRate: number;
+  /** UI accent color (hex). Persisted; drives the tailwind `signal` tokens. */
+  accent: string;
   /** Direct-manipulation / drawing tool active on the preview. */
   draw: DrawState;
   setDrawTool: (t: PreviewTool) => void;
@@ -112,6 +152,7 @@ interface UIState {
   setDensity: (v: 'compact' | 'comfortable') => void;
   setTimelineCollapsed: (v: boolean) => void;
   setPreviewRate: (v: number) => void;
+  setAccent: (hex: string) => void;
   setRightTab: (t: RightTab) => void;
   setLeftTab: (t: LeftTab) => void;
   setWorkspace: (w: Workspace) => void;
@@ -139,6 +180,7 @@ export const useUI = create<UIState>((set, get) => ({
   density: prefs.density === 'compact' ? 'compact' : 'comfortable',
   timelineCollapsed: prefs.timelineCollapsed === true,
   previewRate: typeof prefs.previewRate === 'number' && [0.25, 0.5, 1, 1.5, 2].includes(prefs.previewRate) ? prefs.previewRate : 1,
+  accent: sanitizeAccent(prefs.accent),
   draw: { tool: 'select', color: '#4C9AFF', size: 8, opacity: 1, fill: false, char: '✨' },
   setDrawTool: (t) => set((s) => ({ draw: { ...s.draw, tool: t } })),
   patchDraw: (patch) => set((s) => ({ draw: { ...s.draw, ...patch } })),
@@ -150,6 +192,18 @@ export const useUI = create<UIState>((set, get) => ({
   setDensity: (v) => { set({ density: v }); persistUI({ density: v }); },
   setTimelineCollapsed: (v) => { set({ timelineCollapsed: v }); persistUI({ timelineCollapsed: v }); },
   setPreviewRate: (v) => { set({ previewRate: v }); persistUI({ previewRate: v }); },
+  setAccent: (hex) => {
+    const clean = sanitizeAccent(hex);
+    set({ accent: clean });
+    applyAccent(clean);
+    // Storing the default clears the custom key so :root stays authoritative.
+    if (clean === DEFAULT_ACCENT) {
+      try {
+        const { accent: _drop, ...rest } = loadPrefs();
+        localStorage.setItem(PREFS_KEY, JSON.stringify(rest));
+      } catch { /* ignore */ }
+    } else persistUI({ accent: clean });
+  },
   setWorkspace: (w) => { set({ workspace: w }); persistUI({ workspace: w }); },
   setRightTab: (t) => set({ rightTab: t }),
   setLeftTab: (t) => set({ leftTab: t }),

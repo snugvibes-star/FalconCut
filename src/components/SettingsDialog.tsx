@@ -5,8 +5,18 @@ import { FEATURE_CHECKLIST, GROUP_ORDER, checklistSummary, type FeatureStatus } 
 import { useStore } from '../state/store';
 import { useUI } from '../state/ui';
 import { Dialog } from './Dialog';
+import { ShortcutsSection } from './ShortcutsSection';
+import { AppearanceSection } from './AppearanceSection';
 
 type ChecklistFilter = 'all' | FeatureStatus;
+type SettingsTab = 'ai' | 'shortcuts' | 'appearance' | 'checklist';
+
+const SETTINGS_TABS: { id: SettingsTab; label: string }[] = [
+  { id: 'ai', label: 'AI' },
+  { id: 'shortcuts', label: 'Shortcuts' },
+  { id: 'appearance', label: 'Appearance' },
+  { id: 'checklist', label: 'Checklist' },
+];
 
 const STATUS_DOT: Record<FeatureStatus, string> = {
   working: 'bg-signal',
@@ -82,6 +92,7 @@ export function SettingsDialog() {
   const close = useUI((s) => s.close);
   const toast = useUI((s) => s.toast);
   const [draft, setDraft] = useState(() => ({ ...settings, temperature: String(settings.temperature) }));
+  const [tab, setTab] = useState<SettingsTab>('ai');
   const [error, setError] = useState('');
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<{ ok: boolean; text: string } | null>(null);
@@ -236,9 +247,25 @@ export function SettingsDialog() {
   };
 
   return (
-    <Dialog title="AI settings" onClose={onClose}>
+    <Dialog title="Settings" onClose={onClose}>
       <div className="space-y-4">
-      <ChecklistSection />
+      <div className="cf-hscroll flex items-center gap-1 -mt-1 border-b border-line pb-2.5" role="tablist" aria-label="Settings sections">
+        {SETTINGS_TABS.map((t) => (
+          <button
+            key={t.id}
+            role="tab"
+            aria-selected={tab === t.id}
+            className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-signal ${tab === t.id ? 'bg-ink-700 text-paper' : 'text-paper-dim hover:text-paper hover:bg-ink-800'}`}
+            onClick={() => setTab(t.id)}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+      {tab === 'checklist' && <ChecklistSection />}
+      {tab === 'shortcuts' && <ShortcutsSection />}
+      {tab === 'appearance' && <AppearanceSection />}
+      {tab === 'ai' && (
       <form onSubmit={save} className="space-y-4">
         <p className="text-xs leading-relaxed text-paper-dim">
           Connect any chat model for planning and auto edit: any OpenAI-compatible vendor (OpenAI, Groq, Together, Mistral, DeepSeek, Fireworks, Perplexity, Ollama, LM Studio…), OpenRouter, or Google Gemini's native API. AI is optional; every editing tool works without an API key.
@@ -395,6 +422,7 @@ export function SettingsDialog() {
           <button type="submit" className="btn-signal focus-visible:outline focus-visible:outline-2 focus-visible:outline-signal">Save settings</button>
         </div>
       </form>
+      )}
       </div>
     </Dialog>
   );

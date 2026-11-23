@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { X, Eye, Check, Loader2, AlertTriangle } from 'lucide-react';
-import { TOOL_MAP } from '../../tools/registry';
+import { TOOL_MAP, toolLabel } from '../../tools/registry';
 import { useStore } from '../state/store';
 import { useUI } from '../state/ui';
 import type { ToolResult } from '../../tools/registry';
@@ -42,7 +42,7 @@ export function ToolRunner({ toolName, onClose }: { toolName: string; onClose: (
       <div className="panel w-full max-w-lg shadow-panel animate-fade-in max-h-[85vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-start gap-3 p-4 border-b border-line">
           <div className="flex-1 min-w-0">
-            <h3 className="font-display font-semibold text-paper font-mono text-sm">{def.name}</h3>
+            <h3 className="font-display font-semibold text-paper text-sm">{toolLabel(def.name)}</h3>
             <p className="text-xs text-paper-dim mt-1">{def.description}</p>
           </div>
           <button className="icon-btn" onClick={onClose}><X size={16} /></button>

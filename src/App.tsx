@@ -27,8 +27,16 @@ export default function App() {
   const workspace = useUI((s) => s.workspace);
   const focusMode = useUI((s) => s.focusMode);
   const density = useUI((s) => s.density);
+  const saveStatus = useStore((s) => s.saveStatus);
   usePlayback();
   useKeyboard();
+
+  // A failed autosave (quota, disabled storage) must be loud — the tiny status
+  // label is easy to miss while editing. Fires once per transition into error.
+  useEffect(() => {
+    if (saveStatus !== 'error') return;
+    useUI.getState().toast('Local save failed — your latest edits may not be stored. Export a project JSON now to protect them.', 'error');
+  }, [saveStatus]);
   const sessionToken = useStore((s) => s.session?.token);
 
   useEffect(() => {

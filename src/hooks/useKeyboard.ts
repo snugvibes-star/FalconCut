@@ -1,11 +1,15 @@
-/** Global editor shortcuts. Ignored while typing in a field. Every shortcut
+/** Global editor shortcuts. Ignored while typing in a field. Remappable combos
+ * come from features/shortcuts (Settings → Shortcuts); a few combos are fixed
+ * here and never remapped: the caption-studio Ctrl+Alt set, zone Space
+ * (Alt+Space / Ctrl+Space), and the Ctrl+S autosave intercept. Every shortcut
  * maps to the same store actions the buttons use. */
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { useStore } from '../state/store';
 import { useUI } from '../state/ui';
 import { activeClips, projectDuration, defaultTextStyle, type Action } from '../../engine';
 import { toggleMarkerLoop } from '../features/zoneLoop';
 import { copySelection, cutSelection, duplicateSelection, pasteClipboard } from '../features/clipClipboard';
+import { matchShortcut } from '../features/shortcuts';
 
 function isTyping(el: EventTarget | null): boolean {
   const t = el as HTMLElement | null;
@@ -14,8 +18,181 @@ function isTyping(el: EventTarget | null): boolean {
   return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || t.isContentEditable;
 }
 
+/** J/K/L shuttle: repeated presses within the window climb a ladder. */
+const JKL_WINDOW = 700;
+const BACK_STEPS = [1, 2, 4, 8];
+const FWD_RATES = [1, 1.5, 2];
+
+interface ShuttleState {
+  /** -1 backward, 0 idle, 1 forward */
+  dir: -1 | 0 | 1;
+  /** ladder index; -1 = reset */
+  step: number;
+  at: number;
+  /** true when the current preview rate was set by the L ladder (K resets it) */
+  ladderRate: boolean;
+}
+
 export function useKeyboard() {
+  const shuttle = useRef<ShuttleState>({ dir: 0, step: -1, at: 0, ladderRate: false });
+
   useEffect(() => {
+    /** Run a remapped action; returns false when the id is unknown. */
+    const runAction = (id: string): boolean => {
+      const s = useStore.getState();
+      const ui = useUI.getState();
+      const st = shuttle.current;
+      const now = Date.now();
+      switch (id) {
+        // ---- Playback ----
+        case 'playPause': s.togglePlay(); return true;
+        case 'shuttleBack': {
+          if (st.dir !== -1 || now - st.at > JKL_WINDOW) st.step = -1;
+          st.dir = -1; st.at = now;
+          st.step = Math.min(BACK_STEPS.length - 1, st.step + 1);
+          const secs = BACK_STEPS[st.step];
+          s.pause();
+          s.setPlayhead(Math.max(0, s.playhead - secs));
+          if (secs > 1) ui.toast(`Shuttle back ${secs}s`, 'info');
+          return true;
+        }
+        case 'shuttleStop': {
+          s.pause();
+          if (st.ladderRate) ui.setPreviewRate(1);
+          shuttle.current = { dir: 0, step: -1, at: 0, ladderRate: false };
+          return true;
+        }
+        case 'shuttleFwd': {
+          const fresh = st.dir !== 1 || now - st.at > JKL_WINDOW;
+          if (fresh) { st.dir = 1; st.step = -1; }
+          st.at = now;
+          st.step = Math.min(FWD_RATES.length - 1, st.step + 1);
+          const target = FWD_RATES[st.step];
+          // Only ever raise the rate — a manually chosen preview rate survives.
+          if (target > useUI.getState().previewRate) {
+            ui.setPreviewRate(target);
+            st.ladderRate = target !== 1;
+          }
+          if (!s.playing) s.play();
+          else if (target > 1) ui.toast(`Preview ${target}×`, 'info');
+          return true;
+        }
+        case 'zoneIn': {
+          const z = s.zone ?? { in: 0, out: projectDuration(s.project), loop: false };
+          s.setZone({ ...z, in: Math.min(s.playhead, z.out - 0.05) });
+          ui.toast(`Zone in at ${s.playhead.toFixed(2)}s — playback stops at out (Alt+Space loops)`);
+          return true;
+        }
+        case 'zoneOut': {
+          const z = s.zone ?? { in: 0, out: projectDuration(s.project), loop: false };
+          s.setZone({ ...z, out: Math.max(s.playhead, z.in + 0.05) });
+          ui.toast(`Zone out at ${s.playhead.toFixed(2)}s — Ctrl+Space plays the zone`);
+          return true;
+        }
+        case 'markerLoop': toggleMarkerLoop(); return true;
+
+        // ---- Editing ----
+        case 'addEdit': {
+          const t = s.playhead;
+          const targets = s.project.clips.filter((c) => t > c.start + 0.05 && t < c.start + c.duration - 0.05);
+          if (targets.length) {
+            s.commit(targets.map((c) => ({ type: 'split_clip' as const, clipId: c.id, time: t })), 'Add edit at playhead');
+            ui.toast(`Split ${targets.length} clip${targets.length > 1 ? 's' : ''} at playhead`);
+          } else ui.toast('Move the playhead inside a clip to split', 'info');
+          return true;
+        }
+        case 'razor':
+        case 'split': {
+          const t = s.playhead;
+          const target = s.selection.length
+            ? s.project.clips.find((c) => c.id === s.selection[0] && t > c.start + 0.05 && t < c.start + c.duration - 0.05)
+            : activeClips(s.project, t).find((c) => c.kind === 'media' && t > c.start + 0.05 && t < c.start + c.duration - 0.05);
+          if (target) { s.commit([{ type: 'split_clip', clipId: target.id, time: t }], 'Split clip'); ui.toast('Split at playhead'); }
+          else ui.toast('Move the playhead inside a clip to split', 'info');
+          return true;
+        }
+        case 'lift': {
+          if (!s.selection.length) { ui.toast('Select a clip to lift it', 'info'); return true; }
+          s.commit(s.selection.map((id) => ({ type: 'remove_clip', clipId: id, ripple: false })), 'Lift clips');
+          s.select([]);
+          return true;
+        }
+        case 'extract': {
+          if (!s.selection.length) { ui.toast('Select a clip to extract it', 'info'); return true; }
+          s.commit(s.selection.map((id) => ({ type: 'remove_clip', clipId: id, ripple: true })), 'Extract clips');
+          s.select([]);
+          return true;
+        }
+        case 'group': {
+          if (s.selection.length < 2) { ui.toast('Select two or more clips to group them', 'info'); return true; }
+          s.commit([{ type: 'group_clips', clipIds: s.selection.slice() }], 'Group clips');
+          ui.toast(`Grouped ${s.selection.length} clips`, 'success');
+          return true;
+        }
+        case 'ungroup': {
+          const groups = new Set(s.selection.map((id) => s.project.clips.find((c) => c.id === id)?.groupId).filter(Boolean) as string[]);
+          if (!groups.size) { ui.toast('Select a grouped clip to ungroup it', 'info'); return true; }
+          s.commit([...groups].map((groupId) => ({ type: 'ungroup', groupId })), 'Ungroup clips');
+          ui.toast('Clips ungrouped', 'success');
+          return true;
+        }
+        case 'toggleSnap': {
+          const next = !ui.snap;
+          ui.setSnap(next);
+          ui.toast(next ? 'Snapping on' : 'Snapping off — hold Alt while dragging to bypass it either way');
+          return true;
+        }
+
+        // ---- Clipboard / history ----
+        case 'undo': s.undo(); return true;
+        case 'redo':
+        case 'redoAlt': s.redo(); return true;
+        case 'selectAll': s.select(s.project.clips.map((c) => c.id)); return true;
+        case 'copy': {
+          const n = copySelection();
+          ui.toast(n ? `${n} clip${n > 1 ? 's' : ''} copied — Ctrl+V pastes at the playhead` : 'Select a clip to copy', n ? 'success' : 'info');
+          return true;
+        }
+        case 'cut': {
+          const n = cutSelection();
+          ui.toast(n ? `${n} clip${n > 1 ? 's' : ''} cut — Ctrl+V pastes at the playhead` : 'Select a clip to cut', n ? 'success' : 'info');
+          return true;
+        }
+        case 'paste': {
+          const n = pasteClipboard(s.playhead);
+          ui.toast(n ? `Pasted ${n} clip${n > 1 ? 's' : ''} at the playhead` : 'Clipboard is empty — copy a clip first', n ? 'success' : 'info');
+          return true;
+        }
+        case 'duplicate': {
+          const n = duplicateSelection();
+          ui.toast(n ? `Duplicated ${n} clip${n > 1 ? 's' : ''}` : 'Select a clip to duplicate', n ? 'success' : 'info');
+          return true;
+        }
+
+        // ---- Markers & notes ----
+        case 'addMarker':
+          s.commit([{ type: 'add_marker', marker: { time: s.playhead, label: `M${s.project.markers.length + 1}`, color: '#4C9AFF' } }], 'Add marker');
+          return true;
+        case 'addTack':
+          s.commit([{ type: 'add_tack', tack: { time: s.playhead, text: 'Note', author: 'user' } }], 'Add tack');
+          ui.setRightTab('notes');
+          return true;
+
+        // ---- View ----
+        case 'selectTool': ui.setDrawTool('select'); return true;
+        case 'zoomToSelection': window.dispatchEvent(new CustomEvent('falconcut:zoom-to-selection')); return true;
+        case 'zoomIn': s.setZoom(s.zoom * 1.2); return true;
+        case 'zoomOut': s.setZoom(s.zoom / 1.2); return true;
+        case 'goStart': s.setPlayhead(0); return true;
+        case 'goEnd': s.setPlayhead(projectDuration(s.project)); return true;
+        case 'palette': ui.toggle('palette'); return true;
+
+        // ---- App ----
+        case 'export': ui.open('export'); return true;
+        default: return false;
+      }
+    };
+
     const onKey = (e: KeyboardEvent) => {
       const s = useStore.getState();
       const ui = useUI.getState();
@@ -36,18 +213,7 @@ export function useKeyboard() {
       if (isTyping(e.target) || targetEl?.closest('dialog, [role="dialog"]') || Object.values(ui.dialogs).some(Boolean)) return;
       if (targetEl?.closest('button') && (e.key === ' ' || e.key === 'Enter')) return;
 
-      if (mod && !e.altKey && e.key.toLowerCase() === 'k') {
-        // Premiere Ctrl+K: Add Edit — split every clip crossing the playhead.
-        e.preventDefault();
-        const t = s.playhead;
-        const targets = s.project.clips.filter((c) => t > c.start + 0.05 && t < c.start + c.duration - 0.05);
-        if (targets.length) {
-          s.commit(targets.map((c) => ({ type: 'split_clip' as const, clipId: c.id, time: t })), 'Add edit at playhead');
-          ui.toast(`Split ${targets.length} clip${targets.length > 1 ? 's' : ''} at playhead`);
-        } else ui.toast('Move the playhead inside a clip to split', 'info');
-        return;
-      }
-      // ---- caption studio shortcuts (Ctrl/Cmd+Alt to avoid NLE conflicts) ----
+      // ---- fixed combos: caption studio (Ctrl+Alt…) ------------------------
       if (mod && e.altKey) {
         const captionClips = s.project.clips.filter((c) => c.kind === 'text' && c.text?.role === 'caption');
         const selectedCaptions = captionClips.filter((c) => s.selection.includes(c.id));
@@ -94,142 +260,51 @@ export function useKeyboard() {
           return;
         }
       }
-      if (mod && e.key === '/') { e.preventDefault(); ui.toggle('palette'); return; }
-      if (mod && e.key.toLowerCase() === 'e') { e.preventDefault(); ui.open('export'); return; }
-      if (mod && e.key.toLowerCase() === 's') { e.preventDefault(); ui.toast('Project autosaves continuously', 'info'); return; }
-      if (mod && e.key.toLowerCase() === 'z') { e.preventDefault(); e.shiftKey ? s.redo() : s.undo(); return; }
-      if (mod && e.key.toLowerCase() === 'y') { e.preventDefault(); s.redo(); return; }
-      if (mod && e.key.toLowerCase() === 'a') { e.preventDefault(); s.select(s.project.clips.map((c) => c.id)); return; }
-      if (!mod && e.shiftKey && e.key.toLowerCase() === 'z') {
-        e.preventDefault();
-        window.dispatchEvent(new CustomEvent('falconcut:zoom-to-selection'));
-        return;
-      }
 
-      // ---- clipboard: copy / cut / paste / duplicate -------------------------
-      if (mod && e.key.toLowerCase() === 'c') {
+      // ---- fixed combos: autosave intercept + zone Space -------------------
+      if (mod && e.key.toLowerCase() === 's') {
         e.preventDefault();
-        const n = copySelection();
-        ui.toast(n ? `${n} clip${n > 1 ? 's' : ''} copied — Ctrl+V pastes at the playhead` : 'Select a clip to copy', n ? 'success' : 'info');
+        s.snapshot('Manual save', 'manual');
+        ui.toast('Checkpoint saved — restore it any time in Versions', 'success');
         return;
       }
-      if (mod && e.key.toLowerCase() === 'x') {
-        e.preventDefault();
-        const n = cutSelection();
-        ui.toast(n ? `${n} clip${n > 1 ? 's' : ''} cut — Ctrl+V pastes at the playhead` : 'Select a clip to cut', n ? 'success' : 'info');
-        return;
-      }
-      if (mod && e.key.toLowerCase() === 'v') {
-        e.preventDefault();
-        const n = pasteClipboard(s.playhead);
-        ui.toast(n ? `Pasted ${n} clip${n > 1 ? 's' : ''} at the playhead` : 'Clipboard is empty — copy a clip first', n ? 'success' : 'info');
-        return;
-      }
-      if (mod && e.key.toLowerCase() === 'd') {
-        e.preventDefault();
-        const n = duplicateSelection();
-        ui.toast(n ? `Duplicated ${n} clip${n > 1 ? 's' : ''}` : 'Select a clip to duplicate', n ? 'success' : 'info');
-        return;
-      }
-      if (mod && e.key.toLowerCase() === 'g') {
-        e.preventDefault();
-        if (e.shiftKey) {
-          const groups = new Set(s.selection.map((id) => s.project.clips.find((c) => c.id === id)?.groupId).filter(Boolean) as string[]);
-          if (!groups.size) { ui.toast('Select a grouped clip to ungroup it', 'info'); return; }
-          s.commit([...groups].map((groupId) => ({ type: 'ungroup', groupId })), 'Ungroup clips');
-          ui.toast('Clips ungrouped', 'success');
-        } else {
-          if (s.selection.length < 2) { ui.toast('Select two or more clips to group them', 'info'); return; }
-          s.commit([{ type: 'group_clips', clipIds: s.selection.slice() }], 'Group clips');
-          ui.toast(`Grouped ${s.selection.length} clips`, 'success');
-        }
-        return;
-      }
-
-      switch (e.key) {
-        case ' ': {
+      if (e.key === ' ' && (e.altKey || mod)) {
+        const z = s.zone;
+        if (e.altKey && z) {
+          // Alt+Space: toggle zone looping (starts playback inside the zone).
           e.preventDefault();
-          const z = s.zone;
-          if (e.altKey && z) {
-            // Alt+Space: toggle zone looping (starts playback inside the zone).
-            const loop = !z.loop;
-            s.setZone({ ...z, loop });
-            if (loop) {
-              if (s.playhead < z.in || s.playhead >= z.out) s.setPlayhead(z.in);
-              if (!s.playing) s.play();
-              ui.toast(loop ? 'Looping zone (Esc clears)' : 'Zone loop off');
-            } else ui.toast('Zone loop off');
-            break;
-          }
-          if (mod && z) {
-            // Ctrl+Space: play the zone once from its in point.
+          const loop = !z.loop;
+          s.setZone({ ...z, loop });
+          if (loop) {
             if (s.playhead < z.in || s.playhead >= z.out) s.setPlayhead(z.in);
             if (!s.playing) s.play();
-            break;
-          }
-          s.togglePlay();
-          break;
+            ui.toast(loop ? 'Looping zone (Esc clears)' : 'Zone loop off');
+          } else ui.toast('Zone loop off');
+          return;
         }
-        case 'v':
-        case 'V':
-          // Premiere V: selection tool on the preview overlay.
-          e.preventDefault(); ui.setDrawTool('select'); break;
-        case 'c':
-        case 'C':
-          // Premiere C: razor — split the clip under the playhead.
+        if (mod && z) {
+          // Ctrl+Space: play the zone once from its in point.
           e.preventDefault();
-          {
-            const t = s.playhead;
-            const target = s.selection.length
-              ? s.project.clips.find((cl) => cl.id === s.selection[0] && t > cl.start + 0.05 && t < cl.start + cl.duration - 0.05)
-              : activeClips(s.project, t).find((cl) => cl.kind === 'media' && t > cl.start + 0.05 && t < cl.start + cl.duration - 0.05);
-            if (target) { s.commit([{ type: 'split_clip', clipId: target.id, time: t }], 'Split clip'); ui.toast('Split at playhead'); }
-            else ui.toast('Move the playhead inside a clip to split', 'info');
-          }
-          break;
-        case 'z':
-        case 'Z':
-          // Premiere Z: lift — remove the selection leaving a gap.
-          if (mod) break;
-          if (!s.selection.length) { ui.toast('Select a clip to lift it', 'info'); break; }
-          e.preventDefault();
-          s.commit(s.selection.map((id) => ({ type: 'remove_clip', clipId: id, ripple: false })), 'Lift clips');
-          s.select([]);
-          break;
-        case 'X':
-          // Premiere Shift+X: extract — remove the selection rippling the gap.
-          if (mod) break;
-          if (!s.selection.length) { ui.toast('Select a clip to extract it', 'info'); break; }
-          e.preventDefault();
-          s.commit(s.selection.map((id) => ({ type: 'remove_clip', clipId: id, ripple: true })), 'Extract clips');
-          s.select([]);
-          break;
-        case 'i':
-        case 'I': {
-          e.preventDefault();
-          const z = s.zone ?? { in: 0, out: projectDuration(s.project), loop: false };
-          s.setZone({ ...z, in: Math.min(s.playhead, z.out - 0.05) });
-          ui.toast(`Zone in at ${s.playhead.toFixed(2)}s — playback stops at out (Alt+Space loops)`);
-          break;
+          if (s.playhead < z.in || s.playhead >= z.out) s.setPlayhead(z.in);
+          if (!s.playing) s.play();
+          return;
         }
-        case 'o':
-        case 'O': {
-          e.preventDefault();
-          const z = s.zone ?? { in: 0, out: projectDuration(s.project), loop: false };
-          s.setZone({ ...z, out: Math.max(s.playhead, z.in + 0.05) });
-          ui.toast(`Zone out at ${s.playhead.toFixed(2)}s — Ctrl+Space plays the zone`);
-          break;
-        }
-        case 'j':
-        case 'J':
-          // J/K/L shuttle: J nudges the playhead back 1s (and pauses).
-          e.preventDefault(); s.pause(); s.setPlayhead(s.playhead - 1); break;
-        case 'k':
-        case 'K':
-          e.preventDefault(); s.pause(); break;
-        case 'l':
-        case 'L':
-          e.preventDefault(); if (!s.playing) s.togglePlay(); break;
+        // No zone: same as plain Space (legacy fall-through).
+        e.preventDefault();
+        s.togglePlay();
+        return;
+      }
+
+      // ---- remappable shortcuts (Settings → Shortcuts) ---------------------
+      const actionId = matchShortcut(e);
+      if (actionId) {
+        e.preventDefault();
+        runAction(actionId);
+        return;
+      }
+
+      // ---- fixed keys that stay unremapped --------------------------------
+      switch (e.key) {
         case 'Delete':
         case 'Backspace': {
           if (!s.selection.length) break;
@@ -238,58 +313,10 @@ export function useKeyboard() {
           s.select([]);
           break;
         }
-        case 's':
-        case 'S': {
-          if (mod) break;
-          e.preventDefault();
-          const t = s.playhead;
-          const target = s.selection.length
-            ? s.project.clips.find((c) => c.id === s.selection[0] && t > c.start + 0.05 && t < c.start + c.duration - 0.05)
-            : activeClips(s.project, t).find((c) => c.kind === 'media' && t > c.start + 0.05 && t < c.start + c.duration - 0.05);
-          if (target) { s.commit([{ type: 'split_clip', clipId: target.id, time: t }], 'Split clip'); ui.toast('Split at playhead'); }
-          else ui.toast('Move the playhead inside a clip to split', 'info');
-          break;
-        }
-        case 'n':
-        case 'N': {
-          // N: toggle magnetic snapping (persisted).
-          e.preventDefault();
-          const next = !ui.snap;
-          ui.setSnap(next);
-          ui.toast(next ? 'Snapping on' : 'Snapping off — hold Alt while dragging to bypass it either way');
-          break;
-        }
-        case 'm':
-        case 'M':
-          if (e.shiftKey) {
-            // Shift+M: loop between the nearest markers (real playback zone).
-            e.preventDefault();
-            toggleMarkerLoop();
-            break;
-          }
-          e.preventDefault();
-          s.commit([{ type: 'add_marker', marker: { time: s.playhead, label: 'Marker', kind: 'user', color: '#38BDF8' } }], 'Add marker');
-          break;
-        case 't':
-        case 'T':
-          e.preventDefault();
-          s.commit([{ type: 'add_tack', tack: { time: s.playhead, text: 'Note', author: 'user' } }], 'Add tack');
-          ui.setRightTab('notes');
-          break;
         case 'ArrowLeft':
           e.preventDefault(); s.setPlayhead(s.playhead - (e.shiftKey ? 1 / (s.project.settings.fps || 30) : 0.1)); break;
         case 'ArrowRight':
           e.preventDefault(); s.setPlayhead(s.playhead + (e.shiftKey ? 1 / (s.project.settings.fps || 30) : 0.1)); break;
-        case 'Home':
-          e.preventDefault(); s.setPlayhead(0); break;
-        case 'End':
-          e.preventDefault(); s.setPlayhead(projectDuration(s.project)); break;
-        case '+':
-        case '=':
-          e.preventDefault(); s.setZoom(s.zoom * 1.2); break;
-        case '-':
-        case '_':
-          e.preventDefault(); s.setZoom(s.zoom / 1.2); break;
       }
     };
     window.addEventListener('keydown', onKey);

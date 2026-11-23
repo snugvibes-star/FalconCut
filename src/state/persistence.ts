@@ -6,9 +6,28 @@
 import { openDB, type DBSchema, type IDBPDatabase } from 'idb';
 import type { Project } from '../../engine/types';
 
+/** A version snapshot, stored alongside (but separately from) its project so
+ * a reload or a project switch cannot destroy the user's rollback points. */
+export interface StoredVersion {
+  id: string;
+  projectId: string;
+  name: string;
+  at: number;
+  project: Project;
+  thumbnail?: string;
+  score: number;
+  source: 'manual' | 'ai' | 'auto';
+}
+
 interface FalconCutDB extends DBSchema {
   blobs: { key: string; value: Blob };
   projects: { key: string; value: Project; indexes: { updatedAt: number } };
+}
+
+/** Snapshots live in their own database so adding them never forces a version
+ * upgrade (and a potential blocked upgrade) on existing users' main DB. */
+interface VersionsDB extends DBSchema {
+  versions: { key: string; value: StoredVersion; indexes: { projectId: string } };
 }
 
 /* Storage identity is intentionally the pre-rename id: it is never shown in
@@ -85,4 +104,43 @@ export async function deleteProject(id: string): Promise<void> {
 export async function listProjects(): Promise<Project[]> {
   const all = await (await db()).getAllFromIndex('projects', 'updatedAt');
   return all.reverse(); // most recently updated first
+}
+
+/* ---------------- version snapshots ---------------- */
+
+const VERSIONS_DB_NAME = 'cutflow-versions';
+let versionsDbPromise: Promise<IDBPDatabase<VersionsDB>> | null = null;
+
+function versionsDb(): Promise<IDBPDatabase<VersionsDB>> {
+  if (!versionsDbPromise) {
+    versionsDbPromise = openDB<VersionsDB>(VERSIONS_DB_NAME, 1, {
+      upgrade(d) {
+        if (!d.objectStoreNames.contains('versions')) {
+          const s = d.createObjectStore('versions', { keyPath: 'id' });
+          s.createIndex('projectId', 'projectId');
+        }
+      },
+    });
+  }
+  return versionsDbPromise;
+}
+
+export async function saveVersion(version: StoredVersion): Promise<void> {
+  const database = await versionsDb();
+  await database.put('versions', version);
+  // Keep the store bounded (the store also caps the in-memory list at 40).
+  const all = await database.getAllFromIndex('versions', 'projectId', version.projectId);
+  if (all.length > 40) {
+    const stale = all.sort((a, b) => a.at - b.at).slice(0, all.length - 40);
+    for (const v of stale) await database.delete('versions', v.id);
+  }
+}
+
+export async function loadVersions(projectId: string): Promise<StoredVersion[]> {
+  const all = await (await versionsDb()).getAllFromIndex('versions', 'projectId', projectId);
+  return all.sort((a, b) => b.at - a.at).slice(0, 40);
+}
+
+export async function deleteVersionRecord(id: string): Promise<void> {
+  await (await versionsDb()).delete('versions', id);
 }

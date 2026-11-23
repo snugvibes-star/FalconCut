@@ -18,6 +18,9 @@ export interface VideoExportOptions {
   /** Output resolution multiplier (1 = project resolution). */
   scale: number;
   includeAudio: boolean;
+  /** Explicit video bitrate in bits/sec. Omit (or 0) to derive it from
+   * quality + resolution as before. */
+  bitrate?: number;
 }
 export interface VideoExportProgress {
   stage: 'prepare' | 'video' | 'audio' | 'finalize';
@@ -73,11 +76,23 @@ async function pickCodecPlan(width: number, height: number, fps: number, bitrate
   throw new Error('This browser has no usable WebCodecs video encoder (H.264/VP9/VP8). Try Chrome or Edge.');
 }
 
-function backpressure(enc: VideoEncoder | AudioEncoder, max: number): Promise<void> {
+function backpressure(enc: VideoEncoder | AudioEncoder, max: number, signal?: AbortSignal): Promise<void> {
   if (enc.encodeQueueSize <= max) return Promise.resolve();
-  return new Promise((resolve) => {
-    const h = () => { if (enc.encodeQueueSize <= max) { enc.removeEventListener('dequeue', h); resolve(); } };
+  return new Promise((resolve, reject) => {
+    // A full queue plus an encoder error would otherwise wait for a 'dequeue'
+    // event that never arrives, hanging the export forever.
+    const cleanup = () => {
+      clearInterval(timer);
+      enc.removeEventListener('dequeue', h);
+      signal?.removeEventListener('abort', onAbort);
+    };
+    const done = () => { cleanup(); resolve(); };
+    const h = () => { if (enc.encodeQueueSize <= max || enc.state === 'closed') done(); };
+    const timer = setInterval(h, 50);
+    const onAbort = () => { cleanup(); reject(new DOMException('Export cancelled.', 'AbortError')); };
     enc.addEventListener('dequeue', h);
+    signal?.addEventListener('abort', onAbort, { once: true });
+    if (signal?.aborted) onAbort();
   });
 }
 
@@ -95,7 +110,9 @@ export async function exportVideo(
   const width = even(project.settings.width * opts.scale);
   const height = even(project.settings.height * opts.scale);
   const totalFrames = Math.max(1, Math.ceil(duration * fps));
-  const bitrate = Math.round(width * height * fps * 0.09 * QUALITY_MULT[opts.quality]);
+  const bitrate = opts.bitrate && opts.bitrate > 0
+    ? Math.round(opts.bitrate)
+    : Math.round(width * height * fps * 0.09 * QUALITY_MULT[opts.quality]);
 
   onProgress({ stage: 'prepare', pct: 0, frame: 0, totalFrames });
   checkAbort(signal);
@@ -191,7 +208,7 @@ export async function exportVideo(
       const frame = new VideoFrame(canvas, { timestamp, duration: Math.round(1e6 / fps) });
       videoEncoder.encode(frame, { keyFrame: i % keyEvery === 0 });
       frame.close();
-      await backpressure(videoEncoder, 8);
+      await backpressure(videoEncoder, 8, signal);
       onProgress({ stage: 'video', pct: (i / totalFrames) * 0.8, frame: i, totalFrames });
     }
     checkAbort(signal);
@@ -218,7 +235,7 @@ export async function exportVideo(
         });
         audioEncoder.encode(data);
         data.close();
-        await backpressure(audioEncoder, 16);
+        await backpressure(audioEncoder, 16, signal);
         onProgress({ stage: 'audio', pct: 0.8 + (off / total) * 0.15, frame: totalFrames, totalFrames });
       }
       await audioEncoder.flush();

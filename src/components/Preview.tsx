@@ -15,8 +15,57 @@ function timecode(t: number, fps: number): string {
   const total = Math.max(0, t);
   const m = Math.floor(total / 60);
   const s = Math.floor(total % 60);
-  const f = Math.floor((total % 1) * fps);
+  // Round (clamped to a valid frame index) so the displayed frame timecode is
+  // the nearest frame — re-entering it drifts less than with truncation.
+  const f = Math.min(Math.max(1, Math.round(fps) || 30) - 1, Math.floor((total % 1) * fps + 0.5));
   return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}:${String(f).padStart(2, '0')}`;
+}
+
+/** Accepts HH:MM:SS:FF, MM:SS:FF, HH:MM:SS.ss, MM:SS.ss, MM:SS, or raw seconds.
+ * A fractional final segment always means SECONDS (never frames) — frame
+ * indices are integers, so "00:00:06.12" must seek to 6.12s, not 0.204s. */
+function parseTimecode(input: string, fps: number): number | null {
+  const text = input.trim();
+  if (!text) return null;
+  if (/^\d+(\.\d+)?$/.test(text)) return Math.max(0, Number(text));
+  const segments = text.split(':');
+  const parts = segments.map((p) => Number(p));
+  if (parts.some((n) => !Number.isFinite(n) || n < 0)) return null;
+  const fractionalSeconds = segments[segments.length - 1].includes('.');
+  if (fractionalSeconds) {
+    if (parts.length === 2) return parts[0] * 60 + parts[1];             // MM:SS.ss
+    if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2]; // HH:MM:SS.ss
+    return null;
+  }
+  if (parts.length === 2) return parts[0] * 60 + parts[1];
+  if (parts.length === 3) return parts[0] * 60 + parts[1] + parts[2] / fps; // MM:SS:FF
+  if (parts.length === 4) return parts[0] * 3600 + parts[1] * 60 + parts[2] + parts[3] / fps; // HH:MM:SS:FF
+  return null;
+}
+
+function TimecodeInput({ value, fps, onSeek }: { value: number; fps: number; onSeek: (t: number) => void }) {
+  const [draft, setDraft] = useState<string | null>(null);
+  const [invalid, setInvalid] = useState(false);
+  const commit = () => {
+    if (draft === null) return;
+    const t = parseTimecode(draft, fps);
+    if (t === null) { setInvalid(true); return; } // keep the text so it can be fixed
+    setInvalid(false);
+    onSeek(t);
+    setDraft(null);
+  };
+  return (
+    <input
+      className={`w-[76px] rounded bg-transparent px-0.5 font-mono text-[11px] tabular-nums text-paper focus:bg-ink-800 focus:outline-none sm:text-xs ${invalid ? 'ring-1 ring-heat text-heat' : ''}`}
+      value={draft ?? timecode(value, fps)}
+      onChange={(e) => { setDraft(e.target.value); setInvalid(false); }}
+      onBlur={commit}
+      onKeyDown={(e) => { if (e.key === 'Enter') commit(); if (e.key === 'Escape') { setDraft(null); setInvalid(false); } }}
+      title={invalid ? 'Invalid timecode — use MM:SS:FF, HH:MM:SS.ss, MM:SS or seconds' : 'Go to timecode — MM:SS:FF, HH:MM:SS.ss, MM:SS or seconds'}
+      aria-label="Go to timecode"
+      aria-invalid={invalid}
+    />
+  );
 }
 
 const ZOOM_STEPS: { label: string; value: 'fit' | number }[] = [
@@ -312,8 +361,8 @@ export function Preview() {
               <button className="icon-btn" onClick={() => jump(1)} title="Jump to end (End)"><ChevronsRight size={16} /></button>
             )}
           </div>
-          <div className="font-mono text-[11px] sm:text-xs text-paper-dim ml-1 sm:ml-2 tabular-nums whitespace-nowrap">
-            <span className="text-paper">{timecode(playhead, fps || 30)}</span>
+          <div className="flex items-center font-mono text-[11px] sm:text-xs text-paper-dim ml-1 sm:ml-2 tabular-nums whitespace-nowrap">
+            <TimecodeInput value={playhead} fps={fps || 30} onSeek={(t) => { const s = useStore.getState(); s.pause(); s.setPlayhead(Math.max(0, Math.min(dur, t))); }} />
             <span className="text-paper-faint"> / {timecode(dur, fps || 30)}</span>
           </div>
           <div className="flex-1" />

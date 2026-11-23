@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import {
-  SlidersHorizontal, Bot, History, ShieldCheck, MessageSquare, Music,
+  SlidersHorizontal, Bot, History, ShieldCheck, MessageSquare, Music, Flag,
   ChevronsLeft, ChevronsRight, X,
 } from 'lucide-react';
 import { useUI, type RightTab } from '../state/ui';
@@ -14,11 +14,13 @@ import { ChatPanel } from './ChatPanel';
 import { VersionsPanel } from './VersionsPanel';
 import { QualityPanel } from './QualityPanel';
 import { NotesPanel } from './NotesPanel';
+import { MarkersPanel } from './MarkersPanel';
 
 const TABS: { id: RightTab; label: string; icon: typeof Bot }[] = [
   { id: 'inspector', label: 'Inspect', icon: SlidersHorizontal },
   { id: 'audio', label: 'Audio', icon: Music },
   { id: 'ai', label: 'AI', icon: Bot },
+  { id: 'markers', label: 'Markers', icon: Flag },
   { id: 'versions', label: 'Versions', icon: History },
   { id: 'quality', label: 'Quality', icon: ShieldCheck },
   { id: 'notes', label: 'Notes', icon: MessageSquare },
@@ -39,12 +41,13 @@ export function RightPanel({ overlayOpen, onOverlayClose }: RightPanelProps) {
   const setRightTab = useUI((s) => s.setRightTab);
   const issueCount = useStore((s) => s.lint.issues.length);
   const tackCount = useStore((s) => s.project.tacks.filter((t) => !t.resolved).length);
+  const markerCount = useStore((s) => s.project.markers.length);
   const desktop = useMediaQuery('(min-width: 1024px)');
   const device = useDeviceClass();
   const [collapsed, setCollapsed] = useState(false);
   const { width, dragging, onHandlePointerDown } = usePanelWidth('right', MIN_W, MAX_W, DEFAULT_W);
 
-  const badgeFor = (id: RightTab) => (id === 'quality' ? issueCount : id === 'notes' ? tackCount : 0);
+  const badgeFor = (id: RightTab) => (id === 'quality' ? issueCount : id === 'notes' ? tackCount : id === 'markers' ? markerCount : 0);
 
   const strip = (onPick?: () => void) => (
     <div className="cf-hscroll flex items-center gap-0.5 p-1.5 border-b border-line shrink-0">
@@ -81,6 +84,7 @@ export function RightPanel({ overlayOpen, onOverlayClose }: RightPanelProps) {
         </div>
       )}
       {rightTab === 'ai' && <ChatPanel />}
+      {rightTab === 'markers' && <MarkersPanel />}
       {rightTab === 'versions' && <VersionsPanel />}
       {rightTab === 'quality' && <QualityPanel />}
       {rightTab === 'notes' && <NotesPanel />}

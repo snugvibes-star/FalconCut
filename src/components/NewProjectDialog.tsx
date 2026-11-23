@@ -19,23 +19,26 @@ export function NewProjectDialog() {
   const [name, setName] = useState('Untitled project');
   const [aspect, setAspect] = useState<Aspect>('16:9');
   const [error, setError] = useState('');
-  const onClose = () => close('newProject');
+  const [busy, setBusy] = useState(false);
+  const onClose = () => { if (!busy) close('newProject'); };
   const [width, height] = ASPECT_SIZES[aspect];
 
-  const create = (event: FormEvent<HTMLFormElement>) => {
+  const create = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const trimmedName = name.trim();
-    if (!trimmedName) {
-      setError('Enter a project name.');
+    if (!trimmedName || busy) {
+      if (!trimmedName) setError('Enter a project name.');
       return;
     }
+    setBusy(true);
+    setError('');
     try {
-      newProject(trimmedName, aspect);
+      await newProject(trimmedName, aspect);
       toast(`Created ${trimmedName}.`, 'success');
-      onClose();
+      close('newProject');
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not create a project. Try again.');
-    }
+    } finally { setBusy(false); }
   };
 
   return (
@@ -60,7 +63,7 @@ export function NewProjectDialog() {
         {error && <p role="alert" className="text-xs text-heat">{error}</p>}
         <div className="flex flex-wrap justify-end gap-2 border-t border-line pt-3">
           <button type="button" className="btn-solid focus-visible:outline focus-visible:outline-2 focus-visible:outline-signal" onClick={onClose}>Back to editor</button>
-          <button type="submit" className="btn-signal focus-visible:outline focus-visible:outline-2 focus-visible:outline-signal" disabled={!name.trim()}>Create project</button>
+          <button type="submit" className="btn-signal focus-visible:outline focus-visible:outline-2 focus-visible:outline-signal" disabled={!name.trim() || busy}>{busy ? 'Saving & creating…' : 'Create project'}</button>
         </div>
       </form>
     </Dialog>

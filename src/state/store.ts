@@ -20,7 +20,7 @@ import { analyzeMedia, mergeAnalysis, recomputeSilences, defaultAnalyzeOptions, 
 import { makeAIFn, loadAISettings, saveAISettings, hasAI, type AISettings } from '../../ai/client';
 import { type Plan, type PlanStep } from '../../ai/planner';
 import { respond, undoIntent, type HistoryTurn } from '../../ai/agent';
-import { saveProject, loadProject, listProjects, putBlob, getBlob, deleteBlob, garbageCollectBlobs } from './persistence';
+import { saveProject, loadProject, listProjects, putBlob, getBlob, deleteBlob, garbageCollectBlobs, saveVersion as persistVersion, loadVersions, deleteVersionRecord } from './persistence';
 import { useUI } from './ui';
 
 export interface Version {
@@ -102,7 +102,7 @@ interface State {
 
   /* lifecycle */
   init: () => Promise<void>;
-  newProject: (name?: string, aspect?: Aspect) => void;
+  newProject: (name?: string, aspect?: Aspect) => Promise<void>;
   openProject: (id: string) => Promise<void>;
 
   /* editing — the ONE path for human + AI */
@@ -289,17 +289,26 @@ export const useStore = create<State>()((set, get) => {
               await pool.register(asset);
             }
           }
-          set({ project: history.current, lint: relint(history.current), ready: true, canUndo: false, canRedo: false });
+          let savedVersions: Version[] = [];
+          try {
+            savedVersions = (await loadVersions(recent.id)).map(({ projectId: _projectId, ...v }) => v);
+          } catch { /* version store unavailable — keep working without it */ }
+          set({ project: history.current, versions: savedVersions, lint: relint(history.current), ready: true, canUndo: false, canRedo: false });
           return;
         }
       } catch { /* storage unavailable — start fresh */ }
       set({ ready: true });
     },
 
-    newProject(name = 'Untitled project', aspect: Aspect = '16:9') {
+    async newProject(name = 'Untitled project', aspect: Aspect = '16:9') {
       projectEpoch++;
       if (saveTimer) clearTimeout(saveTimer);
-      if (get().ready) void saveProject(get().project).catch(() => set({ saveStatus: 'error' }));
+      // Switching projects is destructive to the current session state — the
+      // outgoing document must be on disk before we reset anything.
+      if (get().ready) {
+        try { await saveProject(get().project); }
+        catch { set({ saveStatus: 'error' }); throw new Error('Could not save the current project. Export a project JSON backup before starting a new one.'); }
+      }
       taskQueue.cancelAll();
       get().pool.dispose();
       const fresh = new MediaPool();
@@ -331,10 +340,14 @@ export const useStore = create<State>()((set, get) => {
         } else if (asset.type === 'generator') await fresh.register(asset);
       }
       if (epoch !== projectEpoch) { fresh.dispose(); return; }
+      let savedVersions: Version[] = [];
+      try {
+        savedVersions = (await loadVersions(p.id)).map(({ projectId: _projectId, ...v }) => v);
+      } catch { /* version store unavailable — keep working without it */ }
       get().pool.dispose();
       history.reset(p);
       set({ project: p, pool: fresh, selection: [], playhead: 0, playing: false,
-        versions: [], chat: [], locks: {}, session: null, plan: null, aiBusy: false, planRunning: false,
+        versions: savedVersions, chat: [], locks: {}, session: null, plan: null, aiBusy: false, planRunning: false,
         lint: relint(p), canUndo: false, canRedo: false, undoLabel: '', redoLabel: '', saveStatus: 'saved' });
     },
 
@@ -766,6 +779,9 @@ export const useStore = create<State>()((set, get) => {
       const p = get().project;
       const v: Version = { id: uid('ver'), name, at: Date.now(), project: JSON.parse(JSON.stringify(p)), thumbnail, score: relint(p).score, source };
       set((s) => ({ versions: [v, ...s.versions].slice(0, 40) }));
+      // Durable: survive reloads and project switches. Fire-and-forget — a
+      // storage failure must never block the edit that triggered the snapshot.
+      void persistVersion({ ...v, projectId: p.id }).catch(() => {});
       return v;
     },
     restoreVersion(id) {
@@ -776,6 +792,7 @@ export const useStore = create<State>()((set, get) => {
     },
     deleteVersion(id) {
       set((s) => ({ versions: s.versions.filter((v) => v.id !== id) }));
+      void deleteVersionRecord(id).catch(() => {});
     },
     diffVersion(id) {
       const v = get().versions.find((x) => x.id === id);

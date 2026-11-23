@@ -35,6 +35,8 @@ export function ExportDialog() {
   const [quality, setQuality] = useState<ExportQuality>('standard');
   const [scale, setScale] = useState(1);
   const [includeAudio, setIncludeAudio] = useState(true);
+  /** 0 = auto (derived from quality + resolution); otherwise bits/sec override. */
+  const [bitrateMbps, setBitrateMbps] = useState(0);
   const [prog, setProg] = useState<Prog | null>(null);
   const [done, setDone] = useState('');
   const [doneKind, setDoneKind] = useState<'video' | 'gif' | ''>('');
@@ -67,7 +69,7 @@ export function ExportDialog() {
     abortRef.current = ctrl;
     try {
       if (support?.supported) {
-        const r = await exportVideo(project, getBlob, { quality, scale, includeAudio }, (p) => {
+        const r = await exportVideo(project, getBlob, { quality, scale, includeAudio, ...(bitrateMbps ? { bitrate: bitrateMbps * 1_000_000 } : {}) }, (p) => {
           const label = { prepare: 'Preparing fonts & audio', video: `Rendering frame ${p.frame}/${p.totalFrames}`, audio: 'Encoding audio', finalize: 'Muxing container' }[p.stage];
           setProg({ pct: p.pct, label });
         }, ctrl.signal);
@@ -182,6 +184,18 @@ export function ExportDialog() {
               <span className="label">Quality</span>
               <select className="field py-1 text-xs cursor-pointer" value={quality} onChange={(e) => setQuality(e.target.value as ExportQuality)} disabled={!!busy}>
                 <option value="draft">Draft</option><option value="standard">Standard</option><option value="high">High</option>
+              </select>
+            </label>
+            <label className="block" title="Video bitrate — Auto derives it from quality and resolution; pick a value to force it">
+              <span className="label">Bitrate</span>
+              <select className="field py-1 text-xs cursor-pointer" value={bitrateMbps} onChange={(e) => setBitrateMbps(Number(e.target.value))} disabled={!!busy}>
+                <option value={0}>Auto</option>
+                <option value={4}>4 Mbps</option>
+                <option value={8}>8 Mbps</option>
+                <option value={12}>12 Mbps</option>
+                <option value={16}>16 Mbps</option>
+                <option value={24}>24 Mbps</option>
+                <option value={32}>32 Mbps</option>
               </select>
             </label>
             <label className="block">
