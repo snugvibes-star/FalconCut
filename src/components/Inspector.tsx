@@ -253,6 +253,8 @@ export function Inspector() {
     setTab((prev) => (relevantTabs.includes(prev) ? prev : relevantTabs[0]));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [clip?.id, clip?.kind]);
+  const selectedId = clip?.id;
+  useEffect(() => setMaskDraft(null), [selectedId]);
 
   if (!clip) {
     return <ProjectInspector />;
@@ -261,7 +263,6 @@ export function Inspector() {
   const tf = resolvedTransform(clip, localT);
   const vol = clipVolumeAt(clip, localT);
   const id = clip.id;
-  useEffect(() => setMaskDraft(null), [id]);
   const isText = clip.kind === 'text';
 
   const addKeyframe = (path: string, value: number) => {
