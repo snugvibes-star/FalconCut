@@ -20,7 +20,7 @@ export type Action =
   | { type: 'remove_track'; trackId: string }
   | { type: 'set_track'; trackId: string; patch: Partial<Pick<Track, 'name' | 'locked' | 'muted' | 'hidden' | 'solo' | 'height'>> }
   | { type: 'move_track'; trackId: string; toIndex: number }
-  | { type: 'add_clip'; clip: Partial<Clip> & { trackId: string; start: number; duration: number }; ripple?: boolean }
+  | { type: 'add_clip'; clip: Partial<Clip> & { trackId: string; start: number; duration: number }; ripple?: boolean; /** unique seed so repeated copies never collide on the same generated id */ nonce?: string }
   | { type: 'remove_clip'; clipId: string; ripple?: boolean }
   | { type: 'split_clip'; clipId: string; time: number }
   | { type: 'trim_clip'; clipId: string; start?: number; duration?: number; inPoint?: number }

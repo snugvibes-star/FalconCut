@@ -43,7 +43,7 @@ interface UIPrefs {
 export const TIMELINE_H_MIN = 160;
 /** Device-aware cap: a desktop 70% timeline carried over to a phone would
  * leave the preview only a few pixels tall, which is a retention killer. */
-const deviceClass = (): 'phone' | 'tablet' | 'desktop' => {
+export const deviceClass = (): 'phone' | 'tablet' | 'desktop' => {
   if (typeof window === 'undefined') return 'desktop'; // Node/Vitest imports
   return window.innerWidth < 640 ? 'phone' : window.innerWidth < 1024 ? 'tablet' : 'desktop';
 };
@@ -163,3 +163,12 @@ export const useUI = create<UIState>((set, get) => ({
   },
   dismiss: (id) => set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) })),
 }));
+
+/** Re-read the saved height when the device class changes (resize/rotate).
+ * Deliberately does NOT persist: user-set heights for each class stay intact. */
+export function reloadTimelineHeightForDevice() {
+  const stored = (loadPrefs() as Record<string, unknown>)[timelineKey()];
+  useUI.setState({
+    timelineHeight: clampTimelineHeight(typeof stored === 'number' && Number.isFinite(stored) ? stored : 240),
+  });
+}

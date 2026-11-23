@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { Plus, Trash2, Diamond, Lock, Unlock, Sparkles, RotateCcw, X, Palette } from 'lucide-react';
 import { useStore } from '../state/store';
 import { useUI } from '../state/ui';
+import { MaskPolygonEditor, type MaskPoint } from './MaskPolygonEditor';
 import { resolvedTransform, clipVolumeAt, getMedia, COLOR_PRESETS, BLEND_MODES, TRANSITION_TYPES, speedPointsOf, avgSpeed, parseCube, type Clip, type Effect, type EffectType, type Easing, type Transform, type Transition, type Aspect, type Action, type BlendMode, type SpeedPoint, ASPECT_SIZES } from '../../engine';
 
 const EASINGS: Easing[] = ['linear', 'easeIn', 'easeOut', 'easeInOut', 'easeOutBack', 'easeOutExpo'];
@@ -135,7 +136,7 @@ const ANIM_PRESETS: AnimPreset[] = [
     ] }; },
   },
 ];
-const EFFECT_DEFAULTS: Record<string, Record<string, number | string | boolean>> = {
+export const EFFECT_DEFAULTS: Record<string, Record<string, number | string | boolean>> = {
   color: { brightness: 1, contrast: 1, saturation: 1, temperature: 0 },
   blur: { amount: 4 },
   sharpen: { amount: 0.5 },
@@ -222,6 +223,8 @@ export function Inspector() {
   const [newVisualEffect, setNewVisualEffect] = useState<EffectType>('blur');
   const [newAudioEffect, setNewAudioEffect] = useState<EffectType>('eq');
   const [kfPath, setKfPath] = useState('transform.scale');
+  const [maskDraft, setMaskDraft] = useState<MaskPoint[] | null>(null);
+  const [bgProgress, setBgProgress] = useState<number | null>(null);
 
   const set = (actions: Action[], label: string, key?: string) =>
     useStore.getState().commit(actions, label, 'human', key);
@@ -258,6 +261,7 @@ export function Inspector() {
   const tf = resolvedTransform(clip, localT);
   const vol = clipVolumeAt(clip, localT);
   const id = clip.id;
+  useEffect(() => setMaskDraft(null), [id]);
   const isText = clip.kind === 'text';
 
   const addKeyframe = (path: string, value: number) => {
@@ -679,14 +683,14 @@ export function Inspector() {
       )}
 
       {tab === 'mask' && (() => {
-        const mask = clip.mask ?? { shape: 'none' as const, x: 0.1, y: 0.1, w: 0.8, h: 0.8, feather: 0 };
+        const mask = clip.mask ?? { shape: 'none' as const, x: 0.1, y: 0.1, w: 0.8, h: 0.8, feather: 0, invert: false, points: [] as MaskPoint[] };
         const patchMask = (patch: Partial<typeof mask>, label: string) =>
           set([{ type: 'set_clip_props', clipId: id, patch: { mask: { ...mask, ...patch } } }], label);
         return (
           <>
             <Section title="Shape mask">
               <div className="flex gap-1">
-                {(['none', 'rect', 'ellipse'] as const).map((shape) => (
+                {(['none', 'rect', 'ellipse', 'polygon'] as const).map((shape) => (
                   <button key={shape} className={`chip flex-1 justify-center capitalize border ${mask.shape === shape ? 'bg-signal/15 border-signal/50 text-signal' : 'border-line text-paper-dim'}`}
                     onClick={() => patchMask({ shape }, `Mask ${shape}`)}>{shape === 'none' ? 'None' : shape}</button>
                 ))}
@@ -699,7 +703,43 @@ export function Inspector() {
                   <Slider label="Height" value={mask.h} min={0.02} max={1} step={0.01} fmt={(v) => `${Math.round(v * 100)}%`} onChange={(v) => patchMask({ h: v }, 'Mask height')} />
                 </>
               )}
-              <p className="text-[11px] text-paper-faint">Masks crop this clip in the composited frame. Chroma key is available in the Effects tab.</p>
+              {mask.shape === 'polygon' && (
+                <MaskPolygonEditor
+                  points={maskDraft ?? (mask.points?.length ? mask.points : undefined) ?? [
+                    { x: 0.2, y: 0.2 }, { x: 0.8, y: 0.2 }, { x: 0.8, y: 0.8 }, { x: 0.2, y: 0.8 },
+                  ]}
+                  onChange={setMaskDraft}
+                  onCommit={(pts) => { setMaskDraft(pts); patchMask({ points: pts }, 'Polygon mask'); }}
+                />
+              )}
+              {mask.shape !== 'none' && (
+                <>
+                  <Slider label="Feather" value={mask.feather ?? 0} min={0} max={0.25} step={0.005}
+                    fmt={(v) => `${Math.round(v * 100)}%`} onChange={(v) => patchMask({ feather: v }, 'Mask feather')} />
+                  <button className={`chip w-full justify-center border ${mask.invert ? 'border-signal/60 bg-signal/10 text-signal' : 'border-line text-paper-dim'}`}
+                    onClick={() => patchMask({ invert: !mask.invert }, mask.invert ? 'Normal matte' : 'Invert matte')}>
+                    {mask.invert ? 'Inverted — keep OUTSIDE the shape' : 'Normal — keep INSIDE the shape'}
+                  </button>
+                </>
+              )}
+              <p className="text-[11px] text-paper-faint">Mattes are real alpha operations in the shared renderer (preview + export). Feather needs canvas filter support; polygon masks need at least 3 points. Rotoscoping/tracking is not implemented.</p>
+            </Section>
+            <Section title="Background removal (still images)">
+              <button className="btn-ghost w-full justify-center text-[11px]" disabled={bgProgress !== null}
+                onClick={async () => {
+                  if (!clip?.mediaId) return;
+                  const asset = getMedia(project, clip.mediaId);
+                  if (asset?.type !== 'image') { useUI.getState().toast('Select an image clip — video mattes need per-frame inference and a re-encode', 'info'); return; }
+                  setBgProgress(0);
+                  const result = await useStore.getState().removeBackground(id, (v) => setBgProgress(v));
+                  setBgProgress(null);
+                  useUI.getState().toast(result === 'ok' ? 'Background removed — real transparent PNG cutout added to the timeline'
+                    : result === 'not-image' ? 'Only still images are supported'
+                      : result === 'no-clip' ? 'The clip has no image source' : 'Could not remove the background', result === 'ok' ? 'success' : 'error');
+                }}>
+                {bgProgress !== null ? `Loading model… ${Math.round(bgProgress * 100)}%` : 'Remove background with local model'}
+              </button>
+              <p className="text-[11px] text-paper-faint">First use downloads Xenova/modnet q8 (~25 MB) from Hugging Face — no API key, nothing uploaded. Real alpha cutout in preview and export. Not video, rotoscoping or hair-accurate tracking.</p>
             </Section>
             <Section title="Green screen">
               <button className="btn-ghost w-full justify-center text-[11px]"

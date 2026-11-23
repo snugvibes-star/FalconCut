@@ -11,6 +11,8 @@ import {
   type Project, type Action, type Clip, type MediaAsset, type Aspect, type ProjectDiff,
 } from '../../engine';
 import { runTool, type ToolResult } from '../../tools/registry';
+import { isolateVoice } from '../../analysis/voiceIsolation';
+import { loadBackgroundModel, removeBackground } from '../../analysis/segmentation';
 import { lintProject, type LintReport } from '../../quality/lint';
 import { getPack } from '../../styles/packs';
 import { effectivePack } from '../../styles/rules';
@@ -120,6 +122,13 @@ interface State {
    * asset + audio-track clip at the same position, and mute the original.
    * Returns 'ok' | 'no-clip' | 'no-buffer' | 'undecodable'. */
   extractAudio: (clipId: string) => Promise<'ok' | 'no-clip' | 'no-buffer' | 'undecodable'>;
+  /** Real DSP voice isolation → derived WAV asset, same path in preview/export. */
+  isolateVoice: (clipId: string, opts?: { reduction?: number; noiseWindow?: number }) => Promise<'ok' | 'no-clip' | 'no-buffer' | 'undecodable'>;
+  /** Raise project output resolution with high-quality resampling + mild
+   * sharpen. Honest: no new detail is invented (no AI super-resolution). */
+  upscaleOutput: (factor: 2 | 4) => void;
+  /** Local ONNX background removal for still images → transparent PNG asset. */
+  removeBackground: (clipId: string, onProgress?: (v: number) => void) => Promise<'ok' | 'no-clip' | 'not-image' | 'error'>;
 
   /* analysis */
   setAnalyzeOptions: (patch: Partial<AnalyzeOptions>) => void;
@@ -578,6 +587,105 @@ export const useStore = create<State>()((set, get) => {
       get().commit(actions, `Extract audio from ${asset.name}`);
       get().analyze(id);
       return 'ok';
+    },
+
+    async isolateVoice(clipId, opts) {
+      const s = get();
+      const clip = s.project.clips.find((c) => c.id === clipId);
+      const asset = clip ? getMedia(s.project, clip.mediaId) : undefined;
+      if (!clip || !asset || !clip.mediaId) return 'no-clip';
+      const buffer = s.pool.getBuffer(clip.mediaId);
+      if (!buffer) return s.pool.decodeFailedFor(clip.mediaId) ? 'undecodable' : 'no-buffer';
+      const clean = isolateVoice(buffer, opts);
+      const wav = encodeWAV(clean);
+      const id = uid('media');
+      const blobKey = `media_${id}`;
+      await putBlob(blobKey, wav);
+      const newAsset: MediaAsset = {
+        id, name: `${asset.name.replace(/\.[^.]+$/, '')} (voice isolated).wav`,
+        type: 'audio', duration: clean.duration, width: 0, height: 0, hasAudio: true,
+        blobKey, mime: 'audio/wav', size: wav.size, source: 'reference',
+        derivedFrom: clip.mediaId, op: 'voice-isolation',
+        opParams: { reduction: opts?.reduction ?? 0.85 },
+      };
+      await s.pool.register(newAsset, wav);
+      const audioTrack = get().project.tracks.find((t) => t.kind === 'audio');
+      const actions: Action[] = [
+        { type: 'add_media', asset: newAsset },
+        { type: 'add_clip', clip: {
+          trackId: audioTrack?.id ?? clip.trackId, mediaId: id, start: clip.start, duration: clip.duration,
+          inPoint: clip.inPoint, volume: clip.volume,
+        }, nonce: uid('voice') },
+        { type: 'remove_clip', clipId: clip.id },
+      ];
+      get().commit(actions, `Voice isolation — ${asset.name}`);
+      get().analyze(id);
+      return 'ok';
+    },
+
+    upscaleOutput(factor) {
+      const st = get();
+      const cur = st.project.settings;
+      const width = Math.min(3840, Math.round(cur.width * factor / 2) * 2);
+      const height = Math.min(2160, Math.round((width * cur.height) / cur.width / 2) * 2);
+      const actions: Action[] = [{ type: 'set_settings', patch: { width, height, aspect: cur.aspect } }];
+      for (const c of st.project.clips) {
+        if (c.kind !== 'media' || !c.mediaId) continue;
+        if (c.effects.some((e) => e.type === 'sharpen')) continue;
+        actions.push({ type: 'add_effect', clipId: c.id, effect: { type: 'sharpen', enabled: true, params: { amount: 0.18 } } });
+      }
+      st.commit(actions, `Upscale output ${factor}× (resample)`);
+    },
+
+    async removeBackground(clipId, onProgress) {
+      const s = get();
+      const clip = s.project.clips.find((c) => c.id === clipId);
+      const asset = clip ? getMedia(s.project, clip.mediaId) : undefined;
+      if (!clip || !asset || !asset.blobKey) return 'no-clip';
+      if (asset.type !== 'image') return 'not-image'; // honest still-image scope
+      try {
+        await loadBackgroundModel((p) => onProgress?.(p.value));
+        const blob = await getBlob(asset.blobKey);
+        if (!blob) return 'error';
+        const cut = await removeBackground(blob);
+        const canvas = document.createElement('canvas');
+        canvas.width = cut.width; canvas.height = cut.height;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return 'error';
+        const rgba = new Uint8ClampedArray(cut.width * cut.height * 4);
+        if (cut.channels === 4) rgba.set(cut);
+        else for (let i = 0, j = 0; i < rgba.length; i += 4, j += cut.channels) {
+          rgba[i] = cut[j] ?? 0; rgba[i + 1] = cut[j + 1] ?? 0; rgba[i + 2] = cut[j + 2] ?? 0; rgba[i + 3] = 255;
+        }
+        ctx.putImageData(new ImageData(rgba, cut.width, cut.height), 0, 0);
+        const png = await new Promise<Blob>((resolve, reject) => canvas.toBlob((b) => b ? resolve(b) : reject(new Error('PNG encode failed')), 'image/png'));
+        const id = uid('media');
+        const blobKey = `media_${id}`;
+        await putBlob(blobKey, png);
+        const newAsset: MediaAsset = {
+          id, name: `${asset.name.replace(/\.[^.]+$/, '')} (cutout).png`,
+          type: 'image', duration: clip.duration, width: cut.width, height: cut.height,
+          hasAudio: false, blobKey, mime: 'image/png', size: png.size, source: 'reference',
+          derivedFrom: clip.mediaId, op: 'background-removal', opParams: { model: 'Xenova/modnet q8' },
+        };
+        await s.pool.register(newAsset, png);
+        const cutoutClip = JSON.parse(JSON.stringify(clip)) as any;
+        cutoutClip.id = undefined;
+        cutoutClip.mediaId = id;
+        cutoutClip.inPoint = 0;
+        cutoutClip.effects = clip.effects.map((e) => ({ ...e, id: undefined }));
+        cutoutClip.keyframes = clip.keyframes.map((k) => ({ ...k, id: undefined }));
+        const actions: Action[] = [
+          { type: 'add_media', asset: newAsset },
+          { type: 'add_clip', clip: cutoutClip, nonce: uid('cutout') },
+          { type: 'remove_clip', clipId: clip.id },
+        ];
+        get().commit(actions, `Remove background — ${asset.name}`);
+        return 'ok';
+      } catch (err) {
+        useUI.getState().toast(`Background removal failed: ${err instanceof Error ? err.message : String(err)}`, 'error');
+        return 'error';
+      }
     },
 
     setAnalyzeOptions(patch) {

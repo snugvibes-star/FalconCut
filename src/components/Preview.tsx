@@ -4,7 +4,7 @@ import { useStore } from '../state/store';
 import { useUI } from '../state/ui';
 import { renderFrame, drawSafeZones, drawThirdsGrid, projectDuration, activeClips, getMedia, type Action } from '../../engine';
 import { toggleMarkerLoop } from '../features/zoneLoop';
-import { projectPNG } from '../../exporter/artifacts';
+import { downloadBlob, projectPNG } from '../../exporter/artifacts';
 import { getBlob } from '../state/persistence';
 import { OverlayEditor } from './preview/OverlayEditor';
 import { CropOverlay } from './preview/CropOverlay';
@@ -52,6 +52,12 @@ export function Preview() {
   /* Phone transport keeps play + frame-step + timecode on the bar and hides
      the thirteen secondary controls behind one discoverable "More" sheet. */
   const [moreOpen, setMoreOpen] = useState(false);
+  useEffect(() => {
+    if (!moreOpen) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setMoreOpen(false); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [moreOpen]);
   const [box, setBox] = useState({ w: 0, h: 0 });
   const [full, setFull] = useState(false);
   const [capturing, setCapturing] = useState(false);
@@ -64,12 +70,7 @@ export function Preview() {
     try {
       const blob = await projectPNG(s.project, s.playhead, getBlob);
       const name = `falconcut-frame-${s.playhead.toFixed(2).replace('.', '_')}s.png`;
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = name;
-      a.click();
-      URL.revokeObjectURL(url);
+      downloadBlob(blob, name);
       useUI.getState().toast(`Frame saved as PNG (${s.project.settings.width}×${s.project.settings.height})`, 'success');
     } catch (e) {
       useUI.getState().toast(e instanceof Error ? e.message : 'Frame export failed', 'error');
@@ -390,7 +391,12 @@ export function Preview() {
             </>
           )}
         </div>
-        {device === 'phone' && moreOpen && phoneExtras}
+        {device === 'phone' && moreOpen && (
+          <>
+            <div className="fixed inset-0 z-40" onClick={() => setMoreOpen(false)} aria-hidden />
+            {phoneExtras}
+          </>
+        )}
       </div>
     </div>
   );

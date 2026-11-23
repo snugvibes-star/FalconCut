@@ -63,6 +63,23 @@ export function clipVolumeAt(clip: Clip, localT: number): number {
 
 interface LayerOpts { alpha?: number; dx?: number; extraScale?: number; extraRotation?: number; clipRect?: [number, number, number, number]; composite?: GlobalCompositeOperation }
 
+/** Shape path in frame-normalized coordinates. Used for rect/ellipse/polygon
+ * mattes; the mask is applied as an alpha operation so it can be soft-edged. */
+function maskPath(ctx: Ctx2D, mask: NonNullable<Clip['mask']>, W: number, H: number) {
+  if (mask.shape === 'polygon' && mask.points && mask.points.length >= 3) {
+    mask.points.forEach((p, i) => {
+      const x = Math.max(0, Math.min(1, p.x)) * W, y = Math.max(0, Math.min(1, p.y)) * H;
+      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    });
+    ctx.closePath();
+  } else if (mask.shape === 'ellipse') {
+    const cx = (mask.x + mask.w / 2) * W, cy = (mask.y + mask.h / 2) * H;
+    ctx.ellipse(cx, cy, Math.max(1, mask.w * W / 2), Math.max(1, mask.h * H / 2), 0, 0, Math.PI * 2);
+  } else {
+    ctx.rect(mask.x * W, mask.y * H, Math.max(1, mask.w * W), Math.max(1, mask.h * H));
+  }
+}
+
 function drawMediaLayer(p: Project, clip: Clip, t: number, ctx: Ctx2D, resolver: MediaResolver | null, o: LayerOpts = {}) {
   const W = p.settings.width, H = p.settings.height;
   const asset = getMedia(p, clip.mediaId);
@@ -108,33 +125,40 @@ function drawMediaLayer(p: Project, clip: Clip, t: number, ctx: Ctx2D, resolver:
   const drawH = ch * scaleY * tr.scale * (o.extraScale ?? 1);
 
   const fx = resolveEffects(clip, localT, supportsFilter(ctx));
-  ctx.save();
-  if (o.clipRect) { ctx.beginPath(); ctx.rect(...o.clipRect); ctx.clip(); }
   const mask = clip.mask;
-  if (mask && mask.shape !== 'none' && mask.w > 0 && mask.h > 0) {
-    const mx = mask.x * W, my = mask.y * H, mw = mask.w * W, mh = mask.h * H;
-    ctx.beginPath();
-    if (mask.shape === 'ellipse') ctx.ellipse(mx + mw / 2, my + mh / 2, mw / 2, mh / 2, 0, 0, Math.PI * 2);
-    else ctx.rect(mx, my, mw, mh);
-    ctx.clip();
+  const useMask = !!mask && mask.shape !== 'none' && (
+    mask.shape === 'polygon' ? (mask.points?.length ?? 0) >= 3 : mask.w > 0 && mask.h > 0
+  );
+  /* A matte is an alpha operation on the composited layer, not a hard ctx.clip:
+     that allows feathering, inversion and polygons, and keeps the matte fixed
+     in frame space while the media underneath keeps its own transform. */
+  let outCtx: Ctx2D = ctx;
+  let maskLayer: ReturnType<typeof getFx> | null = null;
+  if (useMask) {
+    maskLayer = getFx(W, H);
+    maskLayer.ctx.setTransform(1, 0, 0, 1, 0, 0);
+    maskLayer.ctx.clearRect(0, 0, W, H);
+    outCtx = maskLayer.ctx;
   }
-  ctx.globalAlpha = alpha;
-  // Blend mode: transition-level composite wins over the clip-level one.
-  if (o.composite) ctx.globalCompositeOperation = o.composite;
-  else if (clip.blendMode && clip.blendMode !== 'normal') ctx.globalCompositeOperation = clip.blendMode;
-  ctx.translate(W / 2 + tr.x + (o.dx ?? 0), H / 2 + tr.y);
-  ctx.rotate(((tr.rotation + (o.extraRotation ?? 0)) * Math.PI) / 180);
-  // True 2D skew (affine shear): x' = x + tan(skewX)·y, y' = y + tan(skewY)·x.
+  outCtx.save();
+  if (o.clipRect) { outCtx.beginPath(); outCtx.rect(...o.clipRect); outCtx.clip(); }
+  outCtx.globalAlpha = alpha;
+  // Blend mode is applied when compositing the masked layer back to the frame.
+  if (!useMask) {
+    if (o.composite) outCtx.globalCompositeOperation = o.composite;
+    else if (clip.blendMode && clip.blendMode !== 'normal') outCtx.globalCompositeOperation = clip.blendMode;
+  }
+  outCtx.translate(W / 2 + tr.x + (o.dx ?? 0), H / 2 + tr.y);
+  outCtx.rotate(((tr.rotation + (o.extraRotation ?? 0)) * Math.PI) / 180);
   if (Math.abs(tr.skewX) > 0.01 || Math.abs(tr.skewY) > 0.01) {
-    ctx.transform(1, Math.tan((tr.skewY * Math.PI) / 180), Math.tan((tr.skewX * Math.PI) / 180), 1, 0, 0);
+    outCtx.transform(1, Math.tan((tr.skewY * Math.PI) / 180), Math.tan((tr.skewX * Math.PI) / 180), 1, 0, 0);
   }
 
   const useScratch = fx.needsPixels || (fx.filter !== '' && !supportsFilter(ctx));
   if (fx.lut) {
-    // Resolve the lut id against the project's imported LUTs; bake once (cached).
     const lutObj = p.luts?.find((l) => l.id === fx.lut!.lut.id);
     if (lutObj) { fx.lut.lut = lutObj; fx.lut.baked = bakeLut(lutObj); }
-    else fx.lut = undefined; // LUT was deleted from the project — skip gracefully
+    else fx.lut = undefined;
   }
   if (useScratch || fx.filter) {
     const capW = 1600;
@@ -149,19 +173,39 @@ function drawMediaLayer(p: Project, clip: Clip, t: number, ctx: Ctx2D, resolver:
     fctx.filter = 'none';
     fctx.restore();
     if (fx.needsPixels) applyPixelOps(fc, fx, supportsFilter(ctx));
-    ctx.drawImage(fc, -drawW / 2, -drawH / 2, drawW, drawH);
+    outCtx.drawImage(fc, -drawW / 2, -drawH / 2, drawW, drawH);
   } else {
-    ctx.drawImage(source, sx, sy, cw, ch, -drawW / 2, -drawH / 2, drawW, drawH);
+    outCtx.drawImage(source, sx, sy, cw, ch, -drawW / 2, -drawH / 2, drawW, drawH);
   }
   if (fx.vignette > 0.01) {
+    outCtx.save();
+    outCtx.beginPath();
+    outCtx.rect(-drawW / 2, -drawH / 2, drawW, drawH);
+    outCtx.clip();
+    drawVignette(outCtx, drawW, drawH, fx.vignette);
+    outCtx.restore();
+  }
+  outCtx.restore();
+
+  if (useMask && maskLayer && mask) {
+    const mctx = maskLayer.ctx;
+    mctx.save();
+    mctx.setTransform(1, 0, 0, 1, 0, 0);
+    mctx.globalCompositeOperation = mask.invert ? 'destination-out' : 'destination-in';
+    const feather = Math.max(0, Math.min(0.25, mask.feather ?? 0)) * Math.min(W, H);
+    if (feather > 0.5 && supportsFilter(mctx)) mctx.filter = `blur(${feather.toFixed(1)}px)`;
+    mctx.fillStyle = '#fff';
+    mctx.beginPath();
+    maskPath(mctx, mask, W, H);
+    mctx.fill();
+    mctx.restore();
     ctx.save();
-    ctx.beginPath();
-    ctx.rect(-drawW / 2, -drawH / 2, drawW, drawH);
-    ctx.clip();
-    drawVignette(ctx, drawW, drawH, fx.vignette);
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    if (o.composite) ctx.globalCompositeOperation = o.composite;
+    else if (clip.blendMode && clip.blendMode !== 'normal') ctx.globalCompositeOperation = clip.blendMode;
+    ctx.drawImage(maskLayer.canvas, 0, 0);
     ctx.restore();
   }
-  ctx.restore();
 }
 
 function prevClipOnTrack(p: Project, clip: Clip): Clip | undefined {
@@ -353,7 +397,9 @@ function drawMediaClip(p: Project, clip: Clip, t: number, ctx: Ctx2D, resolver: 
 /** Adjustment layers: their effects are applied to the already-composited
  * frame, so they affect everything underneath without touching source media. */
 function applyAdjustmentLayers(p: Project, t: number, ctx: Ctx2D) {
-  const layers = p.clips.filter((c) => c.kind === 'adjustment' && t >= c.start && t < c.start + c.duration);
+  const layers = p.clips.filter((c) => c.kind === 'adjustment'
+    && t >= c.start && t < c.start + c.duration
+    && !p.tracks.find((tr) => tr.id === c.trackId)?.hidden);
   if (!layers.length) return;
   const w = ctx.canvas.width, h = ctx.canvas.height;
   // Each layer is a separate pass: its own local time (so effect keyframes
@@ -363,16 +409,25 @@ function applyAdjustmentLayers(p: Project, t: number, ctx: Ctx2D) {
     if (!effects.length) continue;
     const localT = Math.max(0, t - c.start);
     const fx = resolveEffects({ ...c, effects }, localT, supportsFilter(ctx));
+    if (fx.lut) {
+      const lutObj = p.luts?.find((l) => l.id === fx.lut!.lut.id);
+      if (lutObj) { fx.lut.lut = lutObj; fx.lut.baked = bakeLut(lutObj); }
+      else fx.lut = undefined;
+    }
     const scratch = getFx(w, h);
     scratch.ctx.setTransform(1, 0, 0, 1, 0, 0);
     scratch.ctx.clearRect(0, 0, w, h);
+    // CSS filters must be applied to the scratch copy even when a CPU pass is
+    // also needed; otherwise brightness/contrast silently vanish on layers
+    // that also contain temperature, grain or a LUT.
+    scratch.ctx.filter = supportsFilter(scratch.ctx) ? fx.filter || 'none' : 'none';
     scratch.ctx.drawImage(ctx.canvas, 0, 0);
+    scratch.ctx.filter = 'none';
     if (fx.needsPixels) applyPixelOps(scratch.canvas, fx, supportsFilter(ctx));
     ctx.save();
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.globalAlpha = Math.max(0, Math.min(1, c.transform?.opacity ?? 1));
     if (c.blendMode && c.blendMode !== 'normal') ctx.globalCompositeOperation = c.blendMode;
-    else if (!fx.needsPixels && fx.filter && supportsFilter(ctx)) ctx.filter = fx.filter;
     ctx.drawImage(scratch.canvas, 0, 0);
     ctx.restore();
   }

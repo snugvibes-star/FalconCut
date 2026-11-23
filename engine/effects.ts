@@ -13,6 +13,8 @@ export interface ResolvedEffects {
   grayscale: number; sepia: number; hue: number; blur: number; sharpen: number;
   vignette: number; negate: number; normalize: number;
   pixelate: number; noise: number; rgbSplit: number; glow: number;
+  /** Deterministic grain: seed param + quantized frame index. */
+  noiseSeed?: number; noiseFrame?: number;
   chroma?: { color: [number, number, number]; tolerance: number; softness: number };
   /** Lift/gamma/gain grading (Kdenlive `lift_gamma_gain` model): per-channel
    * shadow lift (additive), gamma (exponent), and highlight gain (multiplier).
@@ -97,7 +99,13 @@ export function resolveEffects(clip: Clip, localT: number, filterSupported: bool
         const gamma: [number, number, number] = [val(e, 'gamma_r', 1), val(e, 'gamma_g', 1), val(e, 'gamma_b', 1)];
         const gain: [number, number, number] = [val(e, 'gain_r', 1), val(e, 'gain_g', 1), val(e, 'gain_b', 1)];
         if (lift.some((v) => Math.abs(v) > 0.001) || gamma.some((v) => Math.abs(v - 1) > 0.001) || gain.some((v) => Math.abs(v - 1) > 0.001)) {
-          r.lgg = { lift, gamma, gain };
+          // Compose stacked color nodes instead of letting the last one win.
+          const prev = r.lgg;
+          r.lgg = prev
+            ? { lift: lift.map((v, i) => v + prev.lift[i]) as [number, number, number],
+                gamma: gamma.map((v, i) => v * prev.gamma[i]) as [number, number, number],
+                gain: gain.map((v, i) => v * prev.gain[i]) as [number, number, number] }
+            : { lift, gamma, gain };
           r.needsPixels = true; // CSS filter has no gamma — CPU pass required even where filters work
         }
         // HSL bands: six hue zones, each with hue/saturation/lightness offsets.
@@ -108,18 +116,21 @@ export function resolveEffects(clip: Clip, localT: number, filterSupported: bool
           const l = val(e, `hsl_${key}_l`, 0);
           if (Math.abs(h) > 0.01 || Math.abs(s - 1) > 0.001 || Math.abs(l) > 0.001) bands.push({ center, h, s, l });
         }
-        if (bands.length) { r.hsl = bands; r.needsPixels = true; }
+        if (bands.length) { r.hsl = [...(r.hsl ?? []), ...bands]; r.needsPixels = true; }
         // RGB tonal curves. A master curve is composed with per-channel ones.
         const master = parseCurvePoints(e.params.curve);
         const chans = [parseCurvePoints(e.params.curve_r), parseCurvePoints(e.params.curve_g), parseCurvePoints(e.params.curve_b)];
         if (master || chans.some(Boolean)) {
           const base = curveLut(master);
+          const prevCurves = r.curves;
           r.curves = [0, 1, 2].map((i) => {
             const lut = new Uint8Array(256);
             const own = curveLut(chans[i]);
             for (let v = 0; v < 256; v++) {
-              const x = base ? base[v] : v;
-              lut[v] = own ? own[x] : x;
+              let x = base ? base[v] : v;
+              if (own) x = own[x];
+              if (prevCurves) x = prevCurves[i][x];
+              lut[v] = x;
             }
             return lut;
           }) as [Uint8Array, Uint8Array, Uint8Array];
@@ -133,7 +144,13 @@ export function resolveEffects(clip: Clip, localT: number, filterSupported: bool
       case 'negate': r.negate = Math.max(r.negate, clamp(val(e, 'invert', 1), 0, 1)); r.needsPixels = true; break;
       case 'normalize': r.normalize = Math.max(r.normalize, clamp(val(e, 'strength', 1), 0, 1)); r.needsPixels = true; break;
       case 'pixelate': r.pixelate = Math.max(r.pixelate, Math.round(clamp(val(e, 'amount', 8), 2, 64))); r.needsPixels = true; break;
-      case 'noise': r.noise = Math.max(r.noise, clamp(val(e, 'amount', 0.15), 0, 1)); r.needsPixels = true; break;
+      case 'noise': {
+        r.noise = Math.max(r.noise, clamp(val(e, 'amount', 0.15), 0, 1));
+        r.noiseSeed = val(e, 'seed', 1);
+        r.noiseFrame = Math.round(localT * 30);
+        r.needsPixels = true;
+        break;
+      }
       case 'rgbSplit': r.rgbSplit = Math.max(r.rgbSplit, Math.round(clamp(val(e, 'amount', 4), 0, 32))); r.needsPixels = true; break;
       case 'glow': r.glow = Math.max(r.glow, clamp(val(e, 'amount', 0.4), 0, 1)); r.needsPixels = true; break;
       case 'chromaKey': {
@@ -344,9 +361,16 @@ export function applyPixelOps(canvas: HTMLCanvasElement | OffscreenCanvas, r: Re
       }
     }
     if (r.noise > 0) {
+      // Hash-based grain: identical pixels for the same frame in preview,
+      // PNG and video export. `seed` lets users freeze the pattern.
       const amt = r.noise * 48;
-      for (let i = 0; i < d.length; i += 4) {
-        const n = (Math.random() - 0.5) * amt;
+      const seed = (r.noiseSeed ?? 1) | 0;
+      const frame = (r.noiseFrame ?? 0) | 0;
+      for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+        let hash = Math.imul(x + 1, 374761393) ^ Math.imul(y + 1, 668265263) ^ Math.imul(frame + 1, 1274126177) ^ Math.imul(seed, 2654435761);
+        hash = Math.imul(hash ^ (hash >>> 13), 1274126177);
+        const n = (((hash ^ (hash >>> 16)) >>> 0) / 4294967295 - 0.5) * amt;
+        const i = (y * w + x) * 4;
         d[i] = clamp(d[i] + n, 0, 255); d[i + 1] = clamp(d[i + 1] + n, 0, 255); d[i + 2] = clamp(d[i + 2] + n, 0, 255);
       }
     }

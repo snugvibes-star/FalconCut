@@ -179,6 +179,10 @@ export function usePlayback() {
           track ? (trackAudible(s.project, track) ? 0 : 1) : 2,
         ]));
       }
+      // analysis feeds gate/denoise envelopes — include it so an analysis job
+      // finishing during playback takes effect without a stop/replay.
+      const byMedia = s.project.analysis?.byMedia ?? {};
+      parts.push(`analysis:${Object.keys(byMedia).sort().map((id) => `${id}:${byMedia[id]?.loudness.length ?? 0}`).join(',')}`);
       return parts.join('|');
     };
     const unsub = useStore.subscribe((s) => {

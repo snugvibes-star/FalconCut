@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useStore } from './state/store';
-import { useUI } from './state/ui';
+import { deviceClass, reloadTimelineHeightForDevice, useUI } from './state/ui';
 import { usePlayback } from './hooks/usePlayback';
 import { useKeyboard } from './hooks/useKeyboard';
 import { TopBar } from './components/TopBar';
@@ -46,15 +46,20 @@ export default function App() {
     return () => window.removeEventListener('beforeunload', onBeforeUnload);
   }, []);
 
-  // A window resize can change the device class (desktop → phone). Re-clamp the
-  // saved timeline height so the preview never collapses on a smaller screen.
+  // A window resize can change the device class (desktop → phone). Restore that
+  // class's own saved height instead of overwriting it with the current value.
   useEffect(() => {
+    let current = deviceClass();
+    let timer = 0;
     const onResize = () => {
-      const ui = useUI.getState();
-      ui.setTimelineHeight(ui.timelineHeight);
+      const next = deviceClass();
+      if (next === current) return;
+      current = next;
+      window.clearTimeout(timer);
+      timer = window.setTimeout(reloadTimelineHeightForDevice, 120);
     };
     window.addEventListener('resize', onResize);
-    return () => window.removeEventListener('resize', onResize);
+    return () => { window.clearTimeout(timer); window.removeEventListener('resize', onResize); };
   }, []);
 
   // Panel overlays (<lg only): default closed; toggled from the TopBar.

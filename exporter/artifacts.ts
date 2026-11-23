@@ -58,13 +58,27 @@ export async function mixProjectAudio(project: Project, loadBlob: BlobLoader): P
     catch { /* no decodable audio in this container — fine for images/silent video */ }
   }
   const CHUNK = 120; // seconds per offline render
+  const PREROLL = 2.5; // seconds of overlap so delay/compressor tails carry across chunks
   const rendered: { offset: number; buffer: AudioBuffer }[] = [];
   for (let start = 0; start < duration; start += CHUNK) {
     const end = Math.min(duration, start + CHUNK);
-    const ctx = new OfflineAudioContext(2, Math.ceil((end - start) * sr), sr);
-    const graph = buildAudioGraph(project, ctx, ctx.destination, buffers, { startAt: start, when: 0, endAt: end });
-    try { rendered.push({ offset: Math.round(start * sr), buffer: await ctx.startRendering() }); }
+    const renderStart = Math.max(0, start - PREROLL);
+    const skip = Math.round((start - renderStart) * sr);
+    const len = Math.ceil((end - start) * sr);
+    const ctx = new OfflineAudioContext(2, Math.ceil((end - renderStart) * sr), sr);
+    const graph = buildAudioGraph(project, ctx, ctx.destination, buffers, { startAt: renderStart, when: 0, endAt: end });
+    let full: AudioBuffer;
+    try { full = await ctx.startRendering(); }
     finally { graph.stop(); }
+    if (skip === 0 && full.length === len) {
+      rendered.push({ offset: Math.round(start * sr), buffer: full });
+      continue;
+    }
+    const chunk = decoder.createBuffer(2, len, sr);
+    for (let ch = 0; ch < 2; ch++) {
+      chunk.getChannelData(ch).set(full.getChannelData(ch).subarray(skip, Math.min(full.length, skip + len)));
+    }
+    rendered.push({ offset: Math.round(start * sr), buffer: chunk });
   }
   if (rendered.length === 1) return rendered[0].buffer;
   const out = decoder.createBuffer(2, Math.ceil(duration * sr), sr);
@@ -75,6 +89,9 @@ export async function mixProjectAudio(project: Project, loadBlob: BlobLoader): P
 }
 
 export async function projectPNG(project: Project, time: number, loadBlob: BlobLoader): Promise<Blob> {
+  // Same font preparation as video export — otherwise a not-yet-requested font
+  // renders with a fallback here but correctly in the exported video.
+  await prepareExportFonts(project);
   await document.fonts.ready;
   const frames = new Map<string, CanvasImageSource>();
   const cleanup: (() => void)[] = [];

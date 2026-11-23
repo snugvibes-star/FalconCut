@@ -113,10 +113,11 @@ export function buildAudioGraph(
     const playDur = Math.min((to - from) * effSpeed, buffer.duration - bufferOffset);
     if (playDur <= 0.01) continue;
     const when = opts.when + (from - startAt);
+    const rate = Math.max(0.1, Math.min(8, opts.previewRate ?? 1));
 
     const src = ctx.createBufferSource();
     src.buffer = playBuffer;
-    src.playbackRate.value = Math.max(0.1, Math.min(8, effSpeed * (opts.previewRate ?? 1)));
+    src.playbackRate.value = Math.max(0.1, Math.min(8, effSpeed * rate));
     // Web Audio pitch preservation: when enabled, stretching stays at the
     // original pitch instead of raising/lowering voices with the speed.
     try {
@@ -193,7 +194,10 @@ export function buildAudioGraph(
       const sourceT = sourceTimeOf(clip, tl);
       let v = clipVolumeAt(clip, localT) * fadeFactor(clip, localT);
       if (hasEnvGate) v *= envelopeGate(p, clip, sourceT);
-      gain.gain.linearRampToValueAtTime(Math.max(0.0001, v), when + (tl - from));
+      // Automation is in context (wall-clock) time. Preview rate shortens the
+      // wall-clock duration of a timeline span, so divide by it to keep fades
+      // and keyframes aligned with the picture; export rate is always 1.
+      gain.gain.linearRampToValueAtTime(Math.max(0.0001, v), when + (tl - from) / rate);
     }
     try {
       src.start(when, bufferOffset, playDur);

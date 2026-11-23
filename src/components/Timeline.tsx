@@ -15,13 +15,6 @@ const TRACK_H_MAX = 160;
 const NEW_TRACK_ID = '__falconcut_new_track__';
 interface NewTrackDrop { kind: Track['kind']; index: number }
 
-/** Timeline pane height presets (Small/Medium/Large) shown in the toolbar. */
-const PANE_PRESETS: { label: string; title: string; height: () => number }[] = [
-  { label: 'S', title: 'Small timeline height', height: () => 200 },
-  { label: 'M', title: 'Medium timeline height', height: () => 320 },
-  { label: 'L', title: 'Large timeline height', height: () => Math.round(window.innerHeight * 0.45) },
-];
-
 /** Standard color-label palette (matches common NLE label sets). */
 const LABEL_COLORS: Record<string, string> = {
   red: '#FB7185',
@@ -92,7 +85,7 @@ function Waveform({ clip, asset, width, height }: { clip: Clip; asset: MediaAsse
       const amp = Math.min(1, rms * 3) * (mid - 1);
       ctx.fillRect(x, mid - amp, 1, amp * 2);
     }
-  }, [ma, clip.inPoint, clip.duration, clip.speed, width]);
+  }, [ma, clip.inPoint, clip.duration, clip.speed, width, height]);
   if (!ma?.loudness.length) return null;
   return <canvas ref={ref} className="absolute inset-x-0 bottom-0 pointer-events-none" style={{ height: height - 18 }} />;
 }
@@ -191,6 +184,12 @@ export function Timeline() {
   const [newTrackDrop, setNewTrackDrop] = useState<NewTrackDrop | null>(null);
   const dropDepth = useRef(0);
   const dragRef = useRef<DragState | null>(null);
+  /** Commit source of truth: React state can be one frame behind a fast
+   * pointerup, so the drop is resolved from this ref instead. */
+  const dragCurRef = useRef<{
+    curStart: number; curDuration: number; curInPoint: number; curTrack: string;
+    drop: NewTrackDrop | null;
+  } | null>(null);
   /* pane height resize (drag handle above the toolbar) */
   const paneDrag = useRef<{ startY: number; startH: number } | null>(null);
   const [paneResizing, setPaneResizing] = useState(false);
@@ -216,6 +215,7 @@ export function Timeline() {
       /* The pointerdown already armed a clip drag. Long-press means "menu",
          not "move", so drop the pending drag before the menu appears. */
       dragRef.current = null;
+      dragCurRef.current = null;
       setDrag(null);
       setCtxMenu(menu);
     }, 480);
@@ -353,9 +353,14 @@ export function Timeline() {
     (e.target as HTMLElement).setPointerCapture(e.pointerId);
     scrub(e.clientX);
     const move = (ev: PointerEvent) => scrub(ev.clientX);
-    const up = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); };
+    const up = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      window.removeEventListener('pointercancel', up);
+    };
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', up);
+    window.addEventListener('pointercancel', up);
   };
 
   /* ---- marquee selection: drag on empty timeline space -------------------- */
@@ -436,6 +441,7 @@ export function Timeline() {
     const group = [...expanded];
     const d: DragState = { mode, clipId: clip.id, startX: e.clientX, origStart: clip.start, origDuration: clip.duration, origInPoint: clip.inPoint, speed: clip.speed, trackId: clip.trackId, group: group.includes(clip.id) ? group : [clip.id] };
     dragRef.current = d;
+    dragCurRef.current = { curStart: clip.start, curDuration: clip.duration, curInPoint: clip.inPoint, curTrack: clip.trackId, drop: null };
     setDrag({ ...d, curStart: clip.start, curDuration: clip.duration, curInPoint: clip.inPoint, curTrack: clip.trackId });
   };
 
@@ -473,13 +479,16 @@ export function Timeline() {
         if (targetTrack && targetTrack.kind === wantKind && !targetTrack.locked) targetId = targetTrack.id;
       }
       setNewTrackDrop(nt);
+      const curTrack = nt ? NEW_TRACK_ID : targetId ?? d.trackId;
       setDrag((p) => {
         if (!p) return p;
-        let curTrack = p.curTrack;
-        if (nt) curTrack = NEW_TRACK_ID;
-        else if (targetId) curTrack = targetId;
         return { ...p, curStart: newStart, curTrack };
       });
+      if (dragCurRef.current) {
+        dragCurRef.current.curStart = newStart;
+        dragCurRef.current.curTrack = curTrack;
+        dragCurRef.current.drop = nt;
+      }
     } else if (d.mode === 'trim-l') {
       const raw = d.origStart + dt;
       let newStart = snapTime(raw, d.clipId, e.altKey);
@@ -487,23 +496,30 @@ export function Timeline() {
       setSnapLine(Math.abs(newStart - raw) > 1e-6 ? newStart : null);
       const delta = newStart - d.origStart;
       setDrag((p) => p ? { ...p, curStart: newStart, curDuration: d.origDuration - delta, curInPoint: Math.max(0, d.origInPoint + delta * d.speed) } : p);
+      if (dragCurRef.current) {
+        dragCurRef.current.curStart = newStart;
+        dragCurRef.current.curDuration = d.origDuration - delta;
+        dragCurRef.current.curInPoint = Math.max(0, d.origInPoint + delta * d.speed);
+      }
     } else {
       const rawEnd = d.origStart + d.origDuration + dt;
       const snEnd = snapTime(rawEnd, d.clipId, e.altKey);
       setSnapLine(Math.abs(snEnd - rawEnd) > 1e-6 ? snEnd : null);
       const newDur = Math.max(0.1, snEnd - d.origStart);
       setDrag((p) => p ? { ...p, curDuration: newDur } : p);
+      if (dragCurRef.current) dragCurRef.current.curDuration = newDur;
     }
   };
 
   const endDrag = () => {
     clearLongPress();
     const d = dragRef.current;
-    const cur = drag;
+    const cur = dragCurRef.current;
     dragRef.current = null;
+    dragCurRef.current = null;
     setDrag(null);
     setSnapLine(null);
-    const drop = newTrackDrop;
+    const drop = cur?.drop ?? null;
     setNewTrackDrop(null);
     if (!d || !cur) return;
     const s = useStore.getState();
@@ -522,6 +538,9 @@ export function Timeline() {
         actions.push({ type: 'add_track', track: { id: newId, kind: drop.kind, name }, index: drop.index });
         targetTrackId = newId;
       }
+      // A cancelled/rapid drop can leave the sentinel without a descriptor —
+      // never emit move_clip with an invalid track id.
+      if (targetTrackId === NEW_TRACK_ID) return;
       // Never allow same-track overlap — clamp the drop into the nearest gap.
       const start = resolveFreeStart(targetTrackId, cur.curStart, d.origDuration, d.clipId);
       actions.push({ type: 'move_clip', clipId: d.clipId, start, trackId: targetTrackId });
@@ -839,6 +858,7 @@ export function Timeline() {
     const up = (ev: PointerEvent) => {
       window.removeEventListener('pointermove', move);
       window.removeEventListener('pointerup', up);
+      window.removeEventListener('pointercancel', up);
       const h = clampNum(startH + (ev.clientY - startY), TRACK_H_MIN, TRACK_H_MAX);
       setResizing(null);
       if (Math.round(h) !== Math.round(startH))
@@ -846,6 +866,7 @@ export function Timeline() {
     };
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', up);
+    window.addEventListener('pointercancel', up);
   };
 
   /* ---- ruler ticks: fps timecode, labels never overlap, minor unlabeled ticks ---- */
@@ -920,7 +941,7 @@ export function Timeline() {
     <div className={`shrink-0 flex flex-col bg-ink-900 border-t border-line ${paneResizing ? 'no-select' : ''}`} style={{ height: ui.timelineHeight }}>
       {/* pane resize handle */}
       <div
-        className="group h-1.5 shrink-0 cursor-row-resize flex items-center no-select"
+        className="cf-pane-handle group h-1.5 shrink-0 cursor-row-resize flex items-center no-select"
         title="Drag to resize timeline height"
         onPointerDown={onPaneResizeDown}
         onPointerMove={onPaneResizeMove}
@@ -943,25 +964,7 @@ export function Timeline() {
         <button className="icon-btn" onClick={zoomToSelection} disabled={!selection.length} title="Zoom to selection (Shift+Z)"><Focus size={15} /></button>
         <input type="range" min={8} max={600} step={1} value={Math.round(zoom)} onChange={(e) => useStore.getState().setZoom(Number(e.target.value))} className="w-24 mx-1" title="Zoom (px per second)" />
         <span className="text-[11px] text-paper-faint font-mono ml-1">{Math.round(zoom)}px/s</span>
-        <div className="h-5 w-px bg-line mx-1" />
-        {/* timeline pane height presets */}
-        <div className="flex items-center gap-0.5" role="group" aria-label="Timeline height presets">
-          {PANE_PRESETS.map((p) => {
-            const active = Math.abs(ui.timelineHeight - p.height()) < 24;
-            return (
-              <button
-                key={p.label}
-                className={`px-1.5 py-0.5 rounded-md border text-[10px] leading-none transition-colors ${active ? 'border-signal/60 text-signal bg-signal/10' : 'border-line text-paper-dim hover:text-paper hover:bg-ink-800'}`}
-                onClick={() => ui.setTimelineHeight(p.height())}
-                title={p.title}
-              >
-                {p.label}
-              </button>
-            );
-          })}
-        </div>
         <div className="flex-1" />
-        <span className="text-[11px] text-paper-faint mr-2">{selection.length ? `${selection.length} selected` : `${project.clips.length} clips`}</span>
         <button className="btn-ghost text-xs py-1" onClick={() => addTrack('video')}><Plus size={13} /> Video</button>
         <button className="btn-ghost text-xs py-1" onClick={() => addTrack('audio')}><Plus size={13} /> Audio</button>
         <button className="btn-ghost text-xs py-1" onClick={() => addTrack('text')}><Plus size={13} /> Text</button>
@@ -1108,6 +1111,7 @@ export function Timeline() {
                         onPointerDown={(e) => beginDrag(e, clip, 'move')}
                         onPointerMove={onDragMove}
                         onPointerUp={endDrag}
+                        onPointerCancel={endDrag}
                         onContextMenu={(e) => onClipContextMenu(e, clip)}
                         title={label}
                       >
@@ -1158,8 +1162,8 @@ export function Timeline() {
                           />
                         )}
                         {/* trim handles */}
-                        <div className="absolute left-0 top-0 bottom-0 w-2 cursor-ew-resize hover:bg-signal/40" onPointerDown={(e) => beginDrag(e, clip, 'trim-l')} onPointerMove={onDragMove} onPointerUp={endDrag} />
-                        <div className="absolute right-0 top-0 bottom-0 w-2 cursor-ew-resize hover:bg-signal/40" onPointerDown={(e) => beginDrag(e, clip, 'trim-r')} onPointerMove={onDragMove} onPointerUp={endDrag} />
+                        <div className="cf-trim" onPointerDown={(e) => beginDrag(e, clip, 'trim-l')} onPointerMove={onDragMove} onPointerUp={endDrag} onPointerCancel={endDrag} />
+                        <div className="cf-trim" style={{ left: 'auto', right: 0 }} onPointerDown={(e) => beginDrag(e, clip, 'trim-r')} onPointerMove={onDragMove} onPointerUp={endDrag} onPointerCancel={endDrag} />
                       </div>
                     );
                   })}

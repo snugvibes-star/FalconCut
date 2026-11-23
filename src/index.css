@@ -368,6 +368,7 @@ input[type='color']::-webkit-color-swatch { border: 1px solid #3e3e46; border-ra
   position: absolute;
   top: 0;
   bottom: 0;
+  left: 0;
   width: 8px;
   z-index: 12;
   touch-action: none;
@@ -411,6 +412,18 @@ input[type='color']::-webkit-color-swatch { border: 1px solid #3e3e46; border-ra
 @media (pointer: coarse) {
   .cf-kf { width: 24px; height: 24px; }
   .cf-kf > span { width: 8px; height: 8px; }
+}
+
+/* Timeline pane resize: small visual line, generous invisible hit area. */
+.cf-pane-handle { position: relative; }
+.cf-pane-handle::before {
+  content: '';
+  position: absolute;
+  left: 0; right: 0;
+  top: -10px; bottom: -10px;
+}
+@media (pointer: coarse) {
+  .cf-pane-handle::before { top: -14px; bottom: -14px; }
 }
 
 /* Scrollable context menu: a clip menu can be taller than a phone screen. */

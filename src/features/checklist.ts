@@ -140,13 +140,14 @@ export const FEATURE_CHECKLIST: FeatureItem[] = [
   { id: 'generators', group: 'Effects & transitions', label: 'Generators (solid, gradient, particles, waves)', status: 'working' },
   { id: 'audio-fades', group: 'Effects & transitions', label: 'Audio fades', status: 'working' },
   { id: 'audio-dynamics', group: 'Effects & transitions', label: 'Compressor, limiter, echo, pan/balance (native Web Audio nodes, preview + export)', status: 'working' },
-  { id: 'glitch-styles', group: 'Effects & transitions', label: 'Stylized looks: pixelate, film grain/noise, RGB split, glow and the glitch/light-leak/film transitions', status: 'working', note: 'real pixel effects in the shared renderer; AI-generated stylization is not included' },
+  { id: 'glitch-styles', group: 'Effects & transitions', label: 'Stylized looks: pixelate, film grain/noise, RGB split, glow and the glitch/light-leak/film transitions', status: 'working', note: 'real pixel effects in the shared renderer; film grain is deterministic per frame (seedable), so preview, PNG and video export match; AI-generated stylization is not included' },
 
   // ── Masks & keying ─────────────────────────────────────────────────────────
   { id: 'chroma-key', group: 'Masks & keying', label: 'Chroma key (green screen)', status: 'working' },
-  { id: 'shape-masks', group: 'Masks & keying', label: 'Hard-edged rectangle / ellipse shape masks with frame-normalized geometry', status: 'partial', note: 'implemented in the shared renderer; polygon points, feathered edges, inverted mattes and rotoscoping are not implemented' },
+  { id: 'shape-masks', group: 'Masks & keying', label: 'Rectangle / ellipse / polygon masks with frame-normalized geometry, blurred feather, inverted mattes and an editable polygon point graph', status: 'working', note: 'real alpha mattes in the shared renderer — preview and export match; feather uses canvas filter blur where supported. Rotoscoping, tracking and hair-accurate keys are not implemented' },
+  { id: 'background-removal', group: 'Masks & keying', label: 'Local background removal for still images (Xenova/modnet q8 ONNX, ~25 MB, on demand, no API key) producing a real transparent PNG cutout', status: 'partial', note: 'image clips only; video needs per-frame inference and a re-encode, so it is intentionally not offered. Not rotoscoping or hair-accurate matting' },
   { id: 'rotoscope', group: 'Masks & keying', label: 'Rotoscoping / puppet pin', status: 'not-possible', note: 'too slow for real-time browser perf' },
-  { id: 'fusion-nodes', group: 'Masks & keying', label: 'Node-based compositor', status: 'not-possible', note: 'out of scope for browser app' },
+  { id: 'fusion-nodes', group: 'Masks & keying', label: 'Serial node chain view of the graded clip — Source → effect nodes (reorder/bypass/delete/add) → mask node → Output', status: 'partial', note: 'every node is a real effect evaluated by the shared renderer; this is a serial chain, not a free-form compositor with merge routing, plugins or 3D nodes' },
 
   // ── AI vision ──────────────────────────────────────────────────────────────
   { id: 'face-analysis', group: 'AI vision', label: 'Face detection for reframe / zoom framing', status: 'working' },
@@ -158,6 +159,7 @@ export const FEATURE_CHECKLIST: FeatureItem[] = [
   { id: 'audio-levels', group: 'Audio', label: 'Per-clip volume, mute, level meters', status: 'working' },
   { id: 'loudness-normalize', group: 'Audio', label: 'Loudness normalization (LUFS target) and clipping guard', status: 'working' },
   { id: 'audio-cleanup', group: 'Audio', label: 'Noise reduction, de-ess, high-pass (browser DSP)', status: 'working', note: 'DSP, not ML voice isolation' },
+  { id: 'voice-isolation', group: 'Audio', label: 'One-click voice isolation — spectral noise suppression writes a real cleaned WAV derived asset, replacing the original clip in one undo step', status: 'working', note: 'DSP noise suppression with a learned noise floor, NOT AI stem separation; preview and export consume the same derived WAV' },
   { id: 'audio-codec-fallback', group: 'Audio', label: 'Undecodable-codec audio (AC3/E-AC3 in MP4) still plays in preview', status: 'partial', note: 'verified: element-audio fallback (approximate volume); WebAudio effects and WAV export cannot include it — the browser cannot decode AC3' },
   { id: 'music-ducking', group: 'Audio', label: 'Auto music ducking under speech', status: 'working' },
   { id: 'voiceover', group: 'Audio', label: 'In-app voiceover recording (Audio tab): captures the mic with MediaRecorder while the timeline plays, imports the take and drops it at the playhead on a Voiceover track', status: 'working', note: 'one undo step; honest errors when the mic is denied/missing; use headphones so the mic only hears you' },
@@ -182,7 +184,8 @@ export const FEATURE_CHECKLIST: FeatureItem[] = [
   // ── Photo tools ────────────────────────────────────────────────────────────
   { id: 'photo-import', group: 'Photo tools', label: 'Still image clips (Ken Burns / pan-zoom)', status: 'working' },
   { id: 'photo-crop', group: 'Photo tools', label: 'Image crop and transform in timeline', status: 'working' },
-  { id: 'photo-retouch', group: 'Photo tools', label: 'Photo retouch (blemish / healing / upscale)', status: 'not-possible', note: 'no image-editing model in browser' },
+  { id: 'photo-upscale', group: 'Photo tools', label: '2× / 4× output upscale with high-quality resampling and a mild sharpen — one undo step, preview and export match', status: 'working', note: 'resamples existing pixels; it invents no new detail and is not AI super-resolution' },
+  { id: 'photo-retouch', group: 'Photo tools', label: 'Detail-generating super-resolution / blemish healing', status: 'not-possible', note: 'no such model is bundled; the upscale action is resampling only and is labelled as such' },
 
   // ── Export & deliver ───────────────────────────────────────────────────────
   { id: 'export-mp4', group: 'Export & deliver', label: 'MP4 export (muxed H.264 + AAC)', status: 'working', note: 'WebCodecs offline encode (faster than real time, frame-accurate) when the browser exposes an H.264 encoder; otherwise falls back to WebM' },

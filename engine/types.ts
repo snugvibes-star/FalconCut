@@ -42,6 +42,10 @@ export interface MediaAsset {
   thumbnail?: string; // dataURL
   tags?: string[];
   source: 'file' | 'demo' | 'stock' | 'reference';
+  /** Derived assets keep a link to their source and the operation used. */
+  derivedFrom?: string;
+  op?: 'voice-isolation' | 'background-removal' | 'upscale';
+  opParams?: Record<string, number | string>;
 }
 
 export interface Transform {
@@ -280,7 +284,16 @@ export interface Clip {
   /** Keep the original pitch when the clip speed is changed (preview + export). */
   preservePitch?: boolean;
   /** Shape mask applied to this clip in frame-normalized coordinates. */
-  mask?: { shape: 'none' | 'rect' | 'ellipse'; x: number; y: number; w: number; h: number; feather?: number };
+  mask?: {
+    shape: 'none' | 'rect' | 'ellipse' | 'polygon';
+    x: number; y: number; w: number; h: number;
+    /** Feather radius as a fraction of the shorter frame side (0..0.25). */
+    feather?: number;
+    /** Keep everything OUTSIDE the shape instead of inside it. */
+    invert?: boolean;
+    /** Polygon vertices in frame-normalized 0..1 coordinates. */
+    points?: { x: number; y: number }[];
+  };
   /** Blend mode of this layer against everything under it (canvas
    * globalCompositeOperation). 'normal'/absent = plain over. */
   blendMode?: BlendMode;

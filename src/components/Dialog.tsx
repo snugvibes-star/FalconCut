@@ -8,13 +8,15 @@ import { X } from 'lucide-react';
  */
 export function Dialog({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {
   const ref = useRef<HTMLDialogElement>(null);
+  const closeRef = useRef(onClose);
+  closeRef.current = onClose;
   const titleId = useId();
   const [viewportH, setViewportH] = useState(() => window.visualViewport?.height ?? window.innerHeight);
 
   useEffect(() => {
     const el = ref.current!;
     el.show();
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') { e.preventDefault(); onClose(); } };
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') { e.preventDefault(); closeRef.current(); } };
     document.addEventListener('keydown', onKey);
     const vv = window.visualViewport;
     const onResize = () => setViewportH(vv?.height ?? window.innerHeight);
@@ -24,7 +26,7 @@ export function Dialog({ title, onClose, children }: { title: string; onClose: (
       vv?.removeEventListener('resize', onResize);
       el.close();
     };
-  }, [onClose]);
+  }, []);
 
   /* Virtual keyboard: 100dvh does not shrink on iOS/Android, so cap the dialog
      to the visible viewport and keep its action rows scrollable. */

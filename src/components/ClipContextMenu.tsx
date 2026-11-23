@@ -37,6 +37,9 @@ export function ClipContextMenu({ menu, onClose }: { menu: CtxMenuState; onClose
   useEffect(() => {
     const close = (e: PointerEvent) => {
       if (ref.current && e.target instanceof Node && ref.current.contains(e.target)) return;
+      // The dismissing tap must not also scrub the timeline / start a drag.
+      e.stopPropagation();
+      e.preventDefault();
       onClose();
     };
     const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
@@ -115,7 +118,7 @@ export function ClipContextMenu({ menu, onClose }: { menu: CtxMenuState; onClose
               copy.start = clip.start + clip.duration;
               copy.keyframes = clip.keyframes.map((k) => ({ ...k, id: undefined as unknown as string }));
               copy.effects = clip.effects.map((f) => ({ ...f, id: undefined as unknown as string }));
-              commit([{ type: 'add_clip', clip: copy }], 'Duplicate clip');
+              commit([{ type: 'add_clip', clip: copy, nonce: uid('dup') }], 'Duplicate clip');
             })} />
           {(() => {
             // Kdenlive-style "Extract audio" for video clips with decodable audio.

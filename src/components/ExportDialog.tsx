@@ -147,6 +147,20 @@ export function ExportDialog() {
           })}
         </div>
         <p className="mt-1 text-[11px] text-paper-faint">Reframing changes the project frame (one undo step) so the preview, timeline and export all match the platform.</p>
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          <span className="text-[11px] text-paper-dim">Output resolution</span>
+          <button type="button" className="btn-ghost text-[11px] px-2 py-1" disabled={!!busy}
+            onClick={() => useStore.getState().upscaleOutput(2)}
+            title="2× output resolution with high-quality resampling and a mild sharpen — one undo step. No AI detail is invented.">
+            Upscale 2×
+          </button>
+          <button type="button" className="btn-ghost text-[11px] px-2 py-1" disabled={!!busy}
+            onClick={() => useStore.getState().upscaleOutput(4)}
+            title="4× output resolution with high-quality resampling and a mild sharpen — one undo step. No AI detail is invented.">
+            Upscale 4×
+          </button>
+          <span className="text-[10px] text-paper-faint">resamples existing pixels — no generated detail</span>
+        </div>
       </div>
 
       {/* ---- Video ---- */}

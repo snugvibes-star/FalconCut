@@ -7,7 +7,7 @@
  * lives in memory only — reloading the page clears it, like a scratch clipboard.
  */
 import { useStore } from '../state/store';
-import { getMedia, type Action, type Clip, type Track } from '../../engine';
+import { getMedia, uid, type Action, type Clip, type Track } from '../../engine';
 
 interface CopiedClip {
   clip: Clip;
@@ -68,7 +68,7 @@ function paste(entries: CopiedClip[], at: number, label: string): number {
     next.start = Math.max(0, at + offset);
     next.keyframes = next.keyframes.map((k) => ({ ...k, id: undefined as unknown as string }));
     next.effects = next.effects.map((f) => ({ ...f, id: undefined as unknown as string }));
-    actions.push({ type: 'add_clip', clip: next });
+    actions.push({ type: 'add_clip', clip: next, nonce: uid('copy') });
   }
   if (!actions.length) return 0;
   useStore.getState().commit(actions, label);

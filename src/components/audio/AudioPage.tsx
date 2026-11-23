@@ -123,7 +123,7 @@ function TrackStrip({ track, project, playhead, commit }: { track: Track; projec
         {track.muted ? <VolumeX size={14} aria-hidden /> : <Volume2 size={14} aria-hidden />}
       </button>
       <div className="flex flex-col items-center gap-0.5">
-        <span className="text-[9px] text-paper-faint">clips vol</span>
+        <span className="text-[9px] text-paper-faint" title="One fader writes this volume to every clip on the track">all {clips.length} clip{clips.length === 1 ? '' : 's'}</span>
         <Fader
           value={vol ?? 1}
           disabled={!clips.length || track.locked}
@@ -305,6 +305,25 @@ export function AudioPage() {
 
   const toolBtn = 'btn-solid text-xs px-2.5 py-1';
 
+  const isolateVoice = async () => {
+    const s = useStore.getState();
+    let clipId = s.selection.find((id) => s.project.clips.some((c) => c.id === id));
+    if (!clipId) {
+      const active = s.project.clips.find((c) => s.playhead >= c.start && s.playhead < c.start + c.duration
+        && (() => { const m = getMedia(s.project, c.mediaId); return !!m && (m.type === 'audio' || m.hasAudio); })());
+      clipId = active?.id;
+    }
+    if (!clipId) { toast('Select an audio or video clip with audio first', 'info'); return; }
+    setBusy('voice');
+    try {
+      const result = await s.isolateVoice(clipId, { reduction: 0.85 });
+      toast(result === 'ok' ? 'Voice isolated — a new cleaned clip replaced the original (DSP noise suppression, not AI stem separation)'
+        : result === 'no-buffer' ? 'Audio is still decoding — try again in a moment'
+          : result === 'no-clip' ? 'That clip has no usable audio' : 'This container cannot be decoded in the browser',
+      result === 'ok' ? 'success' : 'error');
+    } finally { setBusy(null); }
+  };
+
   return (
     <div className="h-full flex flex-col bg-ink-950">
       {/* top strip: wraps on narrow screens instead of clipping the last tool */}
@@ -319,6 +338,10 @@ export function AudioPage() {
           </button>
           <button type="button" className={toolBtn} disabled={busy !== null} onClick={() => void runTool('cleanup_audio')}>
             Clean up noise
+          </button>
+          <button type="button" className={toolBtn} disabled={busy !== null} onClick={() => void isolateVoice()}
+            title="Spectral noise suppression on the selected clip — writes a real cleaned WAV used by preview and export. Not AI stem separation.">
+            Isolate voice
           </button>
           <span title={hasAudioMedia ? 'Balance music under dialogue' : 'Import music first'}>
             <button

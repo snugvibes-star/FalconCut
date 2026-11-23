@@ -22,6 +22,8 @@ export function useKeyboard() {
       const mod = e.ctrlKey || e.metaKey;
 
       if (e.key === 'Escape') {
+        // Let a focused input own Escape (dialogs have their own listener).
+        if (isTyping(e.target)) return;
         const open = (Object.keys(ui.dialogs) as (keyof typeof ui.dialogs)[]).find((d) => ui.dialogs[d]);
         if (open) { ui.close(open); e.preventDefault(); return; }
         if (s.selection.length) { s.select([]); e.preventDefault(); return; }
@@ -34,7 +36,7 @@ export function useKeyboard() {
       if (isTyping(e.target) || targetEl?.closest('dialog, [role="dialog"]') || Object.values(ui.dialogs).some(Boolean)) return;
       if (targetEl?.closest('button') && (e.key === ' ' || e.key === 'Enter')) return;
 
-      if (mod && e.key.toLowerCase() === 'k') {
+      if (mod && !e.altKey && e.key.toLowerCase() === 'k') {
         // Premiere Ctrl+K: Add Edit — split every clip crossing the playhead.
         e.preventDefault();
         const t = s.playhead;

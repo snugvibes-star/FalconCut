@@ -126,7 +126,7 @@ export async function measureLoudness(buffer: AudioBuffer): Promise<{ integrated
 }
 
 /* ---------- FFT (radix-2) ---------- */
-function fft(re: Float32Array, im: Float32Array) {
+export function fft(re: Float32Array, im: Float32Array) {
   const n = re.length;
   for (let i = 1, j = 0; i < n; i++) {
     let bit = n >> 1;

@@ -5,11 +5,25 @@
 import { useEffect, useRef, useState } from 'react';
 import { useStore } from '../../state/store';
 import { COLOR_PRESETS, IDENTITY_CURVE, parseCurvePoints, serializeCurvePoints, type Clip } from '../../../engine';
+import { NodeGraph } from './NodeGraph';
 
 /** Fully-defined neutral color params (also zeroes optional extras like grayscale). */
 const DEFAULT_COLOR: Record<string, number> = {
   brightness: 1, contrast: 1, saturation: 1, temperature: 0, grayscale: 0, sepia: 0, hue: 0,
   lift_r: 0, lift_g: 0, lift_b: 0, gamma_r: 1, gamma_g: 1, gamma_b: 1, gain_r: 1, gain_g: 1, gain_b: 1,
+};
+
+/** Full neutral grade: presets and Reset must clear curves/HSL too, not just
+ * the basic sliders (set_effect merges params rather than replacing them). */
+const neutralGrade = (): Record<string, number | string> => {
+  const p: Record<string, number | string> = { ...DEFAULT_COLOR };
+  for (const key of ['r', 'y', 'g', 'c', 'b', 'm']) {
+    p[`hsl_${key}_h`] = 0;
+    p[`hsl_${key}_s`] = 1;
+    p[`hsl_${key}_l`] = 0;
+  }
+  for (const key of ['curve', 'curve_r', 'curve_g', 'curve_b']) p[key] = IDENTITY_CURVE;
+  return p;
 };
 
 const f2 = (v: number) => v.toFixed(2);
@@ -154,12 +168,12 @@ export function GradePanel({ clip }: { clip: Clip | null }) {
 
   const applyPreset = (key: string) => {
     if (!clip) return;
-    commitColor({ ...DEFAULT_COLOR, ...COLOR_PRESETS[key].params }, `Preset: ${COLOR_PRESETS[key].name}`);
+    commitColor({ ...neutralGrade(), ...COLOR_PRESETS[key].params }, `Preset: ${COLOR_PRESETS[key].name}`);
   };
 
   const resetGrade = () => {
     if (!clip || !colorFx) return;
-    commitColor({ ...DEFAULT_COLOR }, 'Reset grade');
+    commitColor(neutralGrade(), 'Reset grade');
   };
 
   const removeFilter = () => {
@@ -340,48 +354,9 @@ export function GradePanel({ clip }: { clip: Clip | null }) {
           value={vigAmount} onCommit={commitVignette} />
       </div>
 
-      {/* node chain */}
-      <div>
-        <span className="label">Node chain (resolve-style)</span>
-        <div className="flex flex-wrap gap-1">
-          {clip && clip.effects.length > 0 ? (
-            clip.effects.map((e) => (
-              <span
-                key={e.id}
-                className={`chip border bg-ink-850 ${
-                  e.enabled ? 'border-signal/40 text-paper' : 'border-line text-paper-faint opacity-60'
-                }`}
-              >
-                <button
-                  className={`capitalize ${e.enabled ? 'text-paper-dim' : 'text-paper-faint line-through'}`}
-                  title={e.enabled ? 'Disable node' : 'Enable node'}
-                  onClick={() => {
-                    useStore.getState().commit(
-                      [{ type: 'set_effect', clipId: clip.id, effectId: e.id, enabled: !e.enabled }],
-                      e.enabled ? `Disable ${e.type}` : `Enable ${e.type}`,
-                    );
-                  }}
-                >
-                  {e.type}
-                </button>
-                <button
-                  className="text-paper-faint hover:text-heat leading-none"
-                  title="Remove node"
-                  onClick={() => {
-                    useStore.getState().commit(
-                      [{ type: 'remove_effect', clipId: clip.id, effectId: e.id }],
-                      `Remove ${e.type}`,
-                    );
-                  }}
-                >
-                  ×
-                </button>
-              </span>
-            ))
-          ) : (
-            <span className="text-[11px] text-paper-faint">{disabled ? 'No target clip' : 'No nodes'}</span>
-          )}
-        </div>
+      {/* serial node chain — real effects evaluated by the shared renderer */}
+      <div className="panel">
+        <NodeGraph clip={clip} />
       </div>
     </div>
   );
