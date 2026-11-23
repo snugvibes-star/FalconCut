@@ -11,13 +11,18 @@
 
 html, body, #root {
   height: 100%;
+  /* Dynamic viewport: iOS/Android browser chrome must not push the status bar
+     or the timeline below the visible edge. */
+  height: 100dvh;
   margin: 0;
 }
 
 body {
   @apply bg-ink-950 text-paper font-body antialiased;
   overflow: hidden;
+  overscroll-behavior: none;
   -webkit-font-smoothing: antialiased;
+  -webkit-tap-highlight-color: transparent;
 }
 
 * {
@@ -158,9 +163,12 @@ input[type='color']::-webkit-color-swatch { border: 1px solid #3e3e46; border-ra
 .cf-more-menu {
   position: fixed;
   right: 8px;
-  top: 48px;
+  top: calc(48px + env(safe-area-inset-top, 0px));
   z-index: 50;
   min-width: 190px;
+  max-height: calc(100dvh - 56px - env(safe-area-inset-top, 0px));
+  overflow-y: auto;
+  overscroll-behavior: contain;
   border-radius: 12px;
   background: #202024; /* ink-850 */
   border: 1px solid #2A2A30; /* line */
@@ -309,4 +317,167 @@ input[type='color']::-webkit-color-swatch { border: 1px solid #3e3e46; border-ra
 /* Users who prefer reduced motion get no animated panel transitions. */
 @media (prefers-reduced-motion: reduce) {
   .cf-drawer, .cf-panel { transition: none !important; }
+}
+
+/* ---------- Safe areas (notched phones / iOS home indicator) ---------- */
+@supports (padding: env(safe-area-inset-top)) {
+  .cf-safe-top { padding-top: env(safe-area-inset-top); }
+  .cf-safe-bottom { padding-bottom: env(safe-area-inset-bottom); }
+  .cf-safe-x {
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
+  }
+}
+
+/* ---------- Responsive toolbars ----------
+   A fixed 36px toolbar plus global 44px phone touch targets used to clip
+   controls. Toolbars now grow to fit their children and scroll horizontally
+   instead of hiding the last button. */
+.cf-toolbar {
+  height: auto;
+  min-height: 2.25rem;
+  align-items: center;
+  overflow-x: auto;
+  overflow-y: visible;
+  scrollbar-width: thin;
+}
+@media (max-width: 767px) {
+  .cf-toolbar { min-height: 44px; padding-top: 2px; padding-bottom: 2px; }
+  .cf-toolbar .icon-btn { min-width: 32px; min-height: 32px; padding: 4px; }
+  .cf-toolbar .btn-ghost,
+  .cf-toolbar .btn-solid,
+  .cf-toolbar .btn-signal { min-height: 32px; padding: 4px 8px; font-size: 11px; }
+  .cf-toolbar .field { min-height: 32px; font-size: 12px; }
+}
+
+/* Track-header mini controls must stay compact even when global phone
+   touch targets are 44px — four controls have to fit in a narrow header. */
+.cf-track-btn.icon-btn,
+.cf-track-btn {
+  min-width: 20px;
+  min-height: 20px;
+  padding: 1px;
+}
+@media (pointer: coarse) {
+  .cf-track-btn.icon-btn,
+  .cf-track-btn { min-width: 28px; min-height: 28px; padding: 3px; }
+}
+
+/* Wide trim hit areas on touch; visually hidden until dragged/hovered. */
+.cf-trim {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 8px;
+  z-index: 12;
+  touch-action: none;
+  cursor: ew-resize;
+}
+.cf-trim::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: transparent;
+  transition: background 0.12s ease;
+}
+.cf-trim:hover::after { background: rgba(76, 154, 255, 0.4); }
+@media (pointer: coarse) {
+  .cf-trim { width: 16px; }
+  /* Horizontal drags on the ruler must not pan the page. */
+  .cf-ruler, .cf-clip { touch-action: none; }
+}
+
+/* Timeline keyframe diamonds: tiny visually, generous hit area. */
+.cf-kf {
+  position: absolute;
+  bottom: 0;
+  width: 16px;
+  height: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  touch-action: none;
+  cursor: grab;
+  z-index: 14;
+}
+.cf-kf > span {
+  width: 6px;
+  height: 6px;
+  transform: rotate(45deg);
+  background: #eaeaea;
+  box-shadow: 0 0 0 1px rgba(16, 16, 18, 0.8);
+}
+.cf-kf:hover > span { background: #4c9aff; }
+@media (pointer: coarse) {
+  .cf-kf { width: 24px; height: 24px; }
+  .cf-kf > span { width: 8px; height: 8px; }
+}
+
+/* Scrollable context menu: a clip menu can be taller than a phone screen. */
+.cf-menu {
+  max-height: calc(100dvh - 16px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  touch-action: pan-y;
+}
+@media (pointer: coarse) {
+  .cf-menu button { min-height: 38px; }
+}
+
+/* Full-width mobile drawers get a real, visible close affordance. */
+.cf-drawer-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 10px;
+  border-bottom: 1px solid #2a2a30;
+  flex-shrink: 0;
+}
+
+/* Horizontal chip rails should scroll rather than wrap into a tall stack. */
+.cf-chip-rail {
+  display: flex;
+  gap: 4px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  padding-bottom: 2px;
+}
+.cf-chip-rail::-webkit-scrollbar { display: none; }
+.cf-chip-rail > * { flex-shrink: 0; }
+
+/* Phone: dialogs use the full width and keep their action buttons reachable. */
+@media (max-width: 639px) {
+  dialog { max-width: calc(100vw - 16px); }
+  .cf-dialog-body { padding: 12px !important; }
+  .cf-dialog-head { padding: 10px 12px !important; }
+  /* Primary NLE toolbar controls must remain finger-sized; cf-toolbar scrolls
+     horizontally so there is no reason to shrink them. */
+  .cf-toolbar .icon-btn { min-width: 44px; min-height: 44px; padding: 8px; }
+  /* Media tab strip: 13 tools at 6 columns truncates every label. */
+  .cf-tab-rail { grid-template-columns: repeat(4, minmax(0, 1fr)) !important; }
+}
+
+/* Touch devices cannot hover: reveal primary row actions permanently. */
+@media (pointer: coarse) {
+  .cf-hover-action { opacity: 1 !important; }
+  .cf-draw-rail button, .cf-draw-rail .icon-btn { min-width: 36px; min-height: 36px; }
+  .cf-draw-settings button { min-height: 36px; }
+  .cf-sticker-row button { min-width: 36px; min-height: 36px; }
+}
+
+/* Drawing settings can be wider than a vertical phone preview — wrap and
+   scroll instead of letting the canvas clip the opacity slider and stickers. */
+.cf-draw-settings { max-width: calc(100vw - 64px); flex-wrap: wrap; }
+.cf-sticker-row { max-width: 100%; overflow-x: auto; scrollbar-width: none; }
+.cf-sticker-row::-webkit-scrollbar { display: none; }
+
+/* Landscape phones / short windows: keep every workspace's primary surface
+   scrollable instead of letting fixed heights push content off-screen. */
+@media (max-height: 540px) {
+  .cf-audio-mixer { min-height: 104px !important; }
+  .cf-audio-clips { max-height: 55% !important; }
+  .cf-color-scopes { height: 56px !important; }
+  .cf-color-filmstrip { height: 44px !important; }
+  .cf-color-panel { max-height: 30% !important; }
 }

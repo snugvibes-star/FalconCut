@@ -2,9 +2,9 @@
  * Resolve-style grading panel. Every control maps to a real engine action:
  * add_effect / set_effect / remove_effect, committed as single undo steps.
  */
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useStore } from '../../state/store';
-import { COLOR_PRESETS, type Clip } from '../../../engine';
+import { COLOR_PRESETS, IDENTITY_CURVE, parseCurvePoints, serializeCurvePoints, type Clip } from '../../../engine';
 
 /** Fully-defined neutral color params (also zeroes optional extras like grayscale). */
 const DEFAULT_COLOR: Record<string, number> = {
@@ -66,6 +66,65 @@ function SliderRow({ label, value, min, max, step, fmt, disabled, onCommit }: Sl
   );
 }
 
+/** Draggable 5-point tonal curve. Points are stored inside the color effect
+ * params as a compact "x,y;..." string, so undo/redo and project JSON work
+ * without any schema change. */
+function CurveEditor({ value, onChange, disabled, label }: {
+  value: string; onChange: (v: string) => void; disabled: boolean; label: string;
+}) {
+  const svg = useRef<SVGSVGElement>(null);
+  const [points, setPoints] = useState(() => parseCurvePoints(value) ?? parseCurvePoints(IDENTITY_CURVE)!);
+  const [drag, setDrag] = useState<number | null>(null);
+  useEffect(() => { setPoints(parseCurvePoints(value) ?? parseCurvePoints(IDENTITY_CURVE)!); }, [value]);
+
+  const at = (e: React.PointerEvent) => {
+    const r = svg.current?.getBoundingClientRect();
+    if (!r) return { x: 0, y: 0 };
+    return {
+      x: Math.max(0, Math.min(255, ((e.clientX - r.left) / r.width) * 255)),
+      y: Math.max(0, Math.min(255, (1 - (e.clientY - r.top) / r.height) * 255)),
+    };
+  };
+  const move = (e: React.PointerEvent) => {
+    if (drag === null) return;
+    const p = at(e);
+    setPoints((prev) => prev.map((pt, i) => i === drag ? {
+      x: Math.max(i === 0 ? 0 : prev[i - 1].x + 2, Math.min(i === prev.length - 1 ? 255 : prev[i + 1].x - 2, p.x)),
+      y: p.y,
+    } : pt));
+  };
+  const end = () => {
+    if (drag === null) return;
+    setDrag(null);
+    onChange(serializeCurvePoints(points));
+  };
+  const sx = (x: number) => (x / 255) * 100;
+  const sy = (y: number) => 100 - (y / 255) * 100;
+
+  return (
+    <svg ref={svg} viewBox="0 0 100 100" preserveAspectRatio="none" role="img" aria-label={`${label} tonal curve editor`}
+      className="w-full h-32 rounded-md border border-line bg-ink-950 touch-none select-none"
+      onPointerMove={move} onPointerUp={end} onPointerLeave={end} onPointerCancel={end}>
+      {[25, 50, 75].map((v) => <g key={v}>
+        <line x1={v} y1="0" x2={v} y2="100" stroke="#2A2A30" strokeWidth="0.4" />
+        <line x1="0" y1={v} x2="100" y2={v} stroke="#2A2A30" strokeWidth="0.4" />
+      </g>)}
+      <line x1="0" y1="100" x2="100" y2="0" stroke="#5E6B84" strokeWidth="0.5" strokeDasharray="3 3" />
+      <polyline points={points.map((p) => `${sx(p.x)},${sy(p.y)}`).join(' ')} fill="none" stroke="#4C9AFF" strokeWidth="1.4" vectorEffect="non-scaling-stroke" />
+      {points.map((p, i) => (
+        <circle key={i} cx={sx(p.x)} cy={sy(p.y)} r="2.4" fill={drag === i ? '#EAEAEA' : '#4C9AFF'}
+          stroke="#07090F" strokeWidth="0.6" className={disabled ? '' : 'cursor-grab'}
+          onPointerDown={(e) => { if (disabled) return; e.preventDefault(); setDrag(i); try { (e.currentTarget as Element).setPointerCapture(e.pointerId); } catch { /* synthetic */ } }} />
+      ))}
+    </svg>
+  );
+}
+
+const HSL_BAND_LABELS: { key: string; label: string }[] = [
+  { key: 'r', label: 'Reds' }, { key: 'y', label: 'Yellows' }, { key: 'g', label: 'Greens' },
+  { key: 'c', label: 'Cyans' }, { key: 'b', label: 'Blues' }, { key: 'm', label: 'Magentas' },
+];
+
 export function GradePanel({ clip }: { clip: Clip | null }) {
   const colorFx = clip?.effects.find((e) => e.type === 'color') ?? null;
   const activePreset = matchPreset(colorFx?.params);
@@ -76,7 +135,7 @@ export function GradePanel({ clip }: { clip: Clip | null }) {
   };
 
   /** Write color-effect params (merged over existing), adding the effect if absent. One undo step. */
-  const commitColor = (params: Record<string, number>, label: string) => {
+  const commitColor = (params: Record<string, number | string>, label: string) => {
     if (!clip) return;
     const s = useStore.getState();
     const fx = s.project.clips.find((c) => c.id === clip.id)?.effects.find((e) => e.type === 'color');
@@ -135,6 +194,12 @@ export function GradePanel({ clip }: { clip: Clip | null }) {
   };
 
   const disabled = !clip;
+  const [curveChannel, setCurveChannel] = useState<'master' | 'r' | 'g' | 'b'>('master');
+  const [hslBand, setHslBand] = useState('r');
+  const curveParam = curveChannel === 'master' ? 'curve' : `curve_${curveChannel}`;
+  const curveValue = typeof colorFx?.params[curveParam] === 'string'
+    ? String(colorFx!.params[curveParam]) : IDENTITY_CURVE;
+  const bandNum = (suffix: string, def: number) => num(`hsl_${hslBand}_${suffix}`, def);
 
   return (
     <div className="p-3 space-y-4">
@@ -189,6 +254,42 @@ export function GradePanel({ clip }: { clip: Clip | null }) {
             Remove filter
           </button>
         </div>
+      </div>
+
+      {/* RGB tonal curves — master + per channel, real LUT in the shared renderer */}
+      <div className="panel p-2.5 space-y-2">
+        <div className="flex items-center justify-between gap-2">
+          <span className="label !mb-0">RGB curves</span>
+          <button className="text-[10px] text-paper-faint hover:text-paper disabled:opacity-40" disabled={disabled}
+            onClick={() => commitColor({ [curveParam]: IDENTITY_CURVE }, 'Reset curve')}>Reset</button>
+        </div>
+        <div className="cf-chip-rail">
+          {(['master', 'r', 'g', 'b'] as const).map((ch) => (
+            <button key={ch} disabled={disabled}
+              className={`chip border ${curveChannel === ch ? 'border-signal/60 bg-signal/10 text-signal' : 'border-line text-paper-dim'}`}
+              onClick={() => setCurveChannel(ch)}>{ch.toUpperCase()}</button>
+          ))}
+        </div>
+        <CurveEditor label={`${curveChannel} curve`} value={curveValue} disabled={disabled}
+          onChange={(v) => commitColor({ [curveParam]: v }, `${curveChannel.toUpperCase()} curve`)} />
+      </div>
+
+      {/* HSL secondary — per hue band, like Resolve's hue curves / Qualifier */}
+      <div className="panel p-2.5 space-y-1.5">
+        <span className="label !mb-0">HSL adjustments</span>
+        <div className="cf-chip-rail">
+          {HSL_BAND_LABELS.map((b) => (
+            <button key={b.key} disabled={disabled}
+              className={`chip border ${hslBand === b.key ? 'border-signal/60 bg-signal/10 text-signal' : 'border-line text-paper-dim'}`}
+              onClick={() => setHslBand(b.key)}>{b.label}</button>
+          ))}
+        </div>
+        <SliderRow label="Hue" min={-180} max={180} step={1} fmt={(v) => `${v > 0 ? '+' : ''}${v.toFixed(0)}°`}
+          disabled={disabled} value={bandNum('h', 0)} onCommit={(v) => setParam(`hsl_${hslBand}_h`, v)} />
+        <SliderRow label="Saturation" min={0} max={2} step={0.01} fmt={f2}
+          disabled={disabled} value={bandNum('s', 1)} onCommit={(v) => setParam(`hsl_${hslBand}_s`, v)} />
+        <SliderRow label="Lightness" min={-0.5} max={0.5} step={0.01} fmt={fTemp}
+          disabled={disabled} value={bandNum('l', 0)} onCommit={(v) => setParam(`hsl_${hslBand}_l`, v)} />
       </div>
 
       {/* lift / gamma / gain — Kdenlive-style per-channel grading */}

@@ -41,8 +41,16 @@ interface UIPrefs {
 }
 
 export const TIMELINE_H_MIN = 160;
-/** Timeline pane never grows past 70% of the viewport. */
-const timelineHMax = () => Math.round(window.innerHeight * 0.7);
+/** Device-aware cap: a desktop 70% timeline carried over to a phone would
+ * leave the preview only a few pixels tall, which is a retention killer. */
+const deviceClass = (): 'phone' | 'tablet' | 'desktop' => {
+  if (typeof window === 'undefined') return 'desktop'; // Node/Vitest imports
+  return window.innerWidth < 640 ? 'phone' : window.innerWidth < 1024 ? 'tablet' : 'desktop';
+};
+const timelineHMax = () => Math.round((typeof window === 'undefined' ? 900 : window.innerHeight) * (
+  deviceClass() === 'phone' ? 0.38 : deviceClass() === 'tablet' ? 0.5 : 0.7
+));
+const timelineKey = () => `timelineHeight:${deviceClass()}`;
 
 const clampTimelineHeight = (h: number) =>
   Math.round(Math.max(TIMELINE_H_MIN, Math.min(timelineHMax(), h)));
@@ -123,9 +131,10 @@ export const useUI = create<UIState>((set, get) => ({
   focusMode: false,
   previewZoom: sanitizeZoom(prefs.previewZoom),
   railVisible: prefs.railVisible !== false,
-  timelineHeight: typeof prefs.timelineHeight === 'number' && Number.isFinite(prefs.timelineHeight)
-    ? clampTimelineHeight(prefs.timelineHeight)
-    : 240,
+  timelineHeight: (() => {
+    const stored = (prefs as Record<string, unknown>)[timelineKey()];
+    return clampTimelineHeight(typeof stored === 'number' && Number.isFinite(stored) ? stored : 240);
+  })(),
   snap: prefs.snap !== false,
   density: prefs.density === 'compact' ? 'compact' : 'comfortable',
   timelineCollapsed: prefs.timelineCollapsed === true,
@@ -136,7 +145,7 @@ export const useUI = create<UIState>((set, get) => ({
   toggleFocusMode: () => set((s) => ({ focusMode: !s.focusMode })),
   setPreviewZoom: (z) => { set({ previewZoom: z }); persistUI({ previewZoom: z }); },
   setRailVisible: (v) => { set({ railVisible: v }); persistUI({ railVisible: v }); },
-  setTimelineHeight: (h) => { const clamped = clampTimelineHeight(h); set({ timelineHeight: clamped }); persistUI({ timelineHeight: clamped }); },
+  setTimelineHeight: (h) => { const clamped = clampTimelineHeight(h); set({ timelineHeight: clamped }); persistUI({ [timelineKey()]: clamped } as Partial<UIPrefs>); },
   setSnap: (v) => { set({ snap: v }); persistUI({ snap: v }); },
   setDensity: (v) => { set({ density: v }); persistUI({ density: v }); },
   setTimelineCollapsed: (v) => { set({ timelineCollapsed: v }); persistUI({ timelineCollapsed: v }); },

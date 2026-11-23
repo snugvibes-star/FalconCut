@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   Undo2, Redo2, Wand2, Plug, Download, Settings, FolderOpen, Plus, Command, Bot, Check, Loader2,
   PanelLeft, PanelRight, MoreVertical, Sparkles, MonitorDown,
@@ -41,6 +41,13 @@ export function TopBar({ leftOpen, rightOpen, onToggleLeft, onToggleRight }: Top
   const ui = useUI();
   const isMobile = useMediaQuery('(max-width: 1023px)');
   const { canInstall, installed, install } = useInstallPrompt();
+
+  useEffect(() => {
+    if (!moreOpen) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setMoreOpen(false); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [moreOpen]);
 
   /** One-click install when the browser offers it; otherwise explain the
    *  browser's own menu entry instead of pretending a button worked. */
@@ -88,7 +95,7 @@ export function TopBar({ leftOpen, rightOpen, onToggleLeft, onToggleRight }: Top
     : null;
 
   const panelToggles = workspace === 'edit' && (
-    <div className="flex items-center gap-0.5 lg:hidden shrink-0">
+    <div className="sticky left-0 z-20 flex items-center gap-0.5 bg-ink-900 shrink-0 lg:hidden">
       <button
         className={`icon-btn ${leftOpen ? 'text-signal' : ''}`}
         onClick={onToggleLeft}
@@ -110,7 +117,7 @@ export function TopBar({ leftOpen, rightOpen, onToggleLeft, onToggleRight }: Top
   // controls relocated into a real "more" menu (nothing removed, just moved).
   if (isMobile) {
     return (
-      <header className="relative h-11 shrink-0 flex items-center gap-1 px-2 bg-ink-900 border-b border-line overflow-x-auto">
+      <header className="cf-safe-top cf-safe-x relative h-auto min-h-11 shrink-0 flex items-center gap-1 px-2 py-1 bg-ink-900 border-b border-line overflow-x-auto">
         {panelToggles}
 
         {/* Brand mark stays visible on narrow windows too — it is the only place
@@ -174,13 +181,13 @@ export function TopBar({ leftOpen, rightOpen, onToggleLeft, onToggleRight }: Top
 
           <button className="btn-solid shrink-0" onClick={() => ui.open('export')} title="Export (Ctrl+E)"><Download size={15} /></button>
 
-          <button className="icon-btn shrink-0" onClick={() => setMoreOpen(true)} title="More actions"><MoreVertical size={16} /></button>
+          <button className="icon-btn shrink-0" onClick={() => setMoreOpen(true)} title="More actions" aria-label="More actions" aria-haspopup="menu" aria-expanded={moreOpen}><MoreVertical size={16} /></button>
         </div>
 
         {moreOpen && (
           <>
             <div className="fixed inset-0 z-40" onClick={() => setMoreOpen(false)} />
-            <div className="cf-more-menu">
+            <div className="cf-more-menu" role="menu" aria-label="More actions">
               <button className="cf-menu-item" onClick={() => { setMoreOpen(false); ui.setRightTab('ai'); if (!rightOpen) onToggleRight(); }}>
                 <Sparkles size={15} /> Chat with AI
               </button>
@@ -219,7 +226,7 @@ export function TopBar({ leftOpen, rightOpen, onToggleLeft, onToggleRight }: Top
 
   // ---- ≥768px: pro desktop bar, unchanged layout
   return (
-    <header className="relative h-11 shrink-0 flex items-center gap-1.5 px-3 bg-ink-900 border-b border-line">
+    <header className="cf-safe-top cf-safe-x relative h-11 shrink-0 flex items-center gap-1.5 px-3 bg-ink-900 border-b border-line">
       {panelToggles}
 
       {/* LEFT — app mark, project name, autosave, undo/redo */}

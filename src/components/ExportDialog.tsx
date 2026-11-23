@@ -163,7 +163,7 @@ export function ExportDialog() {
 
         {offline && (
           <>
-          <div className="grid grid-cols-4 gap-2 mb-2.5">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-2.5">
             <label className="block">
               <span className="label">Quality</span>
               <select className="field py-1 text-xs cursor-pointer" value={quality} onChange={(e) => setQuality(e.target.value as ExportQuality)} disabled={!!busy}>

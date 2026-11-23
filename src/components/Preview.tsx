@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Play, Pause, SkipBack, SkipForward, ChevronsLeft, ChevronsRight, Grid3x3, LayoutGrid, Maximize2, Minimize2, Theater, Repeat, PenLine, Camera, Download, Crop } from 'lucide-react';
+import { Play, Pause, SkipBack, SkipForward, ChevronsLeft, ChevronsRight, Grid3x3, LayoutGrid, Maximize2, Minimize2, Theater, Repeat, PenLine, Camera, Download, Crop, SlidersHorizontal } from 'lucide-react';
 import { useStore } from '../state/store';
 import { useUI } from '../state/ui';
 import { renderFrame, drawSafeZones, drawThirdsGrid, projectDuration, activeClips, getMedia, type Action } from '../../engine';
@@ -9,6 +9,7 @@ import { getBlob } from '../state/persistence';
 import { OverlayEditor } from './preview/OverlayEditor';
 import { CropOverlay } from './preview/CropOverlay';
 import { DrawBar } from './preview/DrawBar';
+import { useDeviceClass } from '../hooks/useDeviceClass';
 
 function timecode(t: number, fps: number): string {
   const total = Math.max(0, t);
@@ -42,11 +43,15 @@ export function Preview() {
   const setPreviewRate = useUI((s) => s.setPreviewRate);
   const toggleFocusMode = useUI((s) => s.toggleFocusMode);
   const setZoom = useUI((s) => s.setPreviewZoom);
+  const device = useDeviceClass();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
   const rootRef = useRef<HTMLDivElement>(null);
   const [safe, setSafe] = useState(false);
   const [grid, setGrid] = useState(false);
+  /* Phone transport keeps play + frame-step + timecode on the bar and hides
+     the thirteen secondary controls behind one discoverable "More" sheet. */
+  const [moreOpen, setMoreOpen] = useState(false);
   const [box, setBox] = useState({ w: 0, h: 0 });
   const [full, setFull] = useState(false);
   const [capturing, setCapturing] = useState(false);
@@ -193,6 +198,48 @@ export function Preview() {
    * whole timeline when there are none). Shift+M toggles it too. Real loop:
    * backed by the store playback zone (stops/loops at the edges). */
   const toggleLoop = toggleMarkerLoop;
+  const toggleCrop = () => {
+    const ui = useUI.getState();
+    const next = ui.draw.tool === 'crop' ? 'select' : 'crop';
+    useStore.getState().pause();
+    if (next === 'crop' && !useStore.getState().selection.length) {
+      ui.toast('Select a video or image clip on the timeline first, then drag the crop box', 'info');
+    }
+    ui.setDrawTool(next);
+  };
+
+  /** One compact sheet so every control stays reachable on a phone instead of
+   * being clipped off the end of a horizontal strip. */
+  const phoneExtras = (
+    <div className="absolute bottom-full right-2 z-50 mb-1 w-[min(330px,calc(100vw-16px))] max-h-[min(60vh,420px)] overflow-y-auto overscroll-contain panel p-2 shadow-panel">
+      <div className="flex items-center justify-between px-1 pb-1.5">
+        <span className="text-[10px] font-semibold uppercase tracking-wide text-paper-dim">Preview controls</span>
+        <button className="text-[11px] text-signal px-2 py-1" onClick={() => setMoreOpen(false)}>Done</button>
+      </div>
+      <div className="grid grid-cols-2 gap-1.5">
+        <button className="btn-ghost text-[11px] justify-start" onClick={() => jump(-1)}><ChevronsLeft size={14} /> Jump start</button>
+        <button className="btn-ghost text-[11px] justify-start" onClick={() => jump(1)}><ChevronsRight size={14} /> Jump end</button>
+        <button className={`btn-ghost text-[11px] justify-start ${zoneLoop ? '!text-signal' : ''}`} onClick={toggleLoop}><Repeat size={14} /> Loop zone</button>
+        <button className={`btn-ghost text-[11px] justify-start ${safe ? '!text-signal' : ''}`} onClick={() => setSafe((v) => !v)}><Grid3x3 size={14} /> Safe zones</button>
+        <button className={`btn-ghost text-[11px] justify-start ${grid ? '!text-signal' : ''}`} onClick={() => setGrid((v) => !v)}><LayoutGrid size={14} /> Grid</button>
+        <button className="btn-ghost text-[11px] justify-start" onClick={() => void freezeFrame()} disabled={capturing || !hasContent}><Camera size={14} /> Freeze</button>
+        <button className="btn-ghost text-[11px] justify-start" onClick={() => void saveFrame()} disabled={capturing || !hasContent}><Download size={14} /> Save PNG</button>
+        <button className={`btn-ghost text-[11px] justify-start ${tool === 'crop' ? '!text-signal' : ''}`} onClick={toggleCrop} disabled={!hasContent}><Crop size={14} /> Crop</button>
+        <button className={`btn-ghost text-[11px] justify-start ${focusMode ? '!text-signal' : ''}`} onClick={toggleFocusMode}><Theater size={14} /> Theater</button>
+        <button className="btn-ghost text-[11px] justify-start" onClick={toggleFullscreen}>{full ? <Minimize2 size={14} /> : <Maximize2 size={14} />} Fullscreen</button>
+      </div>
+      <label className="block px-1 pt-2 text-[10px] text-paper-faint">Preview speed (never affects export)
+        <select className="field mt-1 w-full py-1 text-[11px] cursor-pointer" value={String(previewRate)} onChange={(e) => setPreviewRate(Number(e.target.value))}>
+          {[0.25, 0.5, 1, 1.5, 2].map((r) => <option key={r} value={r}>{r}×</option>)}
+        </select>
+      </label>
+      <label className="block px-1 pt-2 text-[10px] text-paper-faint">Preview zoom
+        <select className="field mt-1 w-full py-1 text-[11px] cursor-pointer" value={zoom === 'fit' ? 'fit' : String(zoom)} onChange={(e) => setZoom(e.target.value === 'fit' ? 'fit' : Number(e.target.value))}>
+          {ZOOM_STEPS.map((z) => <option key={z.label} value={String(z.value)}>{z.label}</option>)}
+        </select>
+      </label>
+    </div>
+  );
 
   return (
     <div ref={rootRef} className="flex-1 min-h-0 flex flex-col bg-ink-950">
@@ -202,11 +249,12 @@ export function Preview() {
       >
         {hasContent ? (
           <div className={`relative ${scrollable ? 'm-auto' : ''}`}>
-            {/* Hidden rail: tiny dock icon OUTSIDE the video box, in the side gutter. */}
+            {/* Hidden rail: dock icon in the gutter on desktop, INSIDE the
+                video box on phones (the 12px gutter clips an outside icon). */}
             {!railVisible && (
               <button
-                className="absolute z-10 flex items-center justify-center w-6 h-6 rounded-md bg-ink-900/90 border border-line text-paper-dim hover:text-paper hover:border-signal/50 shadow-panel"
-                style={{ right: -32, top: '50%', transform: 'translateY(-50%)' }}
+                className="absolute z-20 flex items-center justify-center w-8 h-8 rounded-md bg-ink-900/90 border border-line text-paper-dim hover:text-paper hover:border-signal/50 shadow-panel"
+                style={device === 'phone' ? { right: 4, top: 4 } : { right: -32, top: '50%', transform: 'translateY(-50%)' }}
                 onClick={() => setRailVisible(true)}
                 title="Show draw tools (hidden — nothing overlays the video)"
               >
@@ -219,8 +267,15 @@ export function Preview() {
             >
               <canvas ref={canvasRef} className="block w-full h-full" style={{ imageRendering: 'auto' }} />
               {tool === 'crop' ? <CropOverlay scale={scale} /> : <OverlayEditor scale={scale} />}
-              {tool !== 'crop' && <DrawBar />}
+              {tool !== 'crop' && device !== 'phone' && <DrawBar />}
             </div>
+            {/* Phone: the drawing tools live in the preview gutter, not inside
+                the small (often 9:16) video box where they get clipped. */}
+            {tool !== 'crop' && device === 'phone' && (
+              <div className="absolute inset-0 z-30 pointer-events-none">
+                <div className="pointer-events-auto"><DrawBar /></div>
+              </div>
+            )}
           </div>
         ) : (
           <div className="text-center max-w-sm">
@@ -241,88 +296,101 @@ export function Preview() {
         )}
       </div>
 
-      <div className="h-12 shrink-0 flex items-center gap-2 px-3 border-t border-line bg-ink-900 cf-hscroll">
-        <div className="flex items-center gap-0.5">
-          <button className="icon-btn" onClick={() => jump(-1)} title="Jump to start (Home)"><ChevronsLeft size={16} /></button>
-          <button className="icon-btn" onClick={() => step(-1)} title="Previous frame (Shift+←)"><SkipBack size={16} /></button>
-          <button className="w-9 h-9 rounded-full bg-signal text-ink-950 flex items-center justify-center hover:bg-signal-dim transition-colors" onClick={() => useStore.getState().togglePlay()} title="Play / Pause (Space)">
-            {playing ? <Pause size={17} /> : <Play size={17} className="ml-0.5" />}
-          </button>
-          <button className="icon-btn" onClick={() => step(1)} title="Next frame (Shift+→)"><SkipForward size={16} /></button>
-          <button className="icon-btn" onClick={() => jump(1)} title="Jump to end (End)"><ChevronsRight size={16} /></button>
+      <div className="relative shrink-0 border-t border-line bg-ink-900">
+        <div className="h-12 flex items-center gap-2 px-3 cf-hscroll">
+          <div className="flex items-center gap-0.5">
+            {device !== 'phone' && (
+              <button className="icon-btn" onClick={() => jump(-1)} title="Jump to start (Home)"><ChevronsLeft size={16} /></button>
+            )}
+            <button className="icon-btn" onClick={() => step(-1)} title="Previous frame (Shift+←)"><SkipBack size={16} /></button>
+            <button className="w-9 h-9 rounded-full bg-signal text-ink-950 flex items-center justify-center hover:bg-signal-dim transition-colors" onClick={() => useStore.getState().togglePlay()} title="Play / Pause (Space)">
+              {playing ? <Pause size={17} /> : <Play size={17} className="ml-0.5" />}
+            </button>
+            <button className="icon-btn" onClick={() => step(1)} title="Next frame (Shift+→)"><SkipForward size={16} /></button>
+            {device !== 'phone' && (
+              <button className="icon-btn" onClick={() => jump(1)} title="Jump to end (End)"><ChevronsRight size={16} /></button>
+            )}
+          </div>
+          <div className="font-mono text-[11px] sm:text-xs text-paper-dim ml-1 sm:ml-2 tabular-nums whitespace-nowrap">
+            <span className="text-paper">{timecode(playhead, fps || 30)}</span>
+            <span className="text-paper-faint"> / {timecode(dur, fps || 30)}</span>
+          </div>
+          <div className="flex-1" />
+          {device === 'phone' ? (
+            <button
+              className={`icon-btn shrink-0 ${moreOpen ? 'text-signal' : ''}`}
+              onClick={() => setMoreOpen((v) => !v)}
+              aria-expanded={moreOpen}
+              aria-label="More preview controls"
+              title="More preview controls"
+            >
+              <SlidersHorizontal size={17} />
+            </button>
+          ) : (
+            <>
+              <select
+                className="field py-0.5 text-[11px] w-auto cursor-pointer"
+                value={String(previewRate)}
+                onChange={(e) => setPreviewRate(Number(e.target.value))}
+                title="Preview playback speed only — does not change clips or export"
+              >
+                {[0.25, 0.5, 1, 1.5, 2].map((r) => <option key={r} value={r}>{r}×</option>)}
+              </select>
+              <select
+                className="field py-0.5 text-[11px] w-auto cursor-pointer"
+                value={zoom === 'fit' ? 'fit' : String(zoom)}
+                onChange={(e) => setZoom(e.target.value === 'fit' ? 'fit' : Number(e.target.value))}
+                title="Preview zoom — Fit scales to the pane; fixed zooms scroll"
+              >
+                {ZOOM_STEPS.map((z) => <option key={z.label} value={String(z.value)}>{z.label}</option>)}
+              </select>
+              <button
+                className={`icon-btn ${zoneLoop ? 'text-signal' : ''}`}
+                onClick={toggleLoop}
+                title="Loop between markers (Shift+M) — playback loops the section"
+              >
+                <Repeat size={16} />
+              </button>
+              <button className={`icon-btn ${safe ? 'text-signal' : ''}`} onClick={() => setSafe((v) => !v)} title="Toggle caption safe zones"><Grid3x3 size={16} /></button>
+              <button className={`icon-btn ${grid ? 'text-signal' : ''}`} onClick={() => setGrid((v) => !v)} title="Toggle rule-of-thirds composition grid"><LayoutGrid size={16} /></button>
+              <button
+                className="icon-btn"
+                onClick={() => void freezeFrame()}
+                disabled={capturing || !hasContent}
+                title={capturing ? 'Capturing frame…' : 'Freeze frame — insert the current frame as a 2s still at the playhead'}
+              >
+                <Camera size={16} />
+              </button>
+              <button
+                className="icon-btn"
+                onClick={() => void saveFrame()}
+                disabled={capturing || !hasContent}
+                title={capturing ? 'Capturing frame…' : 'Save current frame as PNG (lossless, full project resolution)'}
+              >
+                <Download size={16} />
+              </button>
+              <button
+                className={`icon-btn ${tool === 'crop' ? 'text-signal' : ''}`}
+                onClick={toggleCrop}
+                disabled={!hasContent}
+                title={tool === 'crop' ? 'Finish cropping' : 'Crop — isolate a region without re-encoding (non-destructive)'}
+              >
+                <Crop size={16} />
+              </button>
+              <button
+                className={`icon-btn ${focusMode ? 'text-signal' : ''}`}
+                onClick={toggleFocusMode}
+                title="Theater mode — large preview, hide side panels (Esc exits)"
+              >
+                <Theater size={16} />
+              </button>
+              <button className="icon-btn" onClick={toggleFullscreen} title={full ? 'Exit fullscreen (Esc)' : 'Fullscreen preview (F)'}>
+                {full ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
+              </button>
+            </>
+          )}
         </div>
-        <div className="font-mono text-xs text-paper-dim ml-2 tabular-nums">
-          <span className="text-paper">{timecode(playhead, fps || 30)}</span>
-          <span className="text-paper-faint"> / {timecode(dur, fps || 30)}</span>
-        </div>
-        <div className="flex-1" />
-        <select
-          className="field py-0.5 text-[11px] w-auto cursor-pointer"
-          value={String(previewRate)}
-          onChange={(e) => setPreviewRate(Number(e.target.value))}
-          title="Preview playback speed only — does not change clips or export"
-        >
-          {[0.25, 0.5, 1, 1.5, 2].map((r) => <option key={r} value={r}>{r}×</option>)}
-        </select>
-        <select
-          className="field py-0.5 text-[11px] w-auto cursor-pointer"
-          value={zoom === 'fit' ? 'fit' : String(zoom)}
-          onChange={(e) => setZoom(e.target.value === 'fit' ? 'fit' : Number(e.target.value))}
-          title="Preview zoom — Fit scales to the pane; fixed zooms scroll"
-        >
-          {ZOOM_STEPS.map((z) => <option key={z.label} value={String(z.value)}>{z.label}</option>)}
-        </select>
-        <button
-          className={`icon-btn ${zoneLoop ? 'text-signal' : ''}`}
-          onClick={toggleLoop}
-          title="Loop between markers (Shift+M) — playback loops the section"
-        >
-          <Repeat size={16} />
-        </button>
-        <button className={`icon-btn ${safe ? 'text-signal' : ''}`} onClick={() => setSafe((v) => !v)} title="Toggle caption safe zones"><Grid3x3 size={16} /></button>
-        <button className={`icon-btn ${grid ? 'text-signal' : ''}`} onClick={() => setGrid((v) => !v)} title="Toggle rule-of-thirds composition grid"><LayoutGrid size={16} /></button>
-        <button
-          className="icon-btn"
-          onClick={() => void freezeFrame()}
-          disabled={capturing || !hasContent}
-          title={capturing ? 'Capturing frame…' : 'Freeze frame — insert the current frame as a 2s still at the playhead'}
-        >
-          <Camera size={16} />
-        </button>
-        <button
-          className="icon-btn"
-          onClick={() => void saveFrame()}
-          disabled={capturing || !hasContent}
-          title={capturing ? 'Capturing frame…' : 'Save current frame as PNG (lossless, full project resolution)'}
-        >
-          <Download size={16} />
-        </button>
-        <button
-          className={`icon-btn ${tool === 'crop' ? 'text-signal' : ''}`}
-          onClick={() => {
-            const ui = useUI.getState();
-            const next = ui.draw.tool === 'crop' ? 'select' : 'crop';
-            useStore.getState().pause();
-            if (next === 'crop' && !useStore.getState().selection.length) {
-              ui.toast('Select a video or image clip on the timeline first, then drag the crop box', 'info');
-            }
-            ui.setDrawTool(next);
-          }}
-          disabled={!hasContent}
-          title={tool === 'crop' ? 'Finish cropping' : 'Crop — isolate a region without re-encoding (non-destructive)'}
-        >
-          <Crop size={16} />
-        </button>
-        <button
-          className={`icon-btn ${focusMode ? 'text-signal' : ''}`}
-          onClick={toggleFocusMode}
-          title="Theater mode — large preview, hide side panels (Esc exits)"
-        >
-          <Theater size={16} />
-        </button>
-        <button className="icon-btn" onClick={toggleFullscreen} title={full ? 'Exit fullscreen (Esc)' : 'Fullscreen preview (F)'}>
-          {full ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
-        </button>
+        {device === 'phone' && moreOpen && phoneExtras}
       </div>
     </div>
   );

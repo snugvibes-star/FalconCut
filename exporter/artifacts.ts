@@ -1,8 +1,8 @@
-import { getMedia, projectDuration, activeClips, sourceTimeOf, type Project } from '../engine/types';
+import { getMedia, projectDuration, type Project } from '../engine/types';
 import { buildAudioGraph } from '../engine/audio';
 import { renderFrame } from '../engine/render';
 import { abortable, type BlobLoader } from './lifecycle';
-import { collectFrameRequests, ExportFrameResolver, prepareExportFonts } from './frames';
+import { collectFrameRequests, frameKey, ExportFrameResolver, prepareExportFonts } from './frames';
 import { encodeWAV } from '../engine/wav';
 export type { BlobLoader } from './lifecycle';
 export { encodeWAV };
@@ -41,25 +41,37 @@ export function projectVTT(project: Project): string {
 export async function mixProjectAudio(project: Project, loadBlob: BlobLoader): Promise<AudioBuffer> {
   const duration = projectDuration(project);
   if (duration <= 0) throw new Error('Add clips before exporting audio.');
-  if (duration > 300) throw new Error('Offline WAV export is currently limited to 5 minutes to bound memory usage.');
-  const ctx = new OfflineAudioContext(2, Math.ceil(duration * project.settings.sampleRate), project.settings.sampleRate);
+  const sr = project.settings.sampleRate;
+  if (duration > 1800) throw new Error('Audio export is limited to 30 minutes to bound browser memory. Split the project into parts.');
+  // Source audio is decoded once into a small context; each timeline window is
+  // then rendered independently. This removes the old 5-minute hard cap that
+  // silently produced video with NO audio because video.ts swallowed the error.
+  const decoder = new OfflineAudioContext(1, 1, sr);
   const buffers = new Map<string, AudioBuffer>();
   const ids = new Set(project.clips.filter((c) => !project.tracks.find((t) => t.id === c.trackId)?.muted).map((c) => c.mediaId));
   for (const asset of project.media) {
     if (!ids.has(asset.id)) continue;
-    // Generators are procedural and carry no audio blob — skip, don't fail.
     if (asset.type === 'generator' || !asset.blobKey) continue;
-    // Decode every used asset's audio, not only assets flagged hasAudio — the
-    // probe flag is unreliable (videos with real audio are often flagged false).
-    // A silent video decodes to silence and mixes in harmlessly.
     const blob = await loadBlob(asset.blobKey);
     if (!blob) throw new Error(`Missing source audio: ${asset.name}. Reimport the file.`);
-    try { buffers.set(asset.id, await ctx.decodeAudioData(await blob.arrayBuffer())); }
+    try { buffers.set(asset.id, await decoder.decodeAudioData(await blob.arrayBuffer())); }
     catch { /* no decodable audio in this container — fine for images/silent video */ }
   }
-  const graph = buildAudioGraph(project, ctx, ctx.destination, buffers, { startAt: 0, when: 0 });
-  try { return await ctx.startRendering(); }
-  finally { graph.stop(); }
+  const CHUNK = 120; // seconds per offline render
+  const rendered: { offset: number; buffer: AudioBuffer }[] = [];
+  for (let start = 0; start < duration; start += CHUNK) {
+    const end = Math.min(duration, start + CHUNK);
+    const ctx = new OfflineAudioContext(2, Math.ceil((end - start) * sr), sr);
+    const graph = buildAudioGraph(project, ctx, ctx.destination, buffers, { startAt: start, when: 0, endAt: end });
+    try { rendered.push({ offset: Math.round(start * sr), buffer: await ctx.startRendering() }); }
+    finally { graph.stop(); }
+  }
+  if (rendered.length === 1) return rendered[0].buffer;
+  const out = decoder.createBuffer(2, Math.ceil(duration * sr), sr);
+  for (const { offset, buffer } of rendered) {
+    for (let ch = 0; ch < 2; ch++) out.getChannelData(ch).set(buffer.getChannelData(ch), offset);
+  }
+  return out;
 }
 
 export async function projectPNG(project: Project, time: number, loadBlob: BlobLoader): Promise<Blob> {
@@ -67,14 +79,18 @@ export async function projectPNG(project: Project, time: number, loadBlob: BlobL
   const frames = new Map<string, CanvasImageSource>();
   const cleanup: (() => void)[] = [];
   try {
-    for (const clip of activeClips(project, time)) {
-      if (project.tracks.find((t) => t.id === clip.trackId)?.hidden) continue;
-      const asset = getMedia(project, clip.mediaId);
+    // Ask the renderer which frames it wants — including the previous/next
+    // clip at a transition — instead of only activeClips(). This keeps the
+    // still-image export WYSIWYG at cut boundaries just like the video exporter.
+    const scratch = document.createElement('canvas').getContext('2d')!;
+    const requests = collectFrameRequests(project, time, scratch);
+    for (const req of requests) {
+      const asset = getMedia(project, req.mediaId);
       if (!asset || !['image', 'video'].includes(asset.type)) continue;
       const blob = asset.blobKey ? await loadBlob(asset.blobKey) : undefined;
       if (!blob) throw new Error(`Missing source image/video: ${asset.name}. Reimport it.`);
-      const t = sourceTimeOf(clip, time);
-      const key = `${asset.id}:${t}`;
+      const t = req.sourceTime;
+      const key = frameKey(asset.id, t);
       if (asset.type === 'image') {
         const bitmap = await createImageBitmap(blob);
         cleanup.push(() => bitmap.close());

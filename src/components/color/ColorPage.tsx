@@ -137,10 +137,10 @@ export function ColorPage() {
 
   return (
     <div className="h-full flex flex-col bg-ink-950">
-      {/* top strip */}
-      <div className="h-9 shrink-0 flex items-center gap-3 px-3 border-b border-line bg-ink-900">
+      {/* top strip: wraps on phones so both grade actions stay reachable */}
+      <div className="min-h-9 shrink-0 flex flex-wrap items-center gap-x-3 gap-y-1 px-2 py-1 sm:px-3 border-b border-line bg-ink-900">
         <span className="font-display text-xs tracking-widest text-paper-dim font-semibold">COLOR</span>
-        <div className="h-4 w-px bg-line" />
+        <div className="hidden sm:block h-4 w-px bg-line" />
         {target ? (
           <span className="text-xs truncate min-w-0">
             <span className="text-paper">{target.name}</span>
@@ -171,7 +171,7 @@ export function ColorPage() {
           collapses to 0px (filmstrip + w-80 panel exceed a 360px viewport) */}
       <div className="flex-1 min-h-0 flex flex-col md:flex-row">
         {/* left filmstrip: horizontal strip on mobile, vertical column on desktop */}
-        <div className="h-16 w-full shrink-0 md:h-auto md:w-14 border-b md:border-b-0 md:border-r border-line md:overflow-y-auto overflow-x-auto bg-ink-900 py-1.5 px-1 flex md:flex-col md:space-y-1.5 space-x-1.5 md:space-x-0 items-start">
+        <div className="cf-color-filmstrip h-16 w-full shrink-0 md:h-auto md:w-14 border-b md:border-b-0 md:border-r border-line md:overflow-y-auto overflow-x-auto bg-ink-900 py-1.5 px-1 flex md:flex-col md:space-y-1.5 space-x-1.5 md:space-x-0 items-start">
           {mediaClips.map((c) => {
             const key = `${c.id}|${Math.round(c.inPoint)}|${Math.round(c.duration)}`;
             const thumb = thumbs[key];
@@ -235,13 +235,13 @@ export function ColorPage() {
 
         {/* right: grading panel — full-width below the preview on mobile,
             fixed side column on desktop */}
-        <div className="w-full shrink-0 md:w-80 max-h-64 md:max-h-none border-t md:border-t-0 md:border-l border-line overflow-y-auto bg-ink-900">
+        <div className="cf-color-panel w-full shrink-0 md:w-80 max-h-[45%] md:max-h-none border-t md:border-t-0 md:border-l border-line overflow-y-auto bg-ink-900">
           <GradePanel clip={target} />
         </div>
       </div>
 
       {/* bottom: scopes — taller strip on mobile so it stays readable */}
-      <div className="h-40 md:h-40 shrink-0 border-t border-line bg-ink-950">
+      <div className="cf-color-scopes h-28 sm:h-40 shrink-0 border-t border-line bg-ink-950">
         <Scopes getSource={() => canvasRef.current} />
       </div>
     </div>

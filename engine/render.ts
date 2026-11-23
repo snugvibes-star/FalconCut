@@ -354,22 +354,28 @@ function drawMediaClip(p: Project, clip: Clip, t: number, ctx: Ctx2D, resolver: 
  * frame, so they affect everything underneath without touching source media. */
 function applyAdjustmentLayers(p: Project, t: number, ctx: Ctx2D) {
   const layers = p.clips.filter((c) => c.kind === 'adjustment' && t >= c.start && t < c.start + c.duration);
-  const effects = layers.flatMap((c) => c.effects).filter((e) => e.enabled);
-  if (!layers.length || !effects.length) return;
-  const synthetic: Clip = { ...layers[0], effects };
-  const fx = resolveEffects(synthetic, t, supportsFilter(ctx));
+  if (!layers.length) return;
   const w = ctx.canvas.width, h = ctx.canvas.height;
-  const scratch = getFx(w, h);
-  scratch.ctx.setTransform(1, 0, 0, 1, 0, 0);
-  scratch.ctx.clearRect(0, 0, w, h);
-  scratch.ctx.drawImage(ctx.canvas, 0, 0);
-  if (fx.needsPixels) applyPixelOps(scratch.canvas, fx, supportsFilter(ctx));
-  ctx.save();
-  ctx.setTransform(1, 0, 0, 1, 0, 0);
-  ctx.clearRect(0, 0, w, h);
-  if (!fx.needsPixels && fx.filter && supportsFilter(ctx)) ctx.filter = fx.filter;
-  ctx.drawImage(scratch.canvas, 0, 0);
-  ctx.restore();
+  // Each layer is a separate pass: its own local time (so effect keyframes
+  // animate), its own opacity and its own blend mode. Stacking order matters.
+  for (const c of layers) {
+    const effects = c.effects.filter((e) => e.enabled);
+    if (!effects.length) continue;
+    const localT = Math.max(0, t - c.start);
+    const fx = resolveEffects({ ...c, effects }, localT, supportsFilter(ctx));
+    const scratch = getFx(w, h);
+    scratch.ctx.setTransform(1, 0, 0, 1, 0, 0);
+    scratch.ctx.clearRect(0, 0, w, h);
+    scratch.ctx.drawImage(ctx.canvas, 0, 0);
+    if (fx.needsPixels) applyPixelOps(scratch.canvas, fx, supportsFilter(ctx));
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.globalAlpha = Math.max(0, Math.min(1, c.transform?.opacity ?? 1));
+    if (c.blendMode && c.blendMode !== 'normal') ctx.globalCompositeOperation = c.blendMode;
+    else if (!fx.needsPixels && fx.filter && supportsFilter(ctx)) ctx.filter = fx.filter;
+    ctx.drawImage(scratch.canvas, 0, 0);
+    ctx.restore();
+  }
 }
 
 /* ---------------- Drawing clips (vector overlay layers) ---------------- */

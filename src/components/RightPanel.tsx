@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import {
   SlidersHorizontal, Bot, History, ShieldCheck, MessageSquare, Music,
-  ChevronsLeft, ChevronsRight,
+  ChevronsLeft, ChevronsRight, X,
 } from 'lucide-react';
 import { useUI, type RightTab } from '../state/ui';
 import { useStore } from '../state/store';
@@ -47,7 +47,7 @@ export function RightPanel({ overlayOpen, onOverlayClose }: RightPanelProps) {
   const badgeFor = (id: RightTab) => (id === 'quality' ? issueCount : id === 'notes' ? tackCount : 0);
 
   const strip = (onPick?: () => void) => (
-    <div className="flex items-center gap-0.5 p-1.5 border-b border-line shrink-0">
+    <div className="cf-hscroll flex items-center gap-0.5 p-1.5 border-b border-line shrink-0">
       {TABS.map((t) => {
         const Icon = t.icon;
         const active = rightTab === t.id;
@@ -92,9 +92,19 @@ export function RightPanel({ overlayOpen, onOverlayClose }: RightPanelProps) {
     if (!overlayOpen) return null;
     return (
       <aside
-        className="absolute inset-y-0 right-0 z-30 flex flex-col bg-ink-900 border-l border-line shadow-panel"
-        style={{ width: device === 'phone' ? '100vw' : `min(${width}px, 85vw)` }}
+        className="absolute inset-y-0 right-0 z-30 flex flex-col bg-ink-900 border-l border-line shadow-panel max-w-full pb-[env(safe-area-inset-bottom)]"
+        style={{ width: device === 'phone' ? '100%' : `min(${width}px, 85vw)` }}
+        role="dialog"
+        aria-label="Inspector and tools panel"
       >
+        <div className="cf-drawer-head">
+          <span className="text-[11px] font-semibold uppercase tracking-wide text-paper-dim">
+            {TABS.find((t) => t.id === rightTab)?.label ?? 'Inspector'}
+          </span>
+          <button className="icon-btn" onClick={onOverlayClose} aria-label="Close inspector panel">
+            <X size={16} />
+          </button>
+        </div>
         <div
           data-side="left"
           className={`resize-handle${dragging ? ' dragging' : ''}`}

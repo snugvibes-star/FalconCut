@@ -45,7 +45,7 @@ export function ConnectDialog() {
         <input id="relay-url" className="field" value={relay} onChange={(e) => setRelay(e.target.value)} />
         <button className="btn-signal" onClick={connect}><Plug size={14} /> Create session</button>
       </div> : <>
-        <div className="flex gap-4 items-start">
+        <div className="flex flex-col sm:flex-row gap-4 items-start">
           {qr && <img src={qr} width={140} height={140} alt="QR code for this agent session" className="rounded-lg shrink-0" />}
           <div className="min-w-0 space-y-2">
             <p className={session.connected ? 'text-heat-green' : 'text-heat-amber'}>{session.connected ? 'Agent connected' : 'Waiting for agent — check the relay is running'}</p>

@@ -18,10 +18,53 @@ export interface ResolvedEffects {
    * shadow lift (additive), gamma (exponent), and highlight gain (multiplier).
    * Present only when non-neutral; always requires the CPU pixel pass. */
   lgg?: { lift: [number, number, number]; gamma: [number, number, number]; gain: [number, number, number] };
+  /** Per-hue-band HSL offsets (Resolve/Fairlight style). Each band has a
+   * center hue in degrees, a hue shift, a saturation multiplier and a lightness
+   * offset; neighbouring bands are blended by triangular hue distance. */
+  hsl?: { center: number; h: number; s: number; l: number }[];
+  /** RGB tonal curves, applied as three 256-entry lookup tables. */
+  curves?: [Uint8Array, Uint8Array, Uint8Array];
   /** .cube LUT grade: the project's Lut object + blend strength (0..1). The
    * BAKED table is injected by render.ts (it knows the project). */
   lut?: { lut: Lut; strength: number; baked?: BakedLut };
   needsPixels: boolean;
+}
+
+/** Curve params are compact strings: "x,y;x,y;..." with 0..255 coordinates. */
+export const IDENTITY_CURVE = '0,0;64,64;128,128;192,192;255,255';
+const HSL_BANDS = [
+  ['r', 0], ['y', 60], ['g', 120], ['c', 180], ['b', 240], ['m', 300],
+] as const;
+
+export function parseCurvePoints(raw: unknown): { x: number; y: number }[] | null {
+  if (typeof raw !== 'string' || !raw.trim()) return null;
+  const pts = raw.split(';').map((part) => {
+    const [x, y] = part.split(',').map((n) => Number(n.trim()));
+    return { x, y };
+  }).filter((p) => Number.isFinite(p.x) && Number.isFinite(p.y));
+  if (pts.length < 2) return null;
+  pts.sort((a, b) => a.x - b.x);
+  if (pts[0].x > 0 || pts[pts.length - 1].x < 255) return null;
+  return pts.map((p) => ({ x: clamp(p.x, 0, 255), y: clamp(p.y, 0, 255) }));
+}
+
+/** Build a 256-entry lookup table from curve control points (linear segments). */
+export function curveLut(points: { x: number; y: number }[] | null): Uint8Array | null {
+  if (!points) return null;
+  const lut = new Uint8Array(256);
+  let seg = 0;
+  for (let v = 0; v < 256; v++) {
+    while (seg < points.length - 2 && v > points[seg + 1].x) seg++;
+    const a = points[seg], b = points[seg + 1];
+    const span = Math.max(1, b.x - a.x);
+    const t = clamp((v - a.x) / span, 0, 1);
+    lut[v] = clamp(a.y + (b.y - a.y) * t, 0, 255);
+  }
+  return lut;
+}
+
+export function serializeCurvePoints(points: { x: number; y: number }[]): string {
+  return points.map((p) => `${Math.round(p.x)},${Math.round(p.y)}`).join(';');
 }
 
 const clamp = (v: number, a: number, b: number) => Math.max(a, Math.min(b, v));
@@ -56,6 +99,31 @@ export function resolveEffects(clip: Clip, localT: number, filterSupported: bool
         if (lift.some((v) => Math.abs(v) > 0.001) || gamma.some((v) => Math.abs(v - 1) > 0.001) || gain.some((v) => Math.abs(v - 1) > 0.001)) {
           r.lgg = { lift, gamma, gain };
           r.needsPixels = true; // CSS filter has no gamma — CPU pass required even where filters work
+        }
+        // HSL bands: six hue zones, each with hue/saturation/lightness offsets.
+        const bands: NonNullable<ResolvedEffects['hsl']> = [];
+        for (const [key, center] of HSL_BANDS) {
+          const h = val(e, `hsl_${key}_h`, 0);
+          const s = val(e, `hsl_${key}_s`, 1);
+          const l = val(e, `hsl_${key}_l`, 0);
+          if (Math.abs(h) > 0.01 || Math.abs(s - 1) > 0.001 || Math.abs(l) > 0.001) bands.push({ center, h, s, l });
+        }
+        if (bands.length) { r.hsl = bands; r.needsPixels = true; }
+        // RGB tonal curves. A master curve is composed with per-channel ones.
+        const master = parseCurvePoints(e.params.curve);
+        const chans = [parseCurvePoints(e.params.curve_r), parseCurvePoints(e.params.curve_g), parseCurvePoints(e.params.curve_b)];
+        if (master || chans.some(Boolean)) {
+          const base = curveLut(master);
+          r.curves = [0, 1, 2].map((i) => {
+            const lut = new Uint8Array(256);
+            const own = curveLut(chans[i]);
+            for (let v = 0; v < 256; v++) {
+              const x = base ? base[v] : v;
+              lut[v] = own ? own[x] : x;
+            }
+            return lut;
+          }) as [Uint8Array, Uint8Array, Uint8Array];
+          r.needsPixels = true;
         }
         break;
       }
@@ -191,6 +259,46 @@ export function applyPixelOps(canvas: HTMLCanvasElement | OffscreenCanvas, r: Re
       }
     }
     if (temp !== 0) { R += tr; B += tb; }
+    // RGB tonal curves (master composed with per-channel), same LUT path as
+    // Resolve-style curves. Preview and export both go through here.
+    if (r.curves) {
+      R = r.curves[0][clamp(R, 0, 255) | 0];
+      G = r.curves[1][clamp(G, 0, 255) | 0];
+      B = r.curves[2][clamp(B, 0, 255) | 0];
+    }
+    // Per-hue-band HSL adjustments with triangular falloff between neighbours.
+    if (r.hsl && r.hsl.length) {
+      const mx = Math.max(R, G, B), mn = Math.min(R, G, B), spread = mx - mn;
+      if (spread > 0.2) {
+        let hue = mx === R ? (G - B) / spread : mx === G ? (B - R) / spread + 2 : (R - G) / spread + 4;
+        hue = (hue * 60 + 360) % 360;
+        let dh = 0, sm = 1, dl = 0;
+        for (const band of r.hsl) {
+          let dist = Math.abs(hue - band.center);
+          if (dist > 180) dist = 360 - dist;
+          const w = Math.max(0, 1 - dist / 60);
+          if (w > 0) { dh += band.h * w; sm += (band.s - 1) * w; dl += band.l * w; }
+        }
+        if (Math.abs(dh) > 0.001 || Math.abs(sm - 1) > 0.001 || Math.abs(dl) > 0.001) {
+          const lum = (mx + mn) / 510;
+          const denom = 255 - Math.abs(mx + mn - 255);
+          const sat = denom > 0 ? clamp((spread / denom) * sm, 0, 1) : 0;
+          const light = clamp(lum + dl, 0, 1);
+          const c2 = (1 - Math.abs(2 * light - 1)) * sat;
+          const hh = (((hue + dh) / 60) % 6 + 6) % 6;
+          const x2 = c2 * (1 - Math.abs((hh / 2) % 2 - 1));
+          const m2 = light - c2 / 2;
+          let rr = 0, gg = 0, bb = 0;
+          if (hh < 1) { rr = c2; gg = x2; }
+          else if (hh < 2) { rr = x2; gg = c2; }
+          else if (hh < 3) { gg = c2; bb = x2; }
+          else if (hh < 4) { gg = x2; bb = c2; }
+          else if (hh < 5) { rr = x2; bb = c2; }
+          else { rr = c2; bb = x2; }
+          R = (rr + m2) * 255; G = (gg + m2) * 255; B = (bb + m2) * 255;
+        }
+      }
+    }
     // .cube LUT grade: single baked-table lookup per pixel, blended by strength.
     if (r.lut && r.lut.baked) {
       const packed = r.lut.baked[(clamp(R, 0, 255) >> 2) << 12 | (clamp(G, 0, 255) >> 2) << 6 | (clamp(B, 0, 255) >> 2)];

@@ -42,7 +42,7 @@ export function DrawBar() {
 
   return (
     <>
-      <div className="absolute left-1.5 top-1.5 bottom-1.5 z-10 flex flex-col gap-0.5 p-1 rounded-xl bg-ink-900/90 backdrop-blur border border-line shadow-panel overflow-y-auto cf-thin-scroll overscroll-contain">
+      <div className="cf-draw-rail absolute left-1.5 top-1.5 bottom-1.5 z-10 flex flex-col gap-0.5 p-1 rounded-xl bg-ink-900/90 backdrop-blur border border-line shadow-panel overflow-y-auto cf-thin-scroll overscroll-contain">
         {/* header row: hide button — sticky so it stays reachable while the tool list scrolls */}
         <div className="sticky top-0 z-10 flex items-center justify-center pb-0.5 border-b border-line/60 mb-0.5 bg-ink-900/95">
           <button
@@ -70,7 +70,7 @@ export function DrawBar() {
       </div>
 
       {drawing && (
-        <div className="absolute left-12 top-1.5 z-10 flex items-center gap-2 px-2 py-1 rounded-lg bg-ink-900/90 backdrop-blur border border-line shadow-panel text-[10px] text-paper-dim">
+        <div className="cf-draw-settings absolute left-12 top-1.5 z-10 flex items-center gap-2 px-2 py-1 rounded-lg bg-ink-900/90 backdrop-blur border border-line shadow-panel text-[10px] text-paper-dim">
           <label className="flex items-center gap-1 cursor-pointer" title="Stroke color">
             <input
               type="color"
@@ -97,7 +97,7 @@ export function DrawBar() {
             </button>
           )}
           {draw.tool === 'sticker' && (
-            <div className="flex items-center gap-0.5" title="Sticker emoji">
+            <div className="cf-sticker-row flex items-center gap-0.5" title="Sticker emoji">
               {STICKERS.map((s) => (
                 <button
                   key={s}

@@ -31,29 +31,33 @@ function Fader({ value, disabled, disabledReason, onCommit }: {
   disabledReason?: string;
   onCommit: (v: number) => void;
 }) {
+  const ref = useRef<HTMLDivElement>(null);
   const [drag, setDrag] = useState<number | null>(null);
   const shown = drag ?? value;
-  const release = () => {
-    if (drag !== null && Math.abs(drag - value) > 1e-4) onCommit(drag);
+  /** Custom vertical drag surface: the old rotated range input had an ~18px
+   * grab width, unusable on touch. This gives a 44px-wide hit zone and keeps a
+   * screen-reader/keyboard range input for accessibility. */
+  const valueAt = (e: React.PointerEvent) => {
+    const r = ref.current?.getBoundingClientRect();
+    if (!r) return value;
+    return Math.max(0, Math.min(4, (1 - (e.clientY - r.top) / r.height) * 4));
+  };
+  const release = (e: React.PointerEvent) => {
+    if (drag !== null && Math.abs(drag - value) > 0.01) onCommit(Math.round(drag * 100) / 100);
     setDrag(null);
+    try { (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId); } catch { /* released */ }
   };
   return (
-    <div className="relative shrink-0" style={{ height: FADER_LEN, width: 26 }} title={disabledReason}>
-      <input
-        type="range"
-        min={0}
-        max={4}
-        step={0.01}
-        value={shown}
-        disabled={disabled}
-        aria-label="clips vol"
-        onChange={(e) => setDrag(Number(e.target.value))}
-        onPointerUp={release}
-        onKeyUp={release}
-        onBlur={release}
-        className="absolute left-1/2 top-1/2 w-[128px]"
-        style={{ transform: 'translate(-50%, -50%) rotate(-90deg)' }}
-      />
+    <div ref={ref} className="relative shrink-0 touch-none cursor-ns-resize" style={{ height: FADER_LEN, width: 44 }} title={disabledReason}
+      onPointerDown={(e) => { if (disabled) return; e.preventDefault(); setDrag(valueAt(e)); try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* synthetic */ } }}
+      onPointerMove={(e) => { if (drag !== null) setDrag(valueAt(e)); }}
+      onPointerUp={release} onPointerCancel={release}>
+      <div className="absolute left-1/2 top-0 bottom-0 w-1.5 -translate-x-1/2 rounded bg-ink-700" />
+      <div className="absolute bottom-0 left-1/2 w-1.5 -translate-x-1/2 rounded bg-signal" style={{ height: `${(shown / 4) * 100}%` }} />
+      <div className="absolute left-1/2 w-7 h-5 -translate-x-1/2 -translate-y-1/2 rounded border border-line bg-ink-750 shadow-panel" style={{ bottom: `${(shown / 4) * 100}%` }} />
+      <input type="range" min={0} max={4} step={0.01} value={shown} disabled={disabled}
+        aria-label="clips vol" className="sr-only"
+        onChange={(e) => onCommit(Number(e.target.value))} />
     </div>
   );
 }
@@ -303,13 +307,13 @@ export function AudioPage() {
 
   return (
     <div className="h-full flex flex-col bg-ink-950">
-      {/* top strip */}
-      <div className="flex h-9 shrink-0 items-center justify-between gap-2 border-b border-line px-3">
+      {/* top strip: wraps on narrow screens instead of clipping the last tool */}
+      <div className="flex min-h-9 shrink-0 flex-wrap items-center justify-between gap-x-2 gap-y-1 border-b border-line px-2 py-1 sm:px-3">
         <div className="flex items-center gap-2 font-display text-xs tracking-widest text-paper-dim">
           <Waves size={13} className="text-signal" aria-hidden />
-          AUDIO
+          <span className="hidden sm:inline">AUDIO</span>
         </div>
-        <div className="flex items-center gap-1.5">
+        <div className="flex min-w-0 flex-1 flex-wrap items-center justify-end gap-1.5">
           <button type="button" className={toolBtn} disabled={busy !== null} onClick={() => void runTool('balance_audio')}>
             <SlidersHorizontal size={12} aria-hidden /> Balance &amp; normalize
           </button>
@@ -343,9 +347,9 @@ export function AudioPage() {
           </div>
         </div>
       ) : (
-        <div className="flex min-h-0 flex-1">
+        <div className="flex min-h-0 flex-1 flex-col xl:flex-row">
           {/* mixer strips */}
-          <div className="min-w-0 flex-1 overflow-y-auto p-3">
+          <div className="cf-audio-mixer min-h-[140px] min-w-0 flex-1 overflow-y-auto p-2 sm:min-h-[240px] sm:p-3">
             <div className="flex items-stretch gap-2 overflow-x-auto pb-1">
               {audioTracks.map((t) => (
                 <TrackStrip key={t.id} track={t} project={project} playhead={playhead} commit={commit} />
@@ -353,8 +357,8 @@ export function AudioPage() {
               <MasterStrip project={project} />
             </div>
           </div>
-          {/* clip list */}
-          <div className="w-72 shrink-0 space-y-1.5 overflow-y-auto border-l border-line p-2">
+          {/* clip list: below the mixer on phones/tablets, beside it on wide desktops */}
+          <div className="cf-audio-clips max-h-[42%] w-full shrink-0 space-y-1.5 overflow-y-auto border-t border-line p-2 xl:max-h-none xl:w-72 xl:border-t-0 xl:border-l">
             <div className="label">Audio clips</div>
             {audioClips.length === 0 && (
               <p className="px-1 text-[11px] text-paper-faint">No audio clips on the timeline yet.</p>

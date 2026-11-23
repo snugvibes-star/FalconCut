@@ -60,7 +60,7 @@ export function StickersTab() {
   return (
     <div>
       <Section title="Emoji stickers">
-        <div className="grid grid-cols-8 gap-1">
+        <div className="grid grid-cols-5 sm:grid-cols-8 gap-1">
           {EMOJIS.map((e) => (
             <button key={e} draggable
               onDragStart={(ev) => {

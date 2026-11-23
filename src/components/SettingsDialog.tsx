@@ -291,8 +291,8 @@ export function SettingsDialog() {
         </div>
         <div>
           <label className="label" htmlFor="ai-key">API key</label>
-          <div className="flex gap-2">
-            <input id="ai-key" type={showKey ? 'text' : 'password'} className="field min-w-0" autoComplete="off" spellCheck={false}
+          <div className="flex flex-wrap gap-2">
+            <input id="ai-key" type={showKey ? 'text' : 'password'} className="field w-full sm:w-auto sm:min-w-0 sm:flex-1" autoComplete="off" spellCheck={false}
               value={draft.apiKey} onChange={(e) => { setDraft({ ...draft, apiKey: e.target.value }); setTestResult(null); setKeyCheck(null); }}
               placeholder={provider === 'gemini' ? 'AIza… or AQ.… key from aistudio.google.com' : localServer ? 'Not required for local servers' : 'Paste the key from your provider'}
               aria-describedby="ai-key-note" />

@@ -2,11 +2,11 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Scissors, Trash2, ZoomIn, ZoomOut, Magnet, Lock, Unlock, Volume2, VolumeX, Eye, EyeOff, Plus, Flag, Maximize, ChevronsRightLeft, Headphones, Focus, ChevronUp, ChevronDown } from 'lucide-react';
 import { useStore } from '../state/store';
 import { useUI } from '../state/ui';
+import { useDeviceClass } from '../hooks/useDeviceClass';
 import { ClipContextMenu, type CtxMenuState } from './ClipContextMenu';
 import { buildStyledText, type TextEffect, type TextRole, type TextTransition } from './tabs/textPresets';
 import { projectDuration, clipsOnTrack, getMedia, uid, COLOR_PRESETS, TRANSITION_TYPES, type Action, type Clip, type Track, type MediaAsset, type TextData, type EffectType, type Transition } from '../../engine';
 
-const HEADER_W = 150;
 const ROW_H = 56; // default track height (per-track overrides live on Track.height)
 const RULER_H = 26;
 const TRACK_H_MIN = 36;
@@ -47,7 +47,7 @@ function Filmstrip({ clip, asset, width }: { clip: Clip; asset: MediaAsset; widt
   const [thumbs, setThumbs] = useState<{ i: number; url: string }[]>(stripCache.get(key) ?? []);
   useEffect(() => {
     if (stripCache.has(key)) { setThumbs(stripCache.get(key)!); return; }
-    if (asset.type !== 'video') return;
+    if (asset.type !== 'video' && asset.type !== 'image') return;
     let alive = true;
     (async () => {
       const out: { i: number; url: string }[] = [];
@@ -176,6 +176,10 @@ export function Timeline() {
   const selection = useStore((s) => s.selection);
   const zone = useStore((s) => s.zone);
   const ui = useUI();
+  const device = useDeviceClass();
+  /* Narrower track headers on phones/tablets give the waveforms and filmstrips
+     the space they need; all pointer math uses this same value. */
+  const HEADER_W = device === 'phone' ? 104 : device === 'tablet' ? 132 : 150;
   const scrollRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const [drag, setDrag] = useState<(DragState & { curStart: number; curDuration: number; curInPoint: number; curTrack: string }) | null>(null);
@@ -190,12 +194,77 @@ export function Timeline() {
   /* pane height resize (drag handle above the toolbar) */
   const paneDrag = useRef<{ startY: number; startH: number } | null>(null);
   const [paneResizing, setPaneResizing] = useState(false);
+  /* Touch long-press → context menu. Mouse users already have right-click;
+     touch users had no way to reach duplicate / ripple-delete / labels. */
+  const longPress = useRef<{ timer: number; x: number; y: number; fired: boolean } | null>(null);
+  /* Dragging a keyframe diamond on the timeline (time only; the graph editor
+     in the Inspector handles time + value). */
+  const [kfDrag, setKfDrag] = useState<{ clipId: string; kfId: string; time: number } | null>(null);
+
+  const clearLongPress = () => {
+    if (longPress.current) {
+      window.clearTimeout(longPress.current.timer);
+      longPress.current = null;
+    }
+  };
+  const startLongPress = (e: React.PointerEvent, menu: CtxMenuState) => {
+    if (e.pointerType === 'mouse') return;
+    clearLongPress();
+    const timer = window.setTimeout(() => {
+      if (!longPress.current) return;
+      longPress.current.fired = true;
+      /* The pointerdown already armed a clip drag. Long-press means "menu",
+         not "move", so drop the pending drag before the menu appears. */
+      dragRef.current = null;
+      setDrag(null);
+      setCtxMenu(menu);
+    }, 480);
+    longPress.current = { timer, x: e.clientX, y: e.clientY, fired: false };
+  };
+  const longPressMoved = (e: React.PointerEvent) => {
+    const lp = longPress.current;
+    if (!lp) return;
+    if (Math.abs(e.clientX - lp.x) + Math.abs(e.clientY - lp.y) > 8) clearLongPress();
+  };
 
   const dur = projectDuration(project);
   const fps = project.settings.fps > 0 ? project.settings.fps : 30;
   const snap = ui.snap;
   const contentW = Math.max(600, (dur + 6) * zoom);
   const tracks = [...project.tracks].sort((a, b) => Number(b.kind === 'text') - Number(a.kind === 'text'));
+
+  /* Two-finger pinch zooms the timeline (mobile editors expect this). The
+     listener is non-passive only while two fingers are down so normal pane
+     scrolling still behaves. */
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    let startDist = 0;
+    let startZoom = 0;
+    const distance = (t: TouchList) => Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
+    const onStart = (e: TouchEvent) => {
+      if (e.touches.length !== 2) return;
+      startDist = distance(e.touches);
+      startZoom = useStore.getState().zoom;
+    };
+    const onMove = (e: TouchEvent) => {
+      if (e.touches.length !== 2 || startDist < 8) return;
+      e.preventDefault();
+      const next = Math.max(8, Math.min(600, startZoom * (distance(e.touches) / startDist)));
+      useStore.getState().setZoom(next);
+    };
+    const onEnd = (e: TouchEvent) => { if (e.touches.length < 2) startDist = 0; };
+    el.addEventListener('touchstart', onStart, { passive: true });
+    el.addEventListener('touchmove', onMove, { passive: false });
+    el.addEventListener('touchend', onEnd, { passive: true });
+    el.addEventListener('touchcancel', onEnd, { passive: true });
+    return () => {
+      el.removeEventListener('touchstart', onStart);
+      el.removeEventListener('touchmove', onMove);
+      el.removeEventListener('touchend', onEnd);
+      el.removeEventListener('touchcancel', onEnd);
+    };
+  }, [ui.timelineCollapsed]);
 
   /** Effective height of one track (resize-in-progress override, then persisted Track.height, then ROW_H default). */
   const effHeight = (track: Track) =>
@@ -293,15 +362,17 @@ export function Timeline() {
   /* A plain click still scrubs (and clears the selection); once the pointer
    * travels 5 px it becomes a rubber-band that selects every clip it touches. */
 
-  const onLanePointerDown = (e: React.PointerEvent) => {
+  const onLanePointerDown = (e: React.PointerEvent, trackId: string) => {
     if (e.target !== e.currentTarget) return;
     const rect = contentRef.current?.getBoundingClientRect();
     if (!rect) return;
+    startLongPress(e, { x: e.clientX, y: e.clientY, clipId: null, trackId });
     marqueeStart.current = { x: e.clientX - rect.left, y: e.clientY - rect.top, clientX: e.clientX, clientY: e.clientY, dragged: false };
     try { (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId); } catch { /* synthetic pointer */ }
   };
 
   const onLanePointerMove = (e: React.PointerEvent) => {
+    longPressMoved(e);
     const st = marqueeStart.current;
     const rect = contentRef.current?.getBoundingClientRect();
     if (!st || !rect) return;
@@ -327,19 +398,29 @@ export function Timeline() {
   };
 
   const onLanePointerUp = (e: React.PointerEvent) => {
+    const fired = longPress.current?.fired === true;
+    clearLongPress();
     const st = marqueeStart.current;
     marqueeStart.current = null;
     setMarquee(null);
     try { (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId); } catch { /* already released */ }
+    /* A long-press opened the track menu — do not also scrub/clear selection. */
+    if (fired) return;
     if (st && !st.dragged) { useStore.getState().select([]); scrub(e.clientX); }
   };
 
   const beginDrag = (e: React.PointerEvent, clip: Clip, mode: DragState['mode']) => {
     e.stopPropagation();
     const s = useStore.getState();
-    if (e.shiftKey) s.select([clip.id], true);
-    else if (!s.selection.includes(clip.id)) s.select([clip.id]);
-    if (clip.locked) { ui.toast('Clip is locked — right-click → Unlock to edit it', 'info'); return; }
+    /* Grouped clips always travel + select as one, like an NLE's clip links. */
+    const groupIds = (id: string) => {
+      const c = project.clips.find((x) => x.id === id);
+      return c?.groupId ? project.clips.filter((x) => x.groupId === c.groupId).map((x) => x.id) : [];
+    };
+    if (e.shiftKey) s.select([clip.id, ...groupIds(clip.id)], true);
+    else if (!s.selection.includes(clip.id)) s.select([clip.id, ...groupIds(clip.id)]);
+    startLongPress(e, { x: e.clientX, y: e.clientY, clipId: clip.id, trackId: clip.trackId });
+    if (clip.locked) { ui.toast('Clip is locked — long-press or right-click → Unlock to edit it', 'info'); return; }
     const track = project.tracks.find((t) => t.id === clip.trackId);
     if (track?.locked) { ui.toast('Track is locked', 'info'); return; }
     try {
@@ -348,14 +429,18 @@ export function Timeline() {
       // Synthetic events / touch edge cases have no active pointer — the
       // move/up listeners on the element still receive the drag.
     }
-    // Multi-select drag: remember every selected clip so the whole group moves.
-    const group = useStore.getState().selection.slice();
+    // Multi-select drag: remember every selected AND linked clip so groups move as one.
+    const picked = useStore.getState().selection.slice();
+    const expanded = new Set(picked);
+    picked.forEach((id) => groupIds(id).forEach((gid) => expanded.add(gid)));
+    const group = [...expanded];
     const d: DragState = { mode, clipId: clip.id, startX: e.clientX, origStart: clip.start, origDuration: clip.duration, origInPoint: clip.inPoint, speed: clip.speed, trackId: clip.trackId, group: group.includes(clip.id) ? group : [clip.id] };
     dragRef.current = d;
     setDrag({ ...d, curStart: clip.start, curDuration: clip.duration, curInPoint: clip.inPoint, curTrack: clip.trackId });
   };
 
   const onDragMove = (e: React.PointerEvent) => {
+    longPressMoved(e);
     const d = dragRef.current;
     if (!d) return;
     const dt = (e.clientX - d.startX) / zoom;
@@ -412,6 +497,7 @@ export function Timeline() {
   };
 
   const endDrag = () => {
+    clearLongPress();
     const d = dragRef.current;
     const cur = drag;
     dragRef.current = null;
@@ -470,6 +556,38 @@ export function Timeline() {
       if (Math.abs(start - d.origStart) > 0.001 || Math.abs(duration - d.origDuration) > 0.001)
         s.commit([{ type: 'trim_clip', clipId: d.clipId, start, duration, inPoint }], 'Trim clip');
     }
+  };
+
+  /* ---- keyframe diamonds: drag along the clip to retime (time only) ----
+   * The Inspector's graph editor handles time + value on a curve; the timeline
+   * diamond is the fast "nudge it to the beat" gesture mobile editors expect. */
+  const beginKfDrag = (e: React.PointerEvent, clip: Clip, kfId: string, time: number) => {
+    e.stopPropagation();
+    e.preventDefault();
+    useStore.getState().select([clip.id]);
+    setKfDrag({ clipId: clip.id, kfId, time });
+    try { (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId); } catch { /* synthetic pointer */ }
+  };
+  const moveKfDrag = (e: React.PointerEvent) => {
+    if (!kfDrag) return;
+    e.stopPropagation();
+    const rect = contentRef.current?.getBoundingClientRect();
+    const clip = useStore.getState().project.clips.find((c) => c.id === kfDrag.clipId);
+    if (!rect || !clip) return;
+    const t = (e.clientX - rect.left - HEADER_W) / zoom - clip.start;
+    const next = Math.max(0, Math.min(clip.duration, t));
+    setKfDrag((p) => (p ? { ...p, time: next } : p));
+  };
+  const endKfDrag = (e: React.PointerEvent) => {
+    if (!kfDrag) return;
+    e.stopPropagation();
+    const clip = useStore.getState().project.clips.find((c) => c.id === kfDrag.clipId);
+    const kf = clip?.keyframes.find((k) => k.id === kfDrag.kfId);
+    if (clip && kf && Math.abs(kf.time - kfDrag.time) > 0.005) {
+      useStore.getState().commit([{ type: 'update_keyframe', clipId: clip.id, keyframeId: kf.id, time: kfDrag.time }], 'Move keyframe');
+    }
+    setKfDrag(null);
+    try { (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId); } catch { /* released */ }
   };
 
   /* ---- external drop zone (media / text / sticker drags from the media panel) ---- */
@@ -787,8 +905,8 @@ export function Timeline() {
 
   if (ui.timelineCollapsed) {
     return (
-      <div className="shrink-0 flex bg-ink-900 border-t border-line" style={{ height: 40 }}>
-        <div className="h-full w-full flex items-center gap-2 px-2">
+      <div className="shrink-0 flex bg-ink-900 border-t border-line" style={{ minHeight: 40 }}>
+        <div className="h-full w-full flex items-center gap-2 px-2 py-0.5">
           <button className="icon-btn" title="Expand timeline" onClick={() => ui.setTimelineCollapsed(false)}><ChevronUp size={15} /></button>
           <span className="text-[11px] text-paper-faint">Timeline collapsed — expand to edit clips</span>
           <div className="flex-1" />
@@ -810,7 +928,7 @@ export function Timeline() {
       >
         <div className={`h-px w-full transition-colors ${paneResizing ? 'bg-signal/70' : 'bg-line group-hover:bg-signal/60'}`} />
       </div>
-      <div className="h-9 shrink-0 flex items-center gap-1 px-2 border-b border-line cf-hscroll">
+      <div className="cf-toolbar shrink-0 flex items-center gap-1 px-2 border-b border-line">
         <button className="icon-btn" title="Collapse timeline" onClick={() => ui.setTimelineCollapsed(true)}><ChevronDown size={15} /></button>
         <button className="icon-btn" onClick={splitAtPlayhead} title="Split at playhead (S)"><Scissors size={15} /></button>
         <button className="icon-btn" onClick={deleteSel} disabled={!selection.length} title="Ripple delete selected (Del)"><Trash2 size={15} /></button>
@@ -857,7 +975,7 @@ export function Timeline() {
           {/* ruler */}
           <div className="flex sticky top-0 z-30" style={{ height: RULER_H }}>
             <div className="sticky left-0 z-40 shrink-0 bg-ink-850 border-r border-b border-line-bright flex items-center px-2 text-[10px] text-paper-faint" style={{ width: HEADER_W }}>Tracks</div>
-            <div className="relative flex-1 bg-ink-850 border-b border-line-bright cursor-pointer" style={{ width: contentW }} onPointerDown={onRulerDown}>
+            <div className="cf-ruler relative flex-1 bg-ink-850 border-b border-line-bright cursor-pointer" style={{ width: contentW }} onPointerDown={onRulerDown}>
               {minorTicks.map((t) => (
                 <div key={`mi${t}`} className="absolute top-1/2 bottom-0 border-l border-line/40" style={{ left: t * zoom }} />
               ))}
@@ -903,29 +1021,33 @@ export function Timeline() {
               <div key={track.id} className={`flex border-b border-line/50 ${resizing?.trackId === track.id ? 'select-none' : ''}`} style={{ height: trackH }}>
                 <div className={`sticky left-0 z-20 shrink-0 bg-ink-850 border-r border-line-bright flex flex-col justify-center px-2 gap-0.5 relative ${track.locked ? 'border-l-2 border-l-heat-amber/60' : ''}`} style={{ width: HEADER_W }}
                   onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setCtxMenu({ x: e.clientX, y: e.clientY, clipId: null, trackId: track.id }); }}
+                  onPointerDown={(e) => startLongPress(e, { x: e.clientX, y: e.clientY, clipId: null, trackId: track.id })}
+                  onPointerMove={longPressMoved}
+                  onPointerUp={clearLongPress}
+                  onPointerCancel={clearLongPress}
                 >
                   <div className="flex items-center gap-1 min-w-0">
                     <span className={`text-[8px] font-bold tracking-wider rounded px-1 shrink-0 ${badge.cls}`}>{badge.text}</span>
                     <span className="text-[11px] font-medium text-paper truncate">{track.name}</span>
                   </div>
                   <div className="flex items-center gap-0.5">
-                    <button className="icon-btn p-0.5" onClick={() => useStore.getState().commit([{ type: 'set_track', trackId: track.id, patch: { locked: !track.locked } }], 'Toggle lock')} title="Lock track">
+                    <button className="cf-track-btn icon-btn p-0.5" onClick={() => useStore.getState().commit([{ type: 'set_track', trackId: track.id, patch: { locked: !track.locked } }], 'Toggle lock')} title="Lock track">
                       {track.locked ? <Lock size={11} className="text-heat-amber" /> : <Unlock size={11} />}
                     </button>
                     {track.kind !== 'text' && (
-                      <button className="icon-btn p-0.5" onClick={() => useStore.getState().commit([{ type: 'set_track', trackId: track.id, patch: { muted: !track.muted } }], 'Toggle mute')} title="Mute track">
+                      <button className="cf-track-btn icon-btn p-0.5" onClick={() => useStore.getState().commit([{ type: 'set_track', trackId: track.id, patch: { muted: !track.muted } }], 'Toggle mute')} title="Mute track">
                         {track.muted ? <VolumeX size={11} className="text-heat" /> : <Volume2 size={11} />}
                       </button>
                     )}
                     {track.kind !== 'text' && (
-                      <button className={`icon-btn p-0.5 ${track.solo ? 'text-heat-amber' : ''}`}
+                      <button className={`cf-track-btn icon-btn p-0.5 ${track.solo ? 'text-heat-amber' : ''}`}
                         onClick={() => useStore.getState().commit([{ type: 'set_track', trackId: track.id, patch: { solo: !track.solo } }], track.solo ? 'Solo off' : 'Solo track')}
                         title={track.solo ? 'Solo on — other tracks of this kind are silent' : 'Solo: play only this track (other tracks of this kind go silent)'}>
                         <Headphones size={11} />
                       </button>
                     )}
                     {track.kind === 'video' && (
-                      <button className="icon-btn p-0.5" onClick={() => useStore.getState().commit([{ type: 'set_track', trackId: track.id, patch: { hidden: !track.hidden } }], 'Toggle visibility')} title="Hide track">
+                      <button className="cf-track-btn icon-btn p-0.5" onClick={() => useStore.getState().commit([{ type: 'set_track', trackId: track.id, patch: { hidden: !track.hidden } }], 'Toggle visibility')} title="Hide track">
                         {track.hidden ? <EyeOff size={11} className="text-heat" /> : <Eye size={11} />}
                       </button>
                     )}
@@ -945,7 +1067,7 @@ export function Timeline() {
                   />
                 </div>
                 <div className={`relative flex-1 ${dropHint && tracks[dropHint.trackIdx]?.id === track.id ? 'bg-signal/15 ring-1 ring-inset ring-signal/50' : ti % 2 === 0 ? 'bg-ink-900/50' : ''}`} style={{ width: contentW }}
-                  onPointerDown={onLanePointerDown}
+                  onPointerDown={(e) => onLanePointerDown(e, track.id)}
                   onPointerMove={onLanePointerMove}
                   onPointerUp={onLanePointerUp}
                   onContextMenu={(e) => { e.preventDefault(); setCtxMenu({ x: e.clientX, y: e.clientY, clipId: null, trackId: track.id }); }}
@@ -981,7 +1103,7 @@ export function Timeline() {
                     return (
                       <div
                         key={clip.id}
-                        className={`absolute top-1 rounded border overflow-hidden no-select ${baseColor} ${clip.locked ? 'cursor-not-allowed' : 'cursor-grab active:cursor-grabbing'} ${selected ? 'ring-2 ring-signal brightness-110' : ''} ${isDrag ? 'opacity-80 z-10' : ''}`}
+                        className={`cf-clip absolute top-1 rounded border overflow-hidden no-select ${baseColor} ${clip.locked ? 'cursor-not-allowed' : 'cursor-grab active:cursor-grabbing'} ${selected ? 'ring-2 ring-signal brightness-110' : ''} ${isDrag ? 'opacity-80 z-10' : ''}`}
                         style={{ left: start * zoom, width, height: trackH - 8 }}
                         onPointerDown={(e) => beginDrag(e, clip, 'move')}
                         onPointerMove={onDragMove}
@@ -989,7 +1111,7 @@ export function Timeline() {
                         onContextMenu={(e) => onClipContextMenu(e, clip)}
                         title={label}
                       >
-                        {asset?.type === 'video' && width > 50 && <Filmstrip clip={clip} asset={asset} width={width} />}
+                        {(asset?.type === 'video' || asset?.type === 'image') && width > 50 && <Filmstrip clip={clip} asset={asset} width={width} />}
                         {asset && (asset.type === 'audio' || asset.hasAudio) && track.kind !== 'text' && <Waveform clip={clip} asset={asset} width={width} height={trackH - 8} />}
                         <div className="absolute top-0.5 left-1 right-1 text-[10px] text-paper truncate pointer-events-none drop-shadow">{label}</div>
                         {clip.speed !== 1 && <span className="absolute bottom-0.5 right-1 text-[9px] text-signal font-mono pointer-events-none">{clip.speed}×</span>}
@@ -1010,15 +1132,24 @@ export function Timeline() {
                             title={`Transition: ${clip.transitionOut.type} (${clip.transitionOut.duration}s)`}
                           />
                         )}
-                        {/* keyframe diamonds at real clip-local times */}
-                        {clip.keyframes.length > 0 && clip.keyframes.map((kf) => (
-                          <div
-                            key={kf.id}
-                            className="absolute bottom-0.5 w-1.5 h-1.5 rotate-45 bg-paper/80 pointer-events-none"
-                            style={{ left: Math.max(2, Math.min(width - 8, kf.time * zoom - 3)) }}
-                            title={`Keyframe @ ${kf.time.toFixed(2)}s (${kf.path})`}
-                          />
-                        ))}
+                        {/* keyframe diamonds at real clip-local times — draggable to retime */}
+                        {clip.keyframes.length > 0 && clip.keyframes.map((kf) => {
+                          const shownT = kfDrag?.clipId === clip.id && kfDrag.kfId === kf.id ? kfDrag.time : kf.time;
+                          return (
+                            <div
+                              key={kf.id}
+                              className="cf-kf"
+                              style={{ left: Math.max(0, Math.min(width - 16, shownT * zoom - 8)) }}
+                              onPointerDown={(e) => beginKfDrag(e, clip, kf.id, kf.time)}
+                              onPointerMove={moveKfDrag}
+                              onPointerUp={endKfDrag}
+                              onPointerCancel={endKfDrag}
+                              title={`Keyframe @ ${shownT.toFixed(2)}s (${kf.path}) — drag to retime`}
+                            >
+                              <span />
+                            </div>
+                          );
+                        })}
                         {/* locked overlay */}
                         {clip.locked && (
                           <div

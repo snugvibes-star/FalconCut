@@ -136,7 +136,7 @@ export function AudioTab() {
               <div className="text-xs text-paper truncate" title={m.name}>{m.name}</div>
               <div className="text-[10px] text-paper-faint">{m.duration > 0 ? `${m.duration.toFixed(1)}s` : 'audio'}</div>
             </div>
-            <button className="icon-btn opacity-0 group-hover:opacity-100" onClick={() => addToTimeline(m)} title="Add to audio track (at 0s)"><Music size={14} /></button>
+            <button className="cf-hover-action icon-btn opacity-0 group-hover:opacity-100" onClick={() => addToTimeline(m)} title="Add to audio track (at 0s)"><Music size={14} /></button>
           </div>
         ))}
       </Section>

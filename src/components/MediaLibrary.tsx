@@ -2,7 +2,7 @@ import { useState } from 'react';
 import {
   Film, Music, Type, Smile, Sparkles, ArrowLeftRight, Aperture, LayoutTemplate,
   Captions as CaptionsIcon, SlidersHorizontal, Wand2, Palette, PackageOpen,
-  ChevronsLeft, ChevronsRight,
+  ChevronsLeft, ChevronsRight, X,
 } from 'lucide-react';
 import { useUI, type LeftTab } from '../state/ui';
 import { useMediaQuery } from '../hooks/useMediaQuery';
@@ -71,7 +71,7 @@ export function MediaLibrary({ overlayOpen, onOverlayClose }: MediaLibraryProps)
   const Panel = PANELS[leftTab];
 
   const strip = (onPick?: () => void) => (
-    <div className="grid grid-cols-6 gap-0.5 p-1 border-b border-line shrink-0">
+    <div className="cf-tab-rail grid grid-cols-6 gap-0.5 p-1 border-b border-line shrink-0">
       {TABS.map((t) => {
         const Icon = t.icon;
         const active = leftTab === t.id;
@@ -103,9 +103,19 @@ export function MediaLibrary({ overlayOpen, onOverlayClose }: MediaLibraryProps)
     if (!overlayOpen) return null;
     return (
       <aside
-        className="absolute inset-y-0 left-0 z-30 flex flex-col bg-ink-900 border-r border-line shadow-panel"
-        style={{ width: device === 'phone' ? '100vw' : `min(${width}px, 85vw)` }}
+        className="absolute inset-y-0 left-0 z-30 flex flex-col bg-ink-900 border-r border-line shadow-panel max-w-full pb-[env(safe-area-inset-bottom)]"
+        style={{ width: device === 'phone' ? '100%' : `min(${width}px, 85vw)` }}
+        role="dialog"
+        aria-label="Media and tools panel"
       >
+        <div className="cf-drawer-head">
+          <span className="text-[11px] font-semibold uppercase tracking-wide text-paper-dim">
+            {TABS.find((t) => t.id === leftTab)?.label ?? 'Media'}
+          </span>
+          <button className="icon-btn" onClick={onOverlayClose} aria-label="Close media panel">
+            <X size={16} />
+          </button>
+        </div>
         {strip()}
         {body}
         <div

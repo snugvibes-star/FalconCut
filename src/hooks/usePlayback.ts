@@ -169,7 +169,15 @@ export function usePlayback() {
       const parts: string[] = [];
       for (const c of s.project.clips) {
         const track = s.project.tracks.find((t) => t.id === c.trackId);
-        parts.push(`${c.id}:${c.start}:${c.duration}:${c.volume}:${c.speed}:${c.mediaId}:${track ? (trackAudible(s.project, track) ? 0 : 1) : 2}`);
+        // Every field the audio graph reads must be here: fades, keyframes,
+        // speed ramps, DSP effects and pitch settings all change live sound.
+        parts.push(JSON.stringify([
+          c.id, c.start, c.duration, c.volume, c.speed, c.mediaId, c.inPoint,
+          c.fades, c.speedPoints, c.preservePitch, c.reversed,
+          c.keyframes.map((k) => [k.path, k.time, k.value]),
+          c.effects.map((e) => [e.id, e.type, e.enabled, e.params]),
+          track ? (trackAudible(s.project, track) ? 0 : 1) : 2,
+        ]));
       }
       return parts.join('|');
     };

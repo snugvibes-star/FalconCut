@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { Plus, Trash2, Diamond, Lock, Unlock, Sparkles, RotateCcw, X, Palette } from 'lucide-react';
 import { useStore } from '../state/store';
 import { useUI } from '../state/ui';
-import { resolvedTransform, clipVolumeAt, getMedia, COLOR_PRESETS, BLEND_MODES, speedPointsOf, avgSpeed, parseCube, type Clip, type Effect, type EffectType, type Easing, type Transform, type Transition, type Aspect, type Action, type BlendMode, type SpeedPoint, ASPECT_SIZES } from '../../engine';
+import { resolvedTransform, clipVolumeAt, getMedia, COLOR_PRESETS, BLEND_MODES, TRANSITION_TYPES, speedPointsOf, avgSpeed, parseCube, type Clip, type Effect, type EffectType, type Easing, type Transform, type Transition, type Aspect, type Action, type BlendMode, type SpeedPoint, ASPECT_SIZES } from '../../engine';
 
 const EASINGS: Easing[] = ['linear', 'easeIn', 'easeOut', 'easeInOut', 'easeOutBack', 'easeOutExpo'];
 
@@ -160,7 +160,8 @@ const RANGES: Record<string, [number, number, number]> = {
   invert: [0, 1, 0.05], strength: [0, 1, 0.05], ratio: [1, 20, 0.5], ceilingDb: [-24, 0, 0.5],
   delayMs: [10, 1000, 10], feedback: [0, 0.9, 0.05], mix: [0, 1, 0.05], pan: [-1, 1, 0.05],
 };
-const TRANSITIONS: Transition['type'][] = ['crossfade', 'dip-black', 'dip-white', 'wipe-left', 'slide-left', 'zoom-in'];
+/** Same table as the Effects/Transitions library — every real transition type. */
+const TRANSITIONS: Transition['type'][] = [...TRANSITION_TYPES];
 const ANIMATIONS = ['none', 'pop', 'fade', 'rise', 'typewriter'] as const;
 const PRESETS = ['clean', 'karaoke', 'bold-keywords', 'word-pop'] as const;
 const VISUAL_EFFECTS: EffectType[] = ['blur', 'sharpen', 'vignette', 'chromaKey', 'negate', 'normalize'];
@@ -281,6 +282,15 @@ export function Inspector() {
     'transform.rotation': tf.rotation, 'transform.skewX': tf.skewX, 'transform.skewY': tf.skewY,
     'transform.opacity': tf.opacity, volume: vol,
   };
+
+  /** Every numeric effect parameter is animatable — the engine already
+   * evaluates `effects.<id>.<param>` keyframes in preview and export; the UI
+   * just needs to expose the path. */
+  const effectKfPaths = clip.effects.flatMap((e) => Object.entries(e.params)
+    .filter((entry): entry is [string, number] => typeof entry[1] === 'number')
+    .map(([key, value]) => ({ path: `effects.${e.id}.${key}`, label: `${e.type}.${key}`, value })));
+  const allKfPaths = [...KF_PATHS, ...effectKfPaths.map((x) => x.path)];
+  const kfValue = (path: string) => KF_VALUES[path] ?? effectKfPaths.find((x) => x.path === path)?.value ?? 0;
 
   const colorEffect = clip.effects.find((e) => e.type === 'color');
   const cp = (colorEffect?.params ?? EFFECT_DEFAULTS.color) as Record<string, number>;
@@ -521,16 +531,19 @@ export function Inspector() {
           </Section>
           <Section title="Keyframes" action={
             <div className="flex items-center gap-1">
-              <select className="field py-0.5 text-[11px] w-auto cursor-pointer" value={kfPath} onChange={(e) => setKfPath(e.target.value)}>
-                {KF_PATHS.map((p) => <option key={p} value={p}>{p}</option>)}
+              <select className="field py-0.5 text-[11px] w-auto cursor-pointer max-w-[150px]" value={allKfPaths.includes(kfPath) ? kfPath : allKfPaths[0]} onChange={(e) => setKfPath(e.target.value)}>
+                {allKfPaths.map((p) => <option key={p} value={p} title={p}>{effectKfPaths.some((x) => x.path === p) ? effectKfPaths.find((x) => x.path === p)!.label : p}</option>)}
               </select>
-              <button className="icon-btn p-0.5" title="Add keyframe at playhead" onClick={() => addKeyframe(kfPath, KF_VALUES[kfPath])}><Diamond size={13} /></button>
+              <button className="icon-btn p-0.5" title="Add keyframe at playhead (transform, volume or any effect parameter)" onClick={() => {
+                const path = allKfPaths.includes(kfPath) ? kfPath : allKfPaths[0];
+                addKeyframe(path, kfValue(path));
+              }}><Diamond size={13} /></button>
             </div>
           }>
             {clip.keyframes.length === 0 && <p className="text-[11px] text-paper-faint">No keyframes. Add one at the playhead, then move the playhead and change the value to animate.</p>}
             <div className="space-y-1">
               {[...clip.keyframes].sort((a, b) => a.time - b.time).map((k) => (
-                <div key={k.id} className="flex items-center gap-1.5 text-[11px] bg-ink-850 rounded-md px-2 py-1 border border-line">
+                <div key={k.id} className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-[11px] bg-ink-850 rounded-md px-2 py-1 border border-line">
                   <Diamond size={10} className="text-signal shrink-0" />
                   <input type="number" step={0.01} min={0} className="w-14 bg-transparent text-[10px] text-paper-dim font-mono"
                     value={Number(k.time.toFixed(2))}
@@ -540,7 +553,7 @@ export function Inspector() {
                     value={Number(k.value.toFixed(2))}
                     title="Keyframe value"
                     onChange={(e) => set([{ type: 'update_keyframe', clipId: id, keyframeId: k.id, value: Number(e.target.value) }], 'Keyframe value', `${k.id}:value`)} />
-                  <span className="text-paper-dim truncate flex-1">{k.path.split('.').pop()}</span>
+                  <span className="text-paper-dim truncate flex-1 basis-16" title={k.path}>{k.path.split('.').pop()}</span>
                   <select className="bg-transparent text-[10px] text-paper-faint cursor-pointer" value={k.easing} onChange={(e) => set([{ type: 'update_keyframe', clipId: id, keyframeId: k.id, easing: e.target.value as Easing }], 'Keyframe easing')}>
                     {EASINGS.map((ea) => <option key={ea} value={ea}>{ea}</option>)}
                   </select>

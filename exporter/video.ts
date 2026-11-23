@@ -105,8 +105,10 @@ export async function exportVideo(
   // Audio is optional: mixed through the same graph as preview/WAV export.
   let audio: AudioBuffer | null = null;
   if (plan.audioCodec) {
+    // Never downgrade to a silent video behind the user's back: if the mix
+    // fails (missing source, undecodable audio, >30 min), fail loudly instead.
     try { audio = await mixProjectAudio(project, loadBlob); }
-    catch { audio = null; }
+    catch (e) { throw new Error(`Audio mix failed — export stopped to avoid a silent video. ${e instanceof Error ? e.message : String(e)}`); }
   }
   const hasAudio = !!audio && !!plan.muxAudioCodec;
 

@@ -26,7 +26,7 @@ export function StatusBar() {
   const fps = project.settings.fps || 30;
 
   return (
-    <footer className="h-6 shrink-0 flex items-center gap-4 px-3 bg-ink-950 border-t border-line text-[10px] font-mono text-paper-faint overflow-x-auto whitespace-nowrap">
+    <footer className="cf-safe-bottom cf-safe-x h-auto min-h-6 shrink-0 flex items-center gap-3 sm:gap-4 px-3 py-0.5 bg-ink-950 border-t border-line text-[10px] font-mono text-paper-faint overflow-x-auto whitespace-nowrap">
       <span className="tabular-nums shrink-0">{project.clips.length} clips · {fmtMMSS(projectDuration(project))}</span>
       <span className="tabular-nums hidden md:inline shrink-0" title="Playhead timecode">TC {fmtTC(playhead, fps)}</span>
       {selection.length > 0 && <span className="text-paper-dim tabular-nums hidden md:inline shrink-0">{selection.length} selected</span>}

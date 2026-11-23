@@ -46,10 +46,36 @@ export default function App() {
     return () => window.removeEventListener('beforeunload', onBeforeUnload);
   }, []);
 
+  // A window resize can change the device class (desktop → phone). Re-clamp the
+  // saved timeline height so the preview never collapses on a smaller screen.
+  useEffect(() => {
+    const onResize = () => {
+      const ui = useUI.getState();
+      ui.setTimelineHeight(ui.timelineHeight);
+    };
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
+
   // Panel overlays (<lg only): default closed; toggled from the TopBar.
   const [leftOverlay, setLeftOverlay] = useState(false);
   const [rightOverlay, setRightOverlay] = useState(false);
   const closeOverlays = () => { setLeftOverlay(false); setRightOverlay(false); };
+
+  // Only one drawer can own the screen on tablet/phone, and switching
+  // workspaces must never leave a stale drawer floating over the new page.
+  useEffect(() => { closeOverlays(); }, [workspace]);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      if (leftOverlay || rightOverlay) {
+        closeOverlays();
+        e.preventDefault();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [leftOverlay, rightOverlay]);
 
   if (!ready) {
     return (
@@ -63,12 +89,12 @@ export default function App() {
   }
 
   return (
-    <div className={`h-full flex flex-col bg-ink-950 text-paper ${density === 'compact' ? 'cf-density-compact' : ''}`}>
+    <div className={`h-[100dvh] flex flex-col bg-ink-950 text-paper ${density === 'compact' ? 'cf-density-compact' : ''}`}>
       <TopBar
         leftOpen={leftOverlay}
         rightOpen={rightOverlay}
-        onToggleLeft={() => setLeftOverlay((v) => !v)}
-        onToggleRight={() => setRightOverlay((v) => !v)}
+        onToggleLeft={() => { setRightOverlay(false); setLeftOverlay((v) => !v); }}
+        onToggleRight={() => { setLeftOverlay(false); setRightOverlay((v) => !v); }}
       />
       <div className="cf-spectrum shrink-0" />
       {workspace === 'edit' ? (

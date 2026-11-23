@@ -13,7 +13,7 @@ export function Toasts() {
 
   return (
     <section aria-label="Notifications" aria-live="polite" aria-relevant="additions text" aria-atomic={false}
-      className="pointer-events-none fixed bottom-4 right-4 z-[100] w-[calc(100%-2rem)] max-w-sm space-y-2">
+      className="pointer-events-none fixed bottom-[calc(1rem+env(safe-area-inset-bottom,0px))] right-[calc(1rem+env(safe-area-inset-right,0px))] z-[60] w-[calc(100%-2rem)] max-w-sm space-y-2">
       {toasts.map((toast) => {
         const { label, color, Icon } = APPEARANCE[toast.kind];
         return (

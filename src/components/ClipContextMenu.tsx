@@ -6,7 +6,7 @@ import { useEffect, useRef } from 'react';
 import {
   Scissors, Copy, Trash2, Lock, Unlock, Volume2, VolumeX, ArrowLeftToLine,
   ArrowRightToLine, FastForward, Tag, Flag, Maximize, AudioLines, ClipboardPaste,
-  ChevronUp, ChevronDown, ListChecks, Headphones, Gauge, Rows3,
+  ChevronUp, ChevronDown, ListChecks, Headphones, Gauge, Rows3, Link2, Unlink,
 } from 'lucide-react';
 import { useStore } from '../state/store';
 import { useUI } from '../state/ui';
@@ -64,10 +64,14 @@ export function ClipContextMenu({ menu, onClose }: { menu: CtxMenuState; onClose
   const run = (fn: () => void) => () => { fn(); onClose(); };
   const commit = (actions: Parameters<typeof s.commit>[0], label: string) => s.commit(actions, label, 'human');
 
-  // position: keep inside the viewport
-  const W = 210;
-  const left = Math.min(menu.x, window.innerWidth - W - 8);
-  const top = Math.min(menu.y, window.innerHeight - (clip ? 400 : track ? 360 : 220) - 8);
+  // position: keep inside the viewport. The menu owns its own vertical scroll
+  // (cf-menu), so a short phone screen still reaches Delete / Ripple delete.
+  const W = Math.min(240, window.innerWidth - 16);
+  const left = Math.max(8, Math.min(menu.x, window.innerWidth - W - 8));
+  const top = Math.max(8, Math.min(menu.y, window.innerHeight - (clip ? 400 : track ? 360 : 220) - 8));
+  /* Always leave the menu a scrollable viewport: on a 360×640 phone the
+     full clip menu is ~100px taller than the screen. */
+  const maxHeight = Math.max(160, window.innerHeight - top - 8);
 
   const Item = ({ icon: Icon, label, onClick, danger, disabled, title }: {
     icon: typeof Scissors; label: string; onClick: () => void; danger?: boolean; disabled?: boolean; title?: string;
@@ -87,8 +91,8 @@ export function ClipContextMenu({ menu, onClose }: { menu: CtxMenuState; onClose
     <div
       ref={ref}
       data-falconcut-menu=""
-      className="fixed z-[100] min-w-[210px] panel !rounded-lg p-1 shadow-panel animate-fade-in"
-      style={{ left, top }}
+      className="cf-menu fixed z-[100] min-w-[210px] panel !rounded-lg p-1 shadow-panel animate-fade-in"
+      style={{ left, top, width: W, maxHeight }}
       onContextMenu={(e) => e.preventDefault()}
     >
       {clip ? (
@@ -143,6 +147,21 @@ export function ClipContextMenu({ menu, onClose }: { menu: CtxMenuState; onClose
               window.dispatchEvent(new CustomEvent('falconcut:inspector-tab', { detail: 'speed' }));
             })} />
           <div className="h-px bg-line my-1" />
+          {(s.selection.length > 1 || clip.groupId) && (
+            <>
+              {s.selection.length > 1 && (
+                <Item icon={Link2} label={`Group ${s.selection.length} selected clips (Ctrl+G)`}
+                  title="Grouped clips select and move together — Ctrl+Shift+G ungroups them"
+                  onClick={run(() => commit([{ type: 'group_clips', clipIds: s.selection.slice() }], 'Group clips'))} />
+              )}
+              {clip.groupId && (
+                <Item icon={Unlink} label="Ungroup (Ctrl+Shift+G)"
+                  title="Make these clips independent again"
+                  onClick={run(() => commit([{ type: 'ungroup', groupId: clip.groupId! }], 'Ungroup clips'))} />
+              )}
+              <div className="h-px bg-line my-1" />
+            </>
+          )}
           {clip.volume > 0 ? (
             <Item icon={VolumeX} label="Mute clip"
               title="Set clip volume to 0"

@@ -129,6 +129,20 @@ export function useKeyboard() {
         ui.toast(n ? `Duplicated ${n} clip${n > 1 ? 's' : ''}` : 'Select a clip to duplicate', n ? 'success' : 'info');
         return;
       }
+      if (mod && e.key.toLowerCase() === 'g') {
+        e.preventDefault();
+        if (e.shiftKey) {
+          const groups = new Set(s.selection.map((id) => s.project.clips.find((c) => c.id === id)?.groupId).filter(Boolean) as string[]);
+          if (!groups.size) { ui.toast('Select a grouped clip to ungroup it', 'info'); return; }
+          s.commit([...groups].map((groupId) => ({ type: 'ungroup', groupId })), 'Ungroup clips');
+          ui.toast('Clips ungrouped', 'success');
+        } else {
+          if (s.selection.length < 2) { ui.toast('Select two or more clips to group them', 'info'); return; }
+          s.commit([{ type: 'group_clips', clipIds: s.selection.slice() }], 'Group clips');
+          ui.toast(`Grouped ${s.selection.length} clips`, 'success');
+        }
+        return;
+      }
 
       switch (e.key) {
         case ' ': {
