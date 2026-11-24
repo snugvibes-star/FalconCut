@@ -5,7 +5,7 @@ import { uid, type DrawTool } from '../../engine';
 
 export type RightTab = 'inspector' | 'audio' | 'ai' | 'versions' | 'quality' | 'notes' | 'markers';
 export type LeftTab = 'media' | 'audio' | 'text' | 'stickers' | 'effects' | 'transitions' | 'filters' | 'templates' | 'captions' | 'adjustment' | 'tools' | 'styles' | 'stock';
-export type Dialog = 'connect' | 'export' | 'palette' | 'settings' | 'analysis' | 'projects' | 'newProject';
+export type Dialog = 'connect' | 'export' | 'palette' | 'settings' | 'analysis' | 'projects' | 'newProject' | 'aiControl';
 export type Workspace = 'edit' | 'color' | 'audio';
 
 export interface Toast { id: string; text: string; kind: 'info' | 'success' | 'error'; }
@@ -167,7 +167,7 @@ export const useUI = create<UIState>((set, get) => ({
   rightTab: 'inspector',
   leftTab: 'media',
   workspace: sanitizeWorkspace(prefs.workspace),
-  dialogs: { connect: false, export: false, palette: false, settings: false, analysis: false, projects: false, newProject: false },
+  dialogs: { connect: false, export: false, palette: false, settings: false, analysis: false, projects: false, newProject: false, aiControl: false },
   toasts: [],
   focusMode: false,
   previewZoom: sanitizeZoom(prefs.previewZoom),

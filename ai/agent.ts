@@ -13,7 +13,7 @@
 import type { Project } from '../engine/types';
 import { AGENT_SYSTEM_PROMPT, parseAgentReply, validateCalls } from './protocol';
 import { buildProjectContext, looksLikeEdit, planFromReply, rulesPlan, type Plan } from './planner';
-import { chatStream, hasAI, loadAISettings, type AISettings, type ChatMessage as WireMessage } from './client';
+import { chatStream, hasAI, loadAISettings, resolveAISettingsForTask, type AISettings, type ChatMessage as WireMessage } from './client';
 
 export interface HistoryTurn {
   role: 'user' | 'assistant';
@@ -94,7 +94,10 @@ function rulesTurn(project: Project, text: string): ChatTurn {
   history: HistoryTurn[] = [],
   settings: AISettings = loadAISettings(),
   onDelta?: (delta: string) => void,
+  task: 'chat' | 'plan' = 'chat',
 ): Promise<ChatTurn> {
+  // Apply per-task overrides (temperature/maxTokens) on top of the connection.
+  if (task !== 'chat') settings = resolveAISettingsForTask(task);
   if (!hasAI(settings)) return rulesTurn(project, text);
 
   const system = `${AGENT_SYSTEM_PROMPT}\n\nPROJECT STATE (live, read it before editing)\n${buildProjectContext(project)}`;
@@ -122,7 +125,7 @@ function rulesTurn(project: Project, text: string): ChatTurn {
     if (!isJson) onDelta?.(delta);
   };
 
-  const raw = await chatStream(messages, emit, { temperature: settings.temperature }, settings);
+  const raw = await chatStream(messages, emit, { temperature: settings.temperature, maxTokens: settings.maxTokens, task }, settings);
   const trimmed = raw.trim();
   if (!trimmed) throw new Error('The model returned an empty reply. Try again.');
 
@@ -152,7 +155,7 @@ function rulesTurn(project: Project, text: string): ChatTurn {
   };
 
   const ask = async (extra: WireMessage[]): Promise<string> =>
-    (await chatStream([...messages, ...extra], () => {}, { temperature: settings.temperature, json: true }, settings)).trim();
+    (await chatStream([...messages, ...extra], () => {}, { temperature: settings.temperature, maxTokens: settings.maxTokens, json: true, task }, settings)).trim();
 
   // A whole-video / style request deserves real steps. Weak models sometimes
   // answer it with one generic call, so ask once for the concrete breakdown.
@@ -164,7 +167,7 @@ function rulesTurn(project: Project, text: string): ChatTurn {
         { role: 'user', content: `${text}\n\nThis request covers the whole edit. Break it into at least four concrete, different tool calls in execution order — look, titles, transitions, pacing, audio, captions, reframe — and return the JSON object only.` },
       ],
       () => {},
-      { temperature: Math.max(0.5, settings.temperature), json: true },
+      { temperature: Math.max(0.5, settings.temperature), maxTokens: settings.maxTokens, json: true, task },
       settings,
     )).trim();
     if (!/^(\{|\[|```)/.test(again)) return turn;

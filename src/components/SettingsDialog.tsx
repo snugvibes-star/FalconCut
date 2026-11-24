@@ -267,6 +267,15 @@ export function SettingsDialog() {
       {tab === 'appearance' && <AppearanceSection />}
       {tab === 'ai' && (
       <form onSubmit={save} className="space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-signal/30 bg-signal/5 px-3 py-2">
+          <p className="text-[11px] leading-relaxed text-paper-dim">
+            Need multiple keys, per-task behavior, tool permissions or usage stats?
+          </p>
+          <button type="button" className="btn-solid text-xs py-1.5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-signal"
+            onClick={() => { onClose(); useUI.getState().open('aiControl'); }}>
+            Open AI Control Center →
+          </button>
+        </div>
         <p className="text-xs leading-relaxed text-paper-dim">
           Connect any chat model for planning and auto edit: any OpenAI-compatible vendor (OpenAI, Groq, Together, Mistral, DeepSeek, Fireworks, Perplexity, Ollama, LM Studio…), OpenRouter, or Google Gemini's native API. AI is optional; every editing tool works without an API key.
         </p>

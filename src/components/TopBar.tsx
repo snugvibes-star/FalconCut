@@ -218,6 +218,9 @@ export function TopBar({ leftOpen, rightOpen, onToggleLeft, onToggleRight }: Top
               <button className="cf-menu-item" onClick={() => openDialog('settings')}>
                 <Settings size={15} /> Settings
               </button>
+              <button className="cf-menu-item" onClick={() => openDialog('aiControl')}>
+                <Bot size={15} /> AI Control Center
+              </button>
               <button className="cf-menu-item" onClick={() => void installApp()}>
                 <MonitorDown size={15} /> {installed ? 'Installed — how to re-add the icon' : 'Install app'}
               </button>

@@ -18,15 +18,54 @@
  * the rules-only auto_edit. Nothing here is required for core editing.
  */
 export type AIProvider = 'openai' | 'gemini' | 'openrouter';
+export type AITask = 'chat' | 'plan' | 'caption' | 'translate' | 'analysis';
 
 export interface AISettings {
   endpoint: string;
   apiKey: string;
   model: string;
   temperature: number;
+  /** Max output tokens for this connection; 0/undefined means endpoint default. */
+  maxTokens?: number;
   /** Optional; when missing it is detected from the endpoint URL so settings
    * saved before this field existed keep working. */
   provider?: AIProvider;
+}
+
+/** A saved, named AI provider profile. Users can keep several — e.g.
+ * "OpenAI GPT-4o for planning", "Gemini for captions", "Ollama local for privacy". */
+export interface AIProfile {
+  id: string;
+  name: string;
+  endpoint: string;
+  apiKey: string;
+  model: string;
+  temperature: number;
+  maxTokens: number;
+  provider: AIProvider;
+  /** Which tasks this profile is allowed to run. Empty = all tasks. */
+  allowedTasks: AITask[];
+  createdAt: number;
+  updatedAt: number;
+}
+
+/** Per-task AI settings. When a task has no entry, the active profile's
+ * values are used. */
+export interface AITaskSettings {
+  temperature?: number;
+  maxTokens?: number;
+}
+
+/** One API call, for usage tracking and cost estimation. */
+export interface UsageRecord {
+  id: string;
+  profileId: string;
+  task: AITask;
+  model: string;
+  at: number;
+  ok: boolean;
+  tokensEstimate: number;   // rough: chars / 4
+  costUsdEstimate: number;  // very rough, per-provider pricing would need rates
 }
 
 export const OPENAI_ENDPOINT = 'https://api.openai.com/v1/chat/completions';
@@ -46,6 +85,20 @@ export const PROVIDER_PRESETS: Record<AIProvider, { endpoint: string; model: str
   openai: { endpoint: OPENAI_ENDPOINT, model: OPENAI_MODEL, label: 'OpenAI-compatible' },
   openrouter: { endpoint: OPENROUTER_ENDPOINT, model: OPENROUTER_MODEL, label: 'OpenRouter' },
   gemini: { endpoint: `${GEMINI_ENDPOINT}/${GEMINI_MODEL}:generateContent`, model: GEMINI_MODEL, label: 'Google Gemini' },
+};
+
+export const DEFAULT_AI_PROFILE: AIProfile = {
+  id: 'default',
+  name: 'Default',
+  endpoint: OPENAI_ENDPOINT,
+  apiKey: '',
+  model: OPENAI_MODEL,
+  temperature: 0.4,
+  maxTokens: 0,
+  provider: 'openai',
+  allowedTasks: [],
+  createdAt: Date.now(),
+  updatedAt: Date.now(),
 };
 
 /**
@@ -90,6 +143,7 @@ export const DEFAULT_AI_SETTINGS: AISettings = {
   apiKey: '',
   model: OPENAI_MODEL,
   temperature: 0.4,
+  maxTokens: 0,
 };
 
 const LS_KEY = 'falconcut.ai.settings';
@@ -223,7 +277,7 @@ export function openaiUrl(endpoint: string): string {
   if (/\/chat\/completions(\/|\?|#|$)/i.test(raw)) return raw.replace(/\/+$/, '');
   return `${raw.replace(/\/+$/, '')}/chat/completions`;
 }
-export interface ChatOptions { json?: boolean; signal?: AbortSignal; temperature?: number; maxTokens?: number }
+export interface ChatOptions { json?: boolean; signal?: AbortSignal; temperature?: number; maxTokens?: number; task?: AITask }
 
 /**
  * Plain-language note about the credential shape. There are now TWO valid
@@ -380,8 +434,19 @@ async function geminiComplete(messages: ChatMessage[], opts: ChatOptions, settin
 export async function chatComplete(messages: ChatMessage[], opts: ChatOptions = {}, settings: AISettings = loadAISettings()): Promise<string> {
   if (!hasAI(settings)) throw new Error('No AI endpoint configured. Add one in Settings → AI, or use the buttons (no key needed).');
   const provider = providerOf(settings);
-  if (provider === 'gemini') return geminiComplete(messages, opts, settings, opts.signal);
-  return openaiComplete(messages, opts, settings, provider === 'openrouter', opts.signal);
+  const task: AITask = (opts as any).task ?? 'chat';
+  const profileId = getActiveAIProfileId() ?? 'default';
+  let text = '';
+  let ok = false;
+  try {
+    if (provider === 'gemini') text = await geminiComplete(messages, opts, settings, opts.signal);
+    else text = await openaiComplete(messages, opts, settings, provider === 'openrouter', opts.signal);
+    ok = true;
+    return text;
+  } finally {
+    const chars = (messages.reduce((s, m) => s + m.content.length, 0) + text.length);
+    void recordUsage(profileId, task, settings.model, ok, chars);
+  }
 }
 
 /**
@@ -634,3 +699,183 @@ export function ask(system: string, user: string, opts: ChatOptions = {}, settin
 export function makeAIFn(settings: AISettings = loadAISettings()): (system: string, user: string) => Promise<string> {
   return (system, user) => ask(system, user, {}, settings);
 }
+
+/* =========================================================================
+ * AI PROFILES — multiple named provider configurations
+ * ========================================================================= */
+
+const PROFILES_KEY = 'falconcut.ai.profiles';
+const ACTIVE_PROFILE_KEY = 'falconcut.ai.activeProfile';
+const TASK_SETTINGS_KEY = 'falconcut.ai.taskSettings';
+const USAGE_KEY = 'falconcut.ai.usage';
+const MAX_USAGE = 200; // keep usage history bounded
+
+const DEFAULT_TASK_SETTINGS: Record<AITask, AITaskSettings> = {
+  chat:   { temperature: 0.4, maxTokens: 0 },
+  plan:   { temperature: 0.2, maxTokens: 0 },
+  caption:{ temperature: 0.5, maxTokens: 0 },
+  translate:{ temperature: 0.3, maxTokens: 0 },
+  analysis:{ temperature: 0.1, maxTokens: 0 },
+};
+
+function loadProfiles(): AIProfile[] {
+  try {
+    const raw = localStorage.getItem(PROFILES_KEY);
+    if (!raw) return [DEFAULT_AI_PROFILE];
+    const arr = JSON.parse(raw) as AIProfile[];
+    if (!Array.isArray(arr) || arr.length === 0) return [DEFAULT_AI_PROFILE];
+    return arr;
+  } catch { return [DEFAULT_AI_PROFILE]; }
+}
+
+function saveProfiles(profiles: AIProfile[]) {
+  try { localStorage.setItem(PROFILES_KEY, JSON.stringify(profiles)); } catch { /* ignore */ }
+}
+
+export function listAIProfiles(): AIProfile[] { return loadProfiles(); }
+
+export function getAIProfile(id: string): AIProfile | undefined {
+  return loadProfiles().find((p) => p.id === id);
+}
+
+export function getActiveAIProfileId(): string | null {
+  try { return localStorage.getItem(ACTIVE_PROFILE_KEY); } catch { return null; }
+}
+
+export function setActiveAIProfile(id: string | null) {
+  try {
+    if (id) localStorage.setItem(ACTIVE_PROFILE_KEY, id);
+    else localStorage.removeItem(ACTIVE_PROFILE_KEY);
+  } catch { /* ignore */ }
+}
+
+/** Resolve the settings to use: active profile overrides the legacy single
+ * settings object. Falls back to DEFAULT_AI_SETTINGS. */
+export function resolveAISettings(): AISettings {
+  const activeId = getActiveAIProfileId();
+  const profile = activeId ? getAIProfile(activeId) : undefined;
+  const p = profile ?? DEFAULT_AI_PROFILE;
+  return {
+    endpoint: p.endpoint,
+    apiKey: p.apiKey,
+    model: p.model,
+    temperature: p.temperature,
+    maxTokens: p.maxTokens,
+    provider: p.provider,
+  };
+}
+
+export function saveAIProfile(profile: AIProfile) {
+  const profiles = loadProfiles();
+  const now = Date.now();
+  const next = { ...profile, updatedAt: now };
+  const idx = profiles.findIndex((p) => p.id === next.id);
+  if (idx >= 0) profiles[idx] = next;
+  else profiles.push({ ...next, createdAt: now });
+  saveProfiles(profiles);
+}
+
+export function deleteAIProfile(id: string) {
+  const profiles = loadProfiles().filter((p) => p.id !== id);
+  saveProfiles(profiles);
+  const active = getActiveAIProfileId();
+  if (active === id) {
+    // Fall back to default or first remaining profile.
+    const fallback = profiles.length > 0 ? profiles[0].id : null;
+    setActiveAIProfile(fallback);
+  }
+}
+
+/* =========================================================================
+ * PER-TASK AI SETTINGS
+ * ========================================================================= */
+
+export function getAITaskSettings(): Record<AITask, AITaskSettings> {
+  try {
+    const raw = localStorage.getItem(TASK_SETTINGS_KEY);
+    if (!raw) return { ...DEFAULT_TASK_SETTINGS };
+    return { ...DEFAULT_TASK_SETTINGS, ...(JSON.parse(raw) as Record<AITask, AITaskSettings>) };
+  } catch { return { ...DEFAULT_TASK_SETTINGS }; }
+}
+
+export function setAITaskSetting(task: AITask, patch: AITaskSettings) {
+  const cur = getAITaskSettings();
+  const next = { ...cur, [task]: { ...cur[task], ...patch } };
+  try { localStorage.setItem(TASK_SETTINGS_KEY, JSON.stringify(next)); } catch { /* ignore */ }
+}
+
+/** Resolve settings for a specific task: task override → active profile → default. */
+export function resolveAISettingsForTask(task: AITask): AISettings {
+  const base = resolveAISettings();
+  const taskSettings = getAITaskSettings()[task];
+  return {
+    ...base,
+    temperature: taskSettings?.temperature ?? base.temperature,
+    maxTokens: taskSettings?.maxTokens ?? base.maxTokens,
+  };
+}
+
+/* =========================================================================
+ * USAGE TRACKING
+ * ========================================================================= */
+
+function loadUsage(): UsageRecord[] {
+  try {
+    const raw = localStorage.getItem(USAGE_KEY);
+    if (!raw) return [];
+    const arr = JSON.parse(raw) as UsageRecord[];
+    return Array.isArray(arr) ? arr : [];
+  } catch { return []; }
+}
+
+function saveUsage(usage: UsageRecord[]) {
+  try { localStorage.setItem(USAGE_KEY, JSON.stringify(usage.slice(-MAX_USAGE))); } catch { /* ignore */ }
+}
+
+export function listUsage(): UsageRecord[] { return loadUsage(); }
+
+export function recordUsage(profileId: string, task: AITask, model: string, ok: boolean, chars: number) {
+  const tokensEstimate = Math.max(0, Math.round(chars / 4));
+  // Very rough cost estimates (USD per 1K tokens). Providers change pricing;
+  // these are order-of-magnitude hints, not bills.
+  const ratePer1k = 0.0015;
+  const costUsdEstimate = (tokensEstimate / 1000) * ratePer1k;
+  const record: UsageRecord = {
+    id: uid('use'),
+    profileId,
+    task,
+    model,
+    at: Date.now(),
+    ok,
+    tokensEstimate,
+    costUsdEstimate,
+  };
+  const usage = loadUsage();
+  usage.push(record);
+  saveUsage(usage);
+}
+
+export function usageSummary(): { calls: number; ok: number; fail: number; tokens: number; costUsd: number; byTask: Record<AITask, number> } {
+  const usage = loadUsage();
+  const byTask: Record<AITask, number> = { chat: 0, plan: 0, caption: 0, translate: 0, analysis: 0 };
+  let tokens = 0, cost = 0, ok = 0;
+  for (const r of usage) {
+    byTask[r.task as AITask] = (byTask[r.task as AITask] ?? 0) + 1;
+    tokens += r.tokensEstimate;
+    cost += r.costUsdEstimate;
+    if (r.ok) ok++;
+  }
+  return { calls: usage.length, ok, fail: usage.length - ok, tokens, costUsd: cost, byTask };
+}
+
+function uid(prefix: string): string {
+  return `${prefix}_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+}
+
+/* =========================================================================
+ * aiRequest wrapper — record usage after every call
+ * ========================================================================= */
+
+// Wrap the existing aiRequest call sites in chatComplete/geminiComplete/openaiComplete
+// to record usage. We do it at the chatComplete entry point instead, which is
+// where all traffic funnels through.

@@ -23,6 +23,11 @@ import {
   CAPTION_PRESET_IDS, setCaptionStyleAdvanced, setCaptionHighlight, setCaptionEffects,
   editCaptionWord, setClipLookAdvanced, setProjectSettingsAI,
 } from './aiControlTools';
+import {
+  addEffect as addEffectTool, configureEffect, removeEffect as removeEffectTool,
+  animateProperty, speedRamp, applyMask, setClipTransition, groupClipsAI,
+  timeRangeEdit, addMarkerAI, addNote, labelClips, setBlendMode, setClipFades,
+} from './powerTools';
 
 export interface ParamSpec { type: 'string' | 'number' | 'boolean' | 'enum'; desc: string; default?: unknown; enum?: string[]; optional?: boolean }
 
@@ -541,6 +546,188 @@ export const TOOLS: ToolDef[] = [
     example: { input: { fps: 60, aspect: '9:16' }, why: 'Deliver smooth vertical video.' },
     roles: ['director', 'story'],
     run: (c, p) => setProjectSettingsAI(c, { fps: p.fps, aspect: p.aspect, width: p.width, height: p.height, background: p.background }),
+  },
+
+  // ---- Power editing tools (fine-grained AI control) ----
+  {
+    name: 'add_effect',
+    description: 'Add a visual or audio effect to clips: color, blur, sharpen, vignette, glow, pixelate, noise, rgbSplit, chromaKey, negate, normalize, eq, gate, deess, denoise, compressor, limiter, echo, pan, lut. Set enabled and params.',
+    params: {
+      clip_id: { type: 'string', desc: 'Clip id from the TIMELINE block. Omit to apply to all editable clips.', optional: true },
+      type: { type: 'enum', desc: 'Effect type.', enum: ['color','blur','sharpen','vignette','glow','pixelate','noise','rgbSplit','chromaKey','negate','normalize','eq','gate','deess','denoise','compressor','limiter','echo','pan','lut'] },
+      enabled: { type: 'boolean', desc: 'Enable the effect.', default: true, optional: true },
+    },
+    example: { input: { type: 'glow' }, why: 'Add a soft glow to every clip.' },
+    roles: ['motion', 'color', 'director'],
+    run: (c, p) => addEffectTool(c, p),
+  },
+  {
+    name: 'configure_effect',
+    description: 'Change the parameters or enabled state of an existing effect on a clip, by effect type or effect id.',
+    params: {
+      clip_id: { type: 'string', desc: 'Clip id.', optional: true },
+      effect_type: { type: 'string', desc: 'Effect type to match (e.g. glow, blur).', optional: true },
+      effect_id: { type: 'string', desc: 'Exact effect id (wins over type).', optional: true },
+      enabled: { type: 'boolean', desc: 'Enable or disable.', optional: true },
+    },
+    example: { input: { effect_type: 'blur', enabled: false }, why: 'Disable the blur effect.' },
+    roles: ['motion', 'color'],
+    run: (c, p) => configureEffect(c, p),
+  },
+  {
+    name: 'remove_effect',
+    description: 'Remove an effect from clips by type or id.',
+    params: {
+      clip_id: { type: 'string', desc: 'Clip id.', optional: true },
+      effect_type: { type: 'string', desc: 'Effect type to remove.', optional: true },
+      effect_id: { type: 'string', desc: 'Exact effect id.', optional: true },
+    },
+    example: { input: { effect_type: 'vignette' }, why: 'Remove all vignettes.' },
+    roles: ['motion', 'color'],
+    run: (c, p) => removeEffectTool(c, p),
+  },
+  {
+    name: 'animate_property',
+    description: 'Animate a clip property between two values using keyframes: scale, x, y, rotation, opacity. Use for slow zooms, pans, fades and spins.',
+    params: {
+      clip_id: { type: 'string', desc: 'Clip id.', optional: true },
+      property: { type: 'enum', desc: 'Property to animate.', enum: ['scale','x','y','rotation','opacity'], default: 'scale' },
+      from: { type: 'number', desc: 'Starting value (e.g. 1 for scale, 0 for opacity).' },
+      to: { type: 'number', desc: 'Ending value (e.g. 1.2 for a slow zoom).' },
+      start_time: { type: 'number', desc: 'Start time within the clip.', optional: true },
+      end_time: { type: 'number', desc: 'End time within the clip.', optional: true },
+      easing: { type: 'enum', desc: 'Easing curve.', enum: ['linear','ease-in','ease-out','ease-in-out','bezier'], default: 'ease-in-out', optional: true },
+    },
+    example: { input: { property: 'scale', from: 1, to: 1.15, easing: 'ease-in-out' }, why: 'Slow cinematic zoom across the clip.' },
+    roles: ['motion', 'director'],
+    run: (c, p) => animateProperty(c, { ...p, property: p.property, startTime: p.start_time, endTime: p.end_time }),
+  },
+  {
+    name: 'speed_ramp',
+    description: 'Apply a multi-point speed ramp to a clip: slow motion, fast-forward, or a curve between speeds.',
+    params: {
+      clip_id: { type: 'string', desc: 'Clip id.' },
+      points: { type: 'string', desc: 'Speed points as JSON: [{"time":0,"speed":1},{"time":2,"speed":0.5}]. Times are within the clip, speed is a multiplier.' },
+    },
+    example: { input: { clip_id: 'clip_1', points: '[{"time":0,"speed":1},{"time":1,"speed":0.4}]' }, why: 'Slow-mo the second half.' },
+    roles: ['motion', 'story'],
+    run: (c, p) => {
+      let parsed: any = p.points;
+      if (typeof parsed === 'string') { try { parsed = JSON.parse(parsed); } catch { return { actions: [], summary: 'Speed points must be valid JSON.' }; } }
+      return speedRamp(c, { ...p, points: parsed });
+    },
+  },
+  {
+    name: 'apply_mask',
+    description: 'Apply a rect, ellipse or polygon mask to clips with feathering and optional invert. Use for cropping, vignettes and cutouts.',
+    params: {
+      clip_id: { type: 'string', desc: 'Clip id.', optional: true },
+      shape: { type: 'enum', desc: 'Mask shape.', enum: ['rect','ellipse','polygon'], default: 'rect' },
+      feather: { type: 'number', desc: 'Edge feather 0–1.', optional: true },
+      invert: { type: 'boolean', desc: 'Invert the mask.', optional: true },
+      x: { type: 'number', desc: 'Left position 0–1.', optional: true },
+      y: { type: 'number', desc: 'Top position 0–1.', optional: true },
+      width: { type: 'number', desc: 'Width 0–1.', optional: true },
+      height: { type: 'number', desc: 'Height 0–1.', optional: true },
+    },
+    example: { input: { shape: 'ellipse', feather: 0.1 }, why: 'Circular vignette-style mask.' },
+    roles: ['motion', 'color'],
+    run: (c, p) => applyMask(c, p),
+  },
+  {
+    name: 'set_clip_transition',
+    description: 'Set a transition (cross, fade, wipe, dissolve) on a clip edge.',
+    params: {
+      clip_id: { type: 'string', desc: 'Clip id.' },
+      edge: { type: 'enum', desc: 'Which edge.', enum: ['in','out'], default: 'in' },
+      type: { type: 'enum', desc: 'Transition type.', enum: ['cross','fade','wipe','dissolve','slide','zoom'], default: 'cross' },
+      duration: { type: 'number', desc: 'Duration in seconds.', optional: true },
+    },
+    example: { input: { clip_id: 'clip_1', edge: 'in', type: 'fade', duration: 0.5 }, why: 'Fade in the clip.' },
+    roles: ['motion', 'story'],
+    run: (c, p) => setClipTransition(c, p),
+  },
+  {
+    name: 'group_clips',
+    description: 'Group several clips so they move together, or ungroup them.',
+    params: {
+      clip_ids: { type: 'string', desc: 'Comma-separated clip ids to group or ungroup.' },
+      ungroup: { type: 'boolean', desc: 'Ungroup instead of group.', optional: true },
+    },
+    example: { input: { clip_ids: 'clip_1,clip_2' }, why: 'Move these two clips together.' },
+    roles: ['story', 'director'],
+    run: (c, p) => groupClipsAI(c, { clipIds: typeof p.clip_ids === 'string' ? p.clip_ids.split(',').map((s: string) => s.trim()).filter(Boolean) : p.clip_ids, ungroup: p.ungroup }),
+  },
+  {
+    name: 'time_range_edit',
+    description: 'Insert a gap at a time, or ripple-delete a time range across tracks.',
+    params: {
+      operation: { type: 'enum', desc: 'gap or delete.', enum: ['gap','delete'], default: 'delete' },
+      start: { type: 'number', desc: 'Start time in seconds.' },
+      end: { type: 'number', desc: 'End time in seconds (for delete).', optional: true },
+      duration: { type: 'number', desc: 'Gap duration (for gap).', optional: true },
+    },
+    example: { input: { operation: 'delete', start: 5, end: 8 }, why: 'Remove seconds 5 to 8.' },
+    roles: ['story'],
+    run: (c, p) => timeRangeEdit(c, p),
+  },
+  {
+    name: 'add_marker_advanced',
+    description: 'Add a labeled marker with a color and kind (user, scene, broll, beat, chapter, retake) at a time.',
+    params: {
+      time: { type: 'number', desc: 'Time in seconds.' },
+      label: { type: 'string', desc: 'Marker label.' },
+      color: { type: 'string', desc: 'Hex color.', optional: true },
+      kind: { type: 'enum', desc: 'Marker kind.', enum: ['user','scene','broll','beat','chapter','retake'], optional: true },
+    },
+    example: { input: { time: 12, label: 'Hook', kind: 'chapter' }, why: 'Mark the hook moment.' },
+    roles: ['story', 'director'],
+    run: (c, p) => addMarkerAI(c, p),
+  },
+  {
+    name: 'add_review_note',
+    description: 'Add a review note (tack) at a time — for feedback and to-dos on the timeline.',
+    params: {
+      time: { type: 'number', desc: 'Time in seconds.' },
+      text: { type: 'string', desc: 'Note text.' },
+    },
+    example: { input: { time: 30, text: 'Add b-roll here' }, why: 'Leave a note for the editor.' },
+    roles: ['story', 'director'],
+    run: (c, p) => addNote(c, p),
+  },
+  {
+    name: 'label_clips',
+    description: 'Assign a color label to clips for visual organization.',
+    params: {
+      clip_ids: { type: 'string', desc: 'Comma-separated clip ids. Omit to label all.', optional: true },
+      label: { type: 'string', desc: 'Label name (e.g. select, broll, review).' },
+    },
+    example: { input: { label: 'broll' }, why: 'Mark all clips as b-roll.' },
+    roles: ['story'],
+    run: (c, p) => labelClips(c, { clipIds: typeof p.clip_ids === 'string' ? p.clip_ids.split(',').map((s: string) => s.trim()).filter(Boolean) : p.clip_ids, label: p.label }),
+  },
+  {
+    name: 'set_blend_mode',
+    description: 'Set a canvas blend mode on clips: multiply, screen, overlay, darken, lighten, color-dodge, and more.',
+    params: {
+      clip_id: { type: 'string', desc: 'Clip id.', optional: true },
+      mode: { type: 'enum', desc: 'Blend mode.', enum: ['normal','multiply','screen','overlay','darken','lighten','color-dodge','color-burn','hard-light','soft-light','difference','exclusion','hue','saturation','color','luminosity'] },
+    },
+    example: { input: { mode: 'screen' }, why: 'Screen blend for a light overlay.' },
+    roles: ['color', 'motion'],
+    run: (c, p) => setBlendMode(c, p),
+  },
+  {
+    name: 'set_clip_fades',
+    description: 'Set audio/video fade-in and fade-out durations on clips.',
+    params: {
+      clip_id: { type: 'string', desc: 'Clip id.', optional: true },
+      fade_in: { type: 'number', desc: 'Fade-in seconds.', optional: true },
+      fade_out: { type: 'number', desc: 'Fade-out seconds.', optional: true },
+    },
+    example: { input: { fade_in: 0.5, fade_out: 0.5 }, why: 'Smooth audio in and out.' },
+    roles: ['sound', 'story'],
+    run: (c, p) => setClipFades(c, { ...p, fadeIn: p.fade_in, fadeOut: p.fade_out }),
   },
 ];
 

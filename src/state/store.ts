@@ -17,7 +17,7 @@ import { lintProject, type LintReport } from '../../quality/lint';
 import { getPack } from '../../styles/packs';
 import { effectivePack } from '../../styles/rules';
 import { analyzeMedia, mergeAnalysis, recomputeSilences, defaultAnalyzeOptions, taskQueue, type AnalyzeOptions } from '../../analysis/analyze';
-import { makeAIFn, loadAISettings, saveAISettings, hasAI, type AISettings } from '../../ai/client';
+import { makeAIFn, loadAISettings, saveAISettings, hasAI, resolveAISettings, recordUsage as recordAIUsage, type AISettings } from '../../ai/client';
 import { type Plan, type PlanStep } from '../../ai/planner';
 import { respond, undoIntent, type HistoryTurn } from '../../ai/agent';
 import { saveProject, loadProject, listProjects, putBlob, getBlob, deleteBlob, garbageCollectBlobs, saveVersion as persistVersion, loadVersions, deleteVersionRecord } from './persistence';
@@ -375,7 +375,8 @@ export const useStore = create<State>()((set, get) => {
 
     async previewTool(name, params = {}, source = 'human') {
       const locked = source === 'ai' ? get().lockedIds() : undefined;
-      const ai = hasAI(get().aiSettings) ? makeAIFn(get().aiSettings) : undefined;
+      const aiSettings = resolveAISettings();
+      const ai = hasAI(aiSettings) ? makeAIFn(aiSettings) : undefined;
       return runTool(get().project, name, params, { locked, ai });
     },
 
@@ -847,7 +848,7 @@ export const useStore = create<State>()((set, get) => {
       };
 
       try {
-        const turn = await respond(get().project, clean, history, get().aiSettings, onDelta);
+        const turn = await respond(get().project, clean, history, resolveAISettings(), onDelta, 'chat');
 
         // Conversation: plain text, no plan, no tools.
         if (turn.mode === 'chat' || !turn.plan) {

@@ -18,6 +18,7 @@ import { SettingsDialog } from './components/SettingsDialog';
 import { AnalysisDialog } from './components/AnalysisDialog';
 import { ProjectsDialog } from './components/ProjectsDialog';
 import { NewProjectDialog } from './components/NewProjectDialog';
+import { AIControlDialog } from './components/AIControlDialog';
 import { Toasts } from './components/Toasts';
 import { connectAgentBridge } from './api/agentBridge';
 
@@ -164,6 +165,7 @@ export default function App() {
       {dialogs.analysis && <AnalysisDialog />}
       {dialogs.projects && <ProjectsDialog />}
       {dialogs.newProject && <NewProjectDialog />}
+      {dialogs.aiControl && <AIControlDialog />}
       <Toasts />
     </div>
   );
