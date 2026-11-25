@@ -9,6 +9,7 @@ import type { Project } from '../engine/types';
 import type { ToolContext, ToolResult } from './cutTools';
 export type { ToolContext, ToolResult } from './cutTools';
 import { makeContext } from './helpers';
+import { listDisabledTools } from '../ai/client';
 import { removeDeadAir, removeFillers, cutRetakes } from './cutTools';
 import { addCaptions, addHookTitle, translateCaptions, restyleCaptions, shiftCaptions, fixCaptionTiming, importCaptions } from './captionTools';
 import { zoomOnEmphasis, reframe, addTransitions, snapToBeats, addMotif } from './motionTools';
@@ -38,6 +39,19 @@ export interface ToolDef {
   example: { input: Record<string, unknown>; why: string };
   roles: string[]; // multi-agent team roles allowed to use this tool
   run: (ctx: ToolContext, params: any) => Promise<ToolResult> | ToolResult;
+}
+
+/** Effect parameters arrive as a compact JSON string so weak models don't
+ * have to guess a nested object schema. Invalid JSON is dropped, never guessed. */
+function effectParams(v: unknown): Record<string, number | string | boolean> | undefined {
+  if (v == null || v === '') return undefined;
+  if (typeof v === 'object' && !Array.isArray(v)) return v as Record<string, number | string | boolean>;
+  if (typeof v !== 'string') return undefined;
+  try {
+    const parsed = JSON.parse(v) as unknown;
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? parsed as Record<string, number | string | boolean> : undefined;
+  } catch { return undefined; }
 }
 
 export const TOOLS: ToolDef[] = [
@@ -555,24 +569,26 @@ export const TOOLS: ToolDef[] = [
     params: {
       clip_id: { type: 'string', desc: 'Clip id from the TIMELINE block. Omit to apply to all editable clips.', optional: true },
       type: { type: 'enum', desc: 'Effect type.', enum: ['color','blur','sharpen','vignette','glow','pixelate','noise','rgbSplit','chromaKey','negate','normalize','eq','gate','deess','denoise','compressor','limiter','echo','pan','lut'] },
+      params: { type: 'string', desc: 'Optional effect parameters as JSON, e.g. {"amount":0.5}.', optional: true },
       enabled: { type: 'boolean', desc: 'Enable the effect.', default: true, optional: true },
     },
     example: { input: { type: 'glow' }, why: 'Add a soft glow to every clip.' },
     roles: ['motion', 'color', 'director'],
-    run: (c, p) => addEffectTool(c, p),
+    run: (c, p) => addEffectTool(c, { ...p, params: effectParams(p.params) }),
   },
   {
     name: 'configure_effect',
-    description: 'Change the parameters or enabled state of an existing effect on a clip, by effect type or effect id.',
+    description: 'Change the parameters or enabled state of an existing effect on a clip. Give an effect type or an exact effect id (at least one is required).',
     params: {
       clip_id: { type: 'string', desc: 'Clip id.', optional: true },
       effect_type: { type: 'string', desc: 'Effect type to match (e.g. glow, blur).', optional: true },
       effect_id: { type: 'string', desc: 'Exact effect id (wins over type).', optional: true },
+      params: { type: 'string', desc: 'New effect parameters as JSON, e.g. {"amount":0.3}.', optional: true },
       enabled: { type: 'boolean', desc: 'Enable or disable.', optional: true },
     },
     example: { input: { effect_type: 'blur', enabled: false }, why: 'Disable the blur effect.' },
     roles: ['motion', 'color'],
-    run: (c, p) => configureEffect(c, p),
+    run: (c, p) => configureEffect(c, { ...p, params: effectParams(p.params) }),
   },
   {
     name: 'remove_effect',
@@ -591,7 +607,7 @@ export const TOOLS: ToolDef[] = [
     description: 'Animate a clip property between two values using keyframes: scale, x, y, rotation, opacity. Use for slow zooms, pans, fades and spins.',
     params: {
       clip_id: { type: 'string', desc: 'Clip id.', optional: true },
-      property: { type: 'enum', desc: 'Property to animate.', enum: ['scale','x','y','rotation','opacity'], default: 'scale' },
+      property: { type: 'enum', desc: 'Property to animate.', enum: ['scale','x','y','rotation','skewX','skewY','opacity','volume'], default: 'scale' },
       from: { type: 'number', desc: 'Starting value (e.g. 1 for scale, 0 for opacity).' },
       to: { type: 'number', desc: 'Ending value (e.g. 1.2 for a slow zoom).' },
       start_time: { type: 'number', desc: 'Start time within the clip.', optional: true },
@@ -607,7 +623,7 @@ export const TOOLS: ToolDef[] = [
     description: 'Apply a multi-point speed ramp to a clip: slow motion, fast-forward, or a curve between speeds.',
     params: {
       clip_id: { type: 'string', desc: 'Clip id.' },
-      points: { type: 'string', desc: 'Speed points as JSON: [{"time":0,"speed":1},{"time":2,"speed":0.5}]. Times are within the clip, speed is a multiplier.' },
+      points: { type: 'string', desc: 'Speed points as JSON: [{"time":0,"speed":1},{"time":2,"speed":0.5}]. Times are clip-local seconds; speed multiplier 0.1–8.' },
     },
     example: { input: { clip_id: 'clip_1', points: '[{"time":0,"speed":1},{"time":1,"speed":0.4}]' }, why: 'Slow-mo the second half.' },
     roles: ['motion', 'story'],
@@ -623,7 +639,7 @@ export const TOOLS: ToolDef[] = [
     params: {
       clip_id: { type: 'string', desc: 'Clip id.', optional: true },
       shape: { type: 'enum', desc: 'Mask shape.', enum: ['rect','ellipse','polygon'], default: 'rect' },
-      feather: { type: 'number', desc: 'Edge feather 0–1.', optional: true },
+      feather: { type: 'number', desc: 'Edge feather 0–0.25.', optional: true },
       invert: { type: 'boolean', desc: 'Invert the mask.', optional: true },
       x: { type: 'number', desc: 'Left position 0–1.', optional: true },
       y: { type: 'number', desc: 'Top position 0–1.', optional: true },
@@ -636,14 +652,14 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: 'set_clip_transition',
-    description: 'Set a transition (cross, fade, wipe, dissolve) on a clip edge.',
+    description: 'Set a transition on a clip edge. Use crossfade, dip-black, dip-white, wipe-left, slide-left, zoom-in, push, spin, glitch, light-leak, film, cinematic or a blend-* type.',
     params: {
       clip_id: { type: 'string', desc: 'Clip id.' },
       edge: { type: 'enum', desc: 'Which edge.', enum: ['in','out'], default: 'in' },
-      type: { type: 'enum', desc: 'Transition type.', enum: ['cross','fade','wipe','dissolve','slide','zoom'], default: 'cross' },
-      duration: { type: 'number', desc: 'Duration in seconds.', optional: true },
+      type: { type: 'enum', desc: 'Transition type.', enum: ['crossfade','dip-black','dip-white','wipe-left','slide-left','zoom-in','blend-multiply','blend-screen','blend-overlay','push','spin','glitch','light-leak','film','cinematic'], default: 'crossfade' },
+      duration: { type: 'number', desc: 'Duration in seconds (0.05–2, at most half the clip).', optional: true },
     },
-    example: { input: { clip_id: 'clip_1', edge: 'in', type: 'fade', duration: 0.5 }, why: 'Fade in the clip.' },
+    example: { input: { clip_id: 'clip_1', edge: 'in', type: 'crossfade', duration: 0.5 }, why: 'Fade in the clip.' },
     roles: ['motion', 'story'],
     run: (c, p) => setClipTransition(c, p),
   },
@@ -768,9 +784,11 @@ export async function runTool(project: Project, name: string, params: Record<str
   return { ...result, actions };
 }
 
-/** Compact manifest for AI prompts / tools.json / llms.txt. */
+/** Compact manifest for AI prompts / tools.json / llms.txt. Tools the user
+ * switched off in AI Control Center are not advertised to models or agents. */
 export function toolManifest() {
-  return TOOLS.map((t) => ({
+  const disabled = new Set(listDisabledTools());
+  return TOOLS.filter((t) => !disabled.has(t.name)).map((t) => ({
     name: t.name,
     description: t.description,
     params: Object.fromEntries(Object.entries(t.params).map(([k, v]) => [k, { type: v.type, description: v.desc, ...(v.default !== undefined ? { default: v.default } : {}), ...(v.enum ? { enum: v.enum } : {}), ...(v.optional ? { optional: true } : {}) }])),
@@ -779,7 +797,8 @@ export function toolManifest() {
 }
 
 export function toolsPromptText(): string {
-  return TOOLS.map((t) => {
+  const disabled = new Set(listDisabledTools());
+  return TOOLS.filter((t) => !disabled.has(t.name)).map((t) => {
     const ps = Object.entries(t.params).map(([k, v]) => `${k}${v.optional ? '?' : ''}: ${v.type}${v.enum ? ` (${v.enum.join('|')})` : ''} — ${v.desc}`).join('; ');
     return `- ${t.name}(${ps || 'no params'}): ${t.description} Example: ${JSON.stringify(t.example.input)}`;
   }).join('\n');

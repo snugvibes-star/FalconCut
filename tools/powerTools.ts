@@ -6,7 +6,9 @@
  * share the single human+AI commit path.
  */
 import type { Action } from '../engine/actions';
-import { BLEND_MODES, type Effect, type Easing, type Transition } from '../engine';
+import {
+  BLEND_MODES, TRANSITION_TYPES, type Effect, type Easing, type Marker, type Transition, type TransitionType,
+} from '../engine';
 import type { ToolContext } from './helpers';
 import type { ToolResult } from './cutTools';
 
@@ -17,6 +19,22 @@ const num = (v: unknown): number | undefined => {
 };
 const str = (v: unknown): string | undefined => (typeof v === 'string' && v.trim() ? v.trim() : undefined);
 const bool = (v: unknown): boolean | undefined => (v == null ? undefined : Boolean(v));
+const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
+
+/** Only properties the renderer actually evaluates. Rejecting arbitrary paths
+ * keeps the model from writing keyframes nothing will ever read. */
+const ANIMATABLE = new Set([
+  'transform.x', 'transform.y', 'transform.scale', 'transform.rotation',
+  'transform.skewX', 'transform.skewY', 'transform.opacity', 'volume',
+]);
+const MARKER_KINDS: Marker['kind'][] = ['user', 'scene', 'broll', 'beat', 'chapter', 'retake'];
+
+/** Friendly names models commonly emit → the engine's real transition ids. */
+const TRANSITION_ALIASES: Record<string, TransitionType> = {
+  fade: 'crossfade', cross: 'crossfade', xfade: 'crossfade', dissolve: 'crossfade',
+  black: 'dip-black', white: 'dip-white', wipe: 'wipe-left', slide: 'slide-left',
+  zoom: 'zoom-in', push: 'push', spin: 'spin', glitch: 'glitch',
+};
 
 const EASINGS: Easing[] = ['linear', 'easeIn', 'easeOut', 'easeInOut', 'easeOutBack', 'easeOutExpo'];
 /** Map user-friendly easing names to the engine's camelCase values. */
@@ -67,6 +85,12 @@ export function configureEffect(ctx: ToolContext, params: {
   const actions: Action[] = [];
   const effectType = str(params.effectType);
   const effectId = str(params.effectId);
+  if (!effectId && !effectType) {
+    return { actions: [], summary: 'Say which effect to change: give an effect type (e.g. blur) or an exact effect id.' };
+  }
+  if (effectType && !EFFECT_TYPES.includes(effectType as Effect['type'])) {
+    return { actions: [], summary: `Unknown effect type "${effectType}". Available: ${EFFECT_TYPES.join(', ')}.` };
+  }
   for (const c of targets) {
     for (const eff of c.effects ?? []) {
       if (effectId ? eff.id === effectId : effectType ? eff.type === effectType : true) {
@@ -103,6 +127,9 @@ export function animateProperty(ctx: ToolContext, params: {
   if (!targets.length) return { actions: [], summary: 'No editable clip matched that request.' };
   const property = str(params.property) ?? 'scale';
   const path = property.startsWith('transform.') ? property : `transform.${property}`;
+  if (!ANIMATABLE.has(path)) {
+    return { actions: [], summary: `Cannot animate "${property}". Animate x, y, scale, rotation, skewX, skewY, opacity or volume.` };
+  }
   const from = num(params.from), to = num(params.to);
   if (from === undefined || to === undefined) return { actions: [], summary: 'Both "from" and "to" values are required.' };
   const easingKey = str(params.easing) ?? 'ease-in-out';
@@ -129,13 +156,34 @@ export function speedRamp(ctx: ToolContext, params: {
 }): ToolResult {
   const targets = editable(ctx, str(params.clipId));
   if (!targets.length) return { actions: [], summary: 'No editable clip matched that request.' };
-  const pts = Array.isArray(params.points) ? params.points : [];
-  if (pts.length < 2) return { actions: [], summary: 'A speed ramp needs at least two points.' };
-  const actions: Action[] = targets.map((c) => ({
-    type: 'set_speed_ramp', clipId: c.id,
-    points: pts.map((p) => ({ t: Math.max(0, Math.min(Number(p.time) || 0, c.duration)), speed: Math.max(0.1, Number(p.speed) || 1) })),
-  }));
-  return { actions, summary: `Applied a ${pts.length}-point speed ramp to ${targets.length} clip${targets.length === 1 ? '' : 's'}.`, stats: { clips: targets.length, points: pts.length } };
+  const raw = Array.isArray(params.points) ? params.points : [];
+  if (raw.length < 2) return { actions: [], summary: 'A speed ramp needs at least two points.' };
+  const actions: Action[] = [];
+  let pointCount = 0;
+  for (const c of targets) {
+    // Filter first, then sort/deduplicate — the renderer assumes ordered,
+    // strictly increasing clip-local times and speeds within 0.1–8.
+    const seen = new Set<number>();
+    const points = raw
+      .map((p) => ({ t: num((p as { time?: unknown })?.time), speed: num((p as { speed?: unknown })?.speed) }))
+      .filter((p): p is { t: number; speed: number } => p.t !== undefined && p.speed !== undefined)
+      .map((p) => ({ t: clamp(p.t, 0, c.duration), speed: clamp(p.speed, 0.1, 8) }))
+      .sort((a, b) => a.t - b.t)
+      .filter((p) => {
+        if (seen.has(p.t)) return false;
+        seen.add(p.t);
+        return true;
+      });
+    if (points.length < 2) continue;
+    pointCount = Math.max(pointCount, points.length);
+    actions.push({ type: 'set_speed_ramp', clipId: c.id, points });
+  }
+  if (!actions.length) return { actions: [], summary: 'That ramp needs at least two distinct, valid time points per clip.' };
+  return {
+    actions,
+    summary: `Applied a ${pointCount}-point speed ramp to ${actions.length} clip${actions.length === 1 ? '' : 's'}.`,
+    stats: { clips: actions.length, points: pointCount },
+  };
 }
 
 /** Apply a mask shape to clips (rect/ellipse/polygon). */
@@ -147,17 +195,20 @@ export function applyMask(ctx: ToolContext, params: {
   if (!targets.length) return { actions: [], summary: 'No editable clip matched that request.' };
   const shape = str(params.shape) ?? 'rect';
   if (!['rect', 'ellipse', 'polygon'].includes(shape)) return { actions: [], summary: `Unknown mask shape "${shape}". Use rect, ellipse or polygon.` };
-  const x = num(params.x) ?? 0.2, y = num(params.y) ?? 0.2;
-  const w = num(params.width) ?? 0.6, h = num(params.height) ?? 0.6;
+  const x = clamp(num(params.x) ?? 0.2, 0, 1), y = clamp(num(params.y) ?? 0.2, 0, 1);
+  const w = clamp(num(params.width) ?? 0.6, 0.01, 1), h = clamp(num(params.height) ?? 0.6, 0.01, 1);
+  const feather = clamp(num(params.feather) ?? 0.05, 0, 0.25);
   const actions: Action[] = targets.map((c) => ({
     type: 'set_clip_props', clipId: c.id,
     patch: {
       mask: {
         shape: shape as 'rect' | 'ellipse' | 'polygon',
-        x, y, w, h,
-        feather: Math.min(0.25, num(params.feather) ?? 0.05),
+        x, y, w, h, feather,
         invert: bool(params.invert) ?? false,
-        points: shape === 'polygon' ? [{ x, y }, { x: x + w, y }, { x: x + w, y: y + h }, { x, y: y + h }] : undefined,
+        points: shape === 'polygon' ? [
+          { x, y }, { x: Math.min(1, x + w), y },
+          { x: Math.min(1, x + w), y: Math.min(1, y + h) }, { x, y: Math.min(1, y + h) },
+        ] : undefined,
       },
     },
   }));
@@ -171,9 +222,16 @@ export function setClipTransition(ctx: ToolContext, params: {
   const targets = editable(ctx, str(params.clipId));
   if (!targets.length) return { actions: [], summary: 'No editable clip matched that request.' };
   const edge = str(params.edge) === 'out' ? 'out' : 'in';
-  const transition: Transition = { type: (str(params.type) ?? 'cross') as Transition['type'], duration: num(params.duration) ?? 0.4 };
-  const actions: Action[] = targets.map((c) => ({ type: 'set_transition', clipId: c.id, edge, transition }));
-  return { actions, summary: `Set a ${transition.type} transition (${edge}) on ${targets.length} clip${targets.length === 1 ? '' : 's'}.`, stats: { clips: targets.length } };
+  const requested = str(params.type) ?? 'crossfade';
+  const type = TRANSITION_ALIASES[requested.toLowerCase()] ?? (TRANSITION_TYPES.includes(requested as TransitionType) ? requested as TransitionType : undefined);
+  if (!type) {
+    return { actions: [], summary: `Unknown transition "${requested}". Available: ${TRANSITION_TYPES.join(', ')}.` };
+  }
+  const actions: Action[] = targets.map((c) => {
+    const transition: Transition = { type, duration: clamp(num(params.duration) ?? 0.4, 0.05, Math.max(0.05, Math.min(2, c.duration))) };
+    return { type: 'set_transition', clipId: c.id, edge, transition };
+  });
+  return { actions, summary: `Set a ${type} transition (${edge}) on ${actions.length} clip${actions.length === 1 ? '' : 's'}.`, stats: { clips: actions.length, type } };
 }
 
 /** Group or ungroup clips. */
@@ -199,8 +257,8 @@ export function timeRangeEdit(ctx: ToolContext, params: {
   const start = num(params.start), end = num(params.end), duration = num(params.duration);
   if (start === undefined) return { actions: [], summary: 'A start time is required.' };
   if (op === 'gap') {
-    const d = duration ?? (end !== undefined ? end - start : 1);
-    return { actions: [{ type: 'insert_gap', time: start, duration: Math.max(0.05, d), trackIds: params.trackIds }], summary: `Inserted a ${d.toFixed(2)}s gap at ${start.toFixed(2)}s.` };
+    const d = clamp(duration ?? (end !== undefined ? end - start : 1), 0.05, 3600);
+    return { actions: [{ type: 'insert_gap', time: Math.max(0, start), duration: d, trackIds: params.trackIds }], summary: `Inserted a ${d.toFixed(2)}s gap at ${start.toFixed(2)}s.` };
   }
   if (end === undefined || end <= start) return { actions: [], summary: 'A valid end time after start is required.' };
   return {
@@ -215,12 +273,16 @@ export function addMarkerAI(ctx: ToolContext, params: {
 }): ToolResult {
   const time = num(params.time) ?? 0;
   const label = str(params.label) ?? `M${ctx.project.markers.length + 1}`;
+  const requestedKind = str(params.kind)?.toLowerCase().replace(/[-\s]/g, '') ?? 'user';
+  const kind: Marker['kind'] = (['scene', 'broll', 'beat', 'chapter', 'retake', 'user'].includes(requestedKind)
+    ? requestedKind : 'user') as Marker['kind'];
+  const color = str(params.color) ?? '#38BDF8';
   const actions: Action[] = [{
     type: 'add_marker',
     marker: {
       time: Math.max(0, time), label,
-      color: str(params.color) ?? '#38BDF8',
-      kind: (str(params.kind) as any) ?? 'user',
+      color: /^#[0-9a-fA-F]{6}$/.test(color) ? color : '#38BDF8',
+      kind,
     },
   }];
   return { actions, summary: `Added marker "${label}" at ${time.toFixed(2)}s.`, stats: { time } };
@@ -263,9 +325,15 @@ export function setBlendMode(ctx: ToolContext, params: { clipId?: string; mode?:
 export function setClipFades(ctx: ToolContext, params: { clipId?: string; fadeIn?: number; fadeOut?: number }): ToolResult {
   const targets = editable(ctx, str(params.clipId));
   if (!targets.length) return { actions: [], summary: 'No editable clip matched that request.' };
-  const actions: Action[] = targets.map((c) => ({
-    type: 'set_fades', clipId: c.id,
-    fadeIn: num(params.fadeIn), fadeOut: num(params.fadeOut),
-  }));
+  const actions: Action[] = targets.map((c) => {
+    const max = c.duration / 2;
+    const fi = num(params.fadeIn);
+    const fo = num(params.fadeOut);
+    return {
+      type: 'set_fades', clipId: c.id,
+      fadeIn: fi === undefined ? undefined : clamp(fi, 0, max),
+      fadeOut: fo === undefined ? undefined : clamp(fo, 0, max),
+    };
+  });
   return { actions, summary: `Set fades on ${targets.length} clip${targets.length === 1 ? '' : 's'}.`, stats: { clips: targets.length } };
 }

@@ -13,7 +13,7 @@
 import type { Project } from '../engine/types';
 import { AGENT_SYSTEM_PROMPT, parseAgentReply, validateCalls } from './protocol';
 import { buildProjectContext, looksLikeEdit, planFromReply, rulesPlan, type Plan } from './planner';
-import { chatStream, hasAI, loadAISettings, resolveAISettingsForTask, type AISettings, type ChatMessage as WireMessage } from './client';
+import { applyTaskSettings, chatStream, hasAI, loadAISettings, type AISettings, type ChatMessage as WireMessage } from './client';
 
 export interface HistoryTurn {
   role: 'user' | 'assistant';
@@ -88,7 +88,9 @@ function rulesTurn(project: Project, text: string): ChatTurn {
   };
 }
 
-/* ---- main entry --------------------------------------------------------- */export async function respond(
+/* ---- main entry --------------------------------------------------------- */
+
+export async function respond(
   project: Project,
   text: string,
   history: HistoryTurn[] = [],
@@ -96,9 +98,12 @@ function rulesTurn(project: Project, text: string): ChatTurn {
   onDelta?: (delta: string) => void,
   task: 'chat' | 'plan' = 'chat',
 ): Promise<ChatTurn> {
-  // Apply per-task overrides (temperature/maxTokens) on top of the connection.
-  if (task !== 'chat') settings = resolveAISettingsForTask(task);
+  // Apply this task's profile route and temperature/token overrides.
+  settings = applyTaskSettings(settings, task);
   if (!hasAI(settings)) return rulesTurn(project, text);
+  // JSON retries and whole-edit expansion are planning work; they get the
+  // planning task's model and token settings.
+  const planSettings = applyTaskSettings(settings, 'plan');
 
   const system = `${AGENT_SYSTEM_PROMPT}\n\nPROJECT STATE (live, read it before editing)\n${buildProjectContext(project)}`;
   const messages: WireMessage[] = [{ role: 'system', content: system }];
@@ -155,7 +160,7 @@ function rulesTurn(project: Project, text: string): ChatTurn {
   };
 
   const ask = async (extra: WireMessage[]): Promise<string> =>
-    (await chatStream([...messages, ...extra], () => {}, { temperature: settings.temperature, maxTokens: settings.maxTokens, json: true, task }, settings)).trim();
+    (await chatStream([...messages, ...extra], () => {}, { temperature: planSettings.temperature, maxTokens: planSettings.maxTokens, json: true, task: 'plan' }, planSettings)).trim();
 
   // A whole-video / style request deserves real steps. Weak models sometimes
   // answer it with one generic call, so ask once for the concrete breakdown.
@@ -167,8 +172,8 @@ function rulesTurn(project: Project, text: string): ChatTurn {
         { role: 'user', content: `${text}\n\nThis request covers the whole edit. Break it into at least four concrete, different tool calls in execution order — look, titles, transitions, pacing, audio, captions, reframe — and return the JSON object only.` },
       ],
       () => {},
-      { temperature: Math.max(0.5, settings.temperature), maxTokens: settings.maxTokens, json: true, task },
-      settings,
+      { temperature: Math.max(0.5, planSettings.temperature), maxTokens: planSettings.maxTokens, json: true, task: 'plan' },
+      planSettings,
     )).trim();
     if (!/^(\{|\[|```)/.test(again)) return turn;
     const wider = parse(again);

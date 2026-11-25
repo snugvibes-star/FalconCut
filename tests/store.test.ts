@@ -16,9 +16,19 @@ vi.mock('../src/state/persistence', () => ({
   deleteVersionRecord: vi.fn(async () => {}),
 }));
 
+// In-memory localStorage so profile/tool-permission persistence works in Node.
+const aiMem = new Map<string, string>();
+vi.stubGlobal('localStorage', {
+  getItem: (k: string) => aiMem.get(k) ?? null,
+  setItem: (k: string, v: string) => { aiMem.set(k, v); },
+  removeItem: (k: string) => { aiMem.delete(k); },
+  clear: () => aiMem.clear(),
+});
+
 import { useStore } from '../src/state/store';
 import { createProject, applyActions, projectDuration } from '../engine';
 import { filterLocked } from '../tools/registry';
+import { setToolEnabled } from '../ai/client';
 import type { Action } from '../engine/actions';
 import type { MediaAsset, MediaAnalysis, Project } from '../engine/types';
 
@@ -184,5 +194,14 @@ describe('store: AI settings', () => {
     expect(useStore.getState().aiSettings.model).toBe('gpt-4o-mini');
     useStore.getState().setAISettings({ apiKey: 'sk-test' });
     expect(useStore.getState().aiSettings.apiKey).toBe('sk-test');
+  });
+
+  it('blocks disabled tools for AI calls while manual calls still work', async () => {
+    aiMem.clear();
+    setToolEnabled('remove_dead_air', false);
+    await expect(useStore.getState().previewTool('remove_dead_air', {}, 'ai')).rejects.toThrow(/turned off/);
+    const manual = await useStore.getState().previewTool('remove_dead_air', {});
+    expect(manual).toBeTruthy();
+    setToolEnabled('remove_dead_air', true);
   });
 });

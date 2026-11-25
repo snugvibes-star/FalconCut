@@ -5,12 +5,13 @@ import type { Clip, MediaAnalysis, Project, StylePack, TranscriptWord } from '..
 import { getMedia } from '../engine/types';
 import { effectivePack } from '../styles/rules';
 import { getPack } from '../styles/packs';
+import type { AITask } from '../ai/client';
 
 export interface ToolContext {
   project: Project;
   pack: StylePack;
   lockedClipIds?: Set<string>;
-  ai?: (system: string, user: string) => Promise<string>;
+  ai?: (system: string, user: string, task?: AITask) => Promise<string>;
 }
 
 export function makeContext(project: Project, locked?: Set<string>, ai?: ToolContext['ai']): ToolContext {

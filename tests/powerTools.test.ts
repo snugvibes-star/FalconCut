@@ -103,4 +103,48 @@ describe('power tools emit real engine actions', () => {
     expect(addEffect(ctx, { clipId, type: 'nope' }).actions).toEqual([]);
     expect(speedRamp(ctx, { clipId, points: [{ time: 0, speed: 1 }] as any }).actions).toEqual([]);
   });
+
+  it('never configures every effect by accident', () => {
+    let p = createProject('Effects', '16:9');
+    p = applyActions(p, [
+      { type: 'add_clip', clip: { id: 'c1', trackId: p.tracks[1].id, start: 0, duration: 10, effects: [] } },
+      { type: 'add_effect', clipId: 'c1', effect: { id: 'fx1', type: 'glow', enabled: true, params: {} } },
+      { type: 'add_effect', clipId: 'c1', effect: { id: 'fx2', type: 'blur', enabled: true, params: {} } },
+    ]);
+    const ctx = makeContext(p);
+    expect(configureEffect(ctx, { clipId: 'c1', enabled: false }).actions).toEqual([]);
+    const r = configureEffect(ctx, { clipId: 'c1', effectId: 'fx2', enabled: false });
+    expect(r.actions).toHaveLength(1);
+    expect((r.actions[0] as any).effectId).toBe('fx2');
+  });
+
+  it('rejects invented properties and transition ids, and clamps ramps', () => {
+    const { project, clipId } = fixture();
+    const ctx = makeContext(project);
+    expect(animateProperty(ctx, { clipId, property: 'magic', from: 0, to: 1 }).actions).toEqual([]);
+    expect(setClipTransition(ctx, { clipId, type: 'warp-virus' }).actions).toEqual([]);
+    const fade = setClipTransition(ctx, { clipId, type: 'fade' });
+    expect((fade.actions[0] as any).transition.type).toBe('crossfade');
+
+    const ramp = speedRamp(ctx, { clipId, points: [
+      { time: 5, speed: 20 }, { time: 0, speed: -2 }, { time: 5, speed: 1 }, { time: 99, speed: 0.5 },
+    ] } as any);
+    const pts = (ramp.actions[0] as any).points as { t: number; speed: number }[];
+    expect(pts.map((p) => p.t)).toEqual([...pts.map((p) => p.t)].sort((a, b) => a - b));
+    expect(new Set(pts.map((p) => p.t)).size).toBe(pts.length);
+    expect(pts.every((p) => p.speed >= 0.1 && p.speed <= 8 && p.t <= 10)).toBe(true);
+  });
+
+  it('clamps masks and marker kinds to engine values', () => {
+    const { project, clipId } = fixture();
+    const ctx = makeContext(project);
+    const masked = applyMask(ctx, { clipId, feather: 99, x: -3, width: 99 });
+    const mask = (masked.actions[0] as any).patch.mask;
+    expect(mask.feather).toBeLessThanOrEqual(0.25);
+    expect(mask.x).toBe(0);
+    expect(mask.w).toBeLessThanOrEqual(1);
+    const marker = addMarkerAI(ctx, { time: 2, label: 'Note', kind: 'nonsense' as any, color: 'red' });
+    expect((marker.actions[0] as any).marker.kind).toBe('user');
+    expect((marker.actions[0] as any).marker.color).toBe('#38BDF8');
+  });
 });

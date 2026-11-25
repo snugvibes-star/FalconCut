@@ -43,16 +43,19 @@ export interface AIProfile {
   temperature: number;
   maxTokens: number;
   provider: AIProvider;
-  /** Which tasks this profile is allowed to run. Empty = all tasks. */
-  allowedTasks: AITask[];
   createdAt: number;
   updatedAt: number;
 }
 
 /** Per-task AI settings. When a task has no entry, the active profile's
- * values are used. */
+ * values are used. Set `profileId` to route one task through a different
+ * profile (for example Gemini for translation, GPT for planning). */
 export interface AITaskSettings {
+  /** Use this saved profile for the task instead of the active one. */
+  profileId?: string;
+  /** 0/undefined = inherit the profile's temperature. */
   temperature?: number;
+  /** 0/undefined = inherit the profile's token limit. */
   maxTokens?: number;
 }
 
@@ -96,7 +99,6 @@ export const DEFAULT_AI_PROFILE: AIProfile = {
   temperature: 0.4,
   maxTokens: 0,
   provider: 'openai',
-  allowedTasks: [],
   createdAt: Date.now(),
   updatedAt: Date.now(),
 };
@@ -434,8 +436,8 @@ async function geminiComplete(messages: ChatMessage[], opts: ChatOptions, settin
 export async function chatComplete(messages: ChatMessage[], opts: ChatOptions = {}, settings: AISettings = loadAISettings()): Promise<string> {
   if (!hasAI(settings)) throw new Error('No AI endpoint configured. Add one in Settings → AI, or use the buttons (no key needed).');
   const provider = providerOf(settings);
-  const task: AITask = (opts as any).task ?? 'chat';
-  const profileId = getActiveAIProfileId() ?? 'default';
+  const task: AITask = opts.task ?? 'chat';
+  const profileId = profileIdForTask(task);
   let text = '';
   let ok = false;
   try {
@@ -471,7 +473,17 @@ export async function chatStream(
     return text;
   }
 
+  // Streaming bypasses chatComplete, so it records its own usage. A fallback
+  // to chatComplete marks the call as already recorded to avoid double-counting.
+  const task: AITask = opts.task ?? 'chat';
+  const promptChars = messages.reduce((n, m) => n + m.content.length, 0);
   let full = '';
+  let recorded = false;
+  const record = (ok: boolean) => {
+    if (recorded) return;
+    recorded = true;
+    void recordUsage(profileIdForTask(task), task, settings.model, ok, promptChars + full.length);
+  };
   try {
     const body: Record<string, unknown> = {
       model: settings.model,
@@ -521,10 +533,13 @@ export async function chatStream(
     }
     // Some local servers answer with one plain JSON body even when asked to
     // stream; if nothing came through, use the regular path.
-    if (full.trim() || sse) return full;
+    if (full.trim() || sse) { record(true); return full; }
     throw new Error('empty stream');
-  } catch {
-    if (full.trim()) return full;
+  } catch (e) {
+    if (full.trim()) { record(true); return full; }
+    if ((e as Error).name === 'AbortError') { record(false); throw e; }
+    // chatComplete has the parameter-level retries and records usage itself.
+    recorded = true;
     const text = await chatComplete(messages, opts, settings);
     if (text) onDelta(text);
     return text;
@@ -695,9 +710,13 @@ export function ask(system: string, user: string, opts: ChatOptions = {}, settin
   return chatComplete([{ role: 'system', content: system }, { role: 'user', content: user }], opts, settings);
 }
 
-/** The ctx.ai function tools use (e.g. translate_captions). */
-export function makeAIFn(settings: AISettings = loadAISettings()): (system: string, user: string) => Promise<string> {
-  return (system, user) => ask(system, user, {}, settings);
+/** The ctx.ai function tools use (e.g. translate_captions). The optional
+ * task routes the call through that task's profile and token settings. */
+export function makeAIFn(settings: AISettings = loadAISettings()): (system: string, user: string, task?: AITask) => Promise<string> {
+  return (system, user, task = 'chat') => {
+    const selected = applyTaskSettings(settings, task);
+    return ask(system, user, { task, temperature: selected.temperature, maxTokens: selected.maxTokens }, selected);
+  };
 }
 
 /* =========================================================================
@@ -708,53 +727,64 @@ const PROFILES_KEY = 'falconcut.ai.profiles';
 const ACTIVE_PROFILE_KEY = 'falconcut.ai.activeProfile';
 const TASK_SETTINGS_KEY = 'falconcut.ai.taskSettings';
 const USAGE_KEY = 'falconcut.ai.usage';
+const DISABLED_TOOLS_KEY = 'falconcut.ai.disabledTools';
 const MAX_USAGE = 200; // keep usage history bounded
 
+/** Tasks that actually make a model call, in the order the UI lists them. */
+export const AI_TASKS: AITask[] = ['chat', 'plan', 'caption', 'translate', 'analysis'];
+
 const DEFAULT_TASK_SETTINGS: Record<AITask, AITaskSettings> = {
-  chat:   { temperature: 0.4, maxTokens: 0 },
-  plan:   { temperature: 0.2, maxTokens: 0 },
-  caption:{ temperature: 0.5, maxTokens: 0 },
-  translate:{ temperature: 0.3, maxTokens: 0 },
-  analysis:{ temperature: 0.1, maxTokens: 0 },
+  chat: {}, plan: {}, caption: {}, translate: {}, analysis: {},
 };
 
-function loadProfiles(): AIProfile[] {
-  try {
-    const raw = localStorage.getItem(PROFILES_KEY);
-    if (!raw) return [DEFAULT_AI_PROFILE];
-    const arr = JSON.parse(raw) as AIProfile[];
-    if (!Array.isArray(arr) || arr.length === 0) return [DEFAULT_AI_PROFILE];
-    return arr;
-  } catch { return [DEFAULT_AI_PROFILE]; }
+function storage(): Storage | null {
+  try { return typeof localStorage === 'undefined' ? null : localStorage; } catch { return null; }
 }
 
-function saveProfiles(profiles: AIProfile[]) {
-  try { localStorage.setItem(PROFILES_KEY, JSON.stringify(profiles)); } catch { /* ignore */ }
+function clampNumber(value: unknown, min: number, max: number, fallback: number): number {
+  const n = Number(value);
+  return Number.isFinite(n) ? Math.max(min, Math.min(max, n)) : fallback;
 }
 
-export function listAIProfiles(): AIProfile[] { return loadProfiles(); }
-
-export function getAIProfile(id: string): AIProfile | undefined {
-  return loadProfiles().find((p) => p.id === id);
+function legacyDefaultProfile(): AIProfile {
+  const s = loadAISettings();
+  return {
+    ...DEFAULT_AI_PROFILE,
+    endpoint: s.endpoint,
+    apiKey: s.apiKey,
+    model: RETIRED_GEMINI[s.model] ?? s.model,
+    temperature: clampNumber(s.temperature, 0, 2, 0.4),
+    maxTokens: Math.max(0, Math.round(Number(s.maxTokens) || 0)),
+    provider: providerOf(s),
+  };
 }
 
-export function getActiveAIProfileId(): string | null {
-  try { return localStorage.getItem(ACTIVE_PROFILE_KEY); } catch { return null; }
+function normalizeProfile(input: Partial<AIProfile> | null | undefined, index = 0): AIProfile {
+  const p = input ?? {};
+  const endpoint = typeof p.endpoint === 'string' && p.endpoint.trim() ? p.endpoint.trim() : OPENAI_ENDPOINT;
+  const apiKey = typeof p.apiKey === 'string' ? p.apiKey.trim() : '';
+  const rawModel = typeof p.model === 'string' && p.model.trim() ? p.model.trim() : OPENAI_MODEL;
+  const model = RETIRED_GEMINI[rawModel] ?? rawModel;
+  const provider: AIProvider = p.provider === 'openai' || p.provider === 'gemini' || p.provider === 'openrouter'
+    ? p.provider
+    : providerOf({ endpoint, apiKey, model, temperature: 0.4 });
+  const now = Date.now();
+  return {
+    id: typeof p.id === 'string' && p.id.trim() ? p.id.trim() : uid('prof'),
+    name: typeof p.name === 'string' && p.name.trim() ? p.name.trim() : `Profile ${index + 1}`,
+    endpoint,
+    apiKey,
+    model,
+    temperature: clampNumber(p.temperature, 0, 2, 0.4),
+    maxTokens: Math.max(0, Math.round(Number(p.maxTokens) || 0)),
+    provider,
+    createdAt: Number.isFinite(p.createdAt) ? Number(p.createdAt) : now,
+    updatedAt: Number.isFinite(p.updatedAt) ? Number(p.updatedAt) : now,
+  };
 }
 
-export function setActiveAIProfile(id: string | null) {
-  try {
-    if (id) localStorage.setItem(ACTIVE_PROFILE_KEY, id);
-    else localStorage.removeItem(ACTIVE_PROFILE_KEY);
-  } catch { /* ignore */ }
-}
-
-/** Resolve the settings to use: active profile overrides the legacy single
- * settings object. Falls back to DEFAULT_AI_SETTINGS. */
-export function resolveAISettings(): AISettings {
-  const activeId = getActiveAIProfileId();
-  const profile = activeId ? getAIProfile(activeId) : undefined;
-  const p = profile ?? DEFAULT_AI_PROFILE;
+/** Turn a profile into the connection settings the client speaks. */
+function profileToSettings(p: AIProfile): AISettings {
   return {
     endpoint: p.endpoint,
     apiKey: p.apiKey,
@@ -765,24 +795,99 @@ export function resolveAISettings(): AISettings {
   };
 }
 
+function loadProfiles(): AIProfile[] {
+  const ls = storage();
+  if (!ls) return [legacyDefaultProfile()];
+  try {
+    const raw = ls.getItem(PROFILES_KEY);
+    // No saved list yet: show the existing single connection as "Default" so
+    // activating it never silently disconnects a working key.
+    if (raw == null) return [legacyDefaultProfile()];
+    const arr = JSON.parse(raw) as unknown;
+    if (!Array.isArray(arr)) return [legacyDefaultProfile()];
+    // An empty array means the user deleted every profile — respect that.
+    return arr.map((p, i) => normalizeProfile(p as Partial<AIProfile>, i));
+  } catch { return [legacyDefaultProfile()]; }
+}
+
+function saveProfiles(profiles: AIProfile[]) {
+  try { storage()?.setItem(PROFILES_KEY, JSON.stringify(profiles)); } catch { /* ignore */ }
+}
+
+export function listAIProfiles(): AIProfile[] { return loadProfiles(); }
+
+export function getAIProfile(id: string): AIProfile | undefined {
+  return loadProfiles().find((p) => p.id === id);
+}
+
+export function getActiveAIProfileId(): string | null {
+  try { return storage()?.getItem(ACTIVE_PROFILE_KEY) ?? null; } catch { return null; }
+}
+
+export function setActiveAIProfile(id: string | null) {
+  // Activating an empty "Default" while a legacy Settings key exists would
+  // otherwise look like a sudden disconnection. Copy that connection in first.
+  if (id === 'default') {
+    const current = getAIProfile('default');
+    const legacy = loadAISettings();
+    if (current && !hasAI(profileToSettings(current)) && hasAI(legacy)) {
+      saveAIProfile({
+        ...current,
+        endpoint: legacy.endpoint,
+        apiKey: legacy.apiKey,
+        model: RETIRED_GEMINI[legacy.model] ?? legacy.model,
+        temperature: clampNumber(legacy.temperature, 0, 2, current.temperature),
+        maxTokens: Math.max(0, Math.round(Number(legacy.maxTokens) || 0)),
+        provider: providerOf(legacy),
+      });
+    }
+  }
+  try {
+    if (id) storage()?.setItem(ACTIVE_PROFILE_KEY, id);
+    else storage()?.removeItem(ACTIVE_PROFILE_KEY);
+  } catch { /* ignore */ }
+}
+
+/** Resolve the connection to use: active profile, then the legacy single
+ * Settings connection, then the built-in default. */
+export function resolveAISettings(): AISettings {
+  const activeId = getActiveAIProfileId();
+  const profile = activeId ? getAIProfile(activeId) : undefined;
+  return profile ? profileToSettings(profile) : loadAISettings();
+}
+
 export function saveAIProfile(profile: AIProfile) {
   const profiles = loadProfiles();
-  const now = Date.now();
-  const next = { ...profile, updatedAt: now };
-  const idx = profiles.findIndex((p) => p.id === next.id);
+  const id = typeof profile.id === 'string' && profile.id.trim() ? profile.id.trim() : uid('prof');
+  const idx = profiles.findIndex((p) => p.id === id);
+  const createdAt = idx >= 0 ? profiles[idx].createdAt : Number(profile.createdAt) || Date.now();
+  const next = normalizeProfile({ ...profile, id, createdAt }, idx >= 0 ? idx : profiles.length);
+  next.updatedAt = Date.now();
   if (idx >= 0) profiles[idx] = next;
-  else profiles.push({ ...next, createdAt: now });
+  else profiles.push(next);
   saveProfiles(profiles);
 }
 
 export function deleteAIProfile(id: string) {
   const profiles = loadProfiles().filter((p) => p.id !== id);
   saveProfiles(profiles);
-  const active = getActiveAIProfileId();
-  if (active === id) {
-    // Fall back to default or first remaining profile.
-    const fallback = profiles.length > 0 ? profiles[0].id : null;
-    setActiveAIProfile(fallback);
+  // Clear per-task routes that pointed at the deleted profile.
+  const tasks = getAITaskSettings();
+  let tasksChanged = false;
+  for (const task of AI_TASKS) {
+    if (tasks[task]?.profileId === id) {
+      const rest = { ...tasks[task] };
+      delete rest.profileId;
+      tasks[task] = rest;
+      tasksChanged = true;
+    }
+  }
+  if (tasksChanged) saveTaskSettings(tasks);
+  if (getActiveAIProfileId() === id) {
+    // Prefer a remaining profile that can actually connect; otherwise fall
+    // back to the legacy Settings connection instead of a known-empty profile.
+    const fallback = profiles.find((p) => hasAI(profileToSettings(p)));
+    setActiveAIProfile(fallback?.id ?? null);
   }
 }
 
@@ -790,46 +895,98 @@ export function deleteAIProfile(id: string) {
  * PER-TASK AI SETTINGS
  * ========================================================================= */
 
+function sanitizeTaskSettings(input: unknown): AITaskSettings {
+  const raw = (input && typeof input === 'object' ? input : {}) as Record<string, unknown>;
+  const out: AITaskSettings = {};
+  if (typeof raw.profileId === 'string' && raw.profileId.trim()) out.profileId = raw.profileId.trim();
+  const temp = Number(raw.temperature);
+  if (Number.isFinite(temp) && temp > 0) out.temperature = Math.max(0.01, Math.min(2, temp));
+  const max = Number(raw.maxTokens);
+  if (Number.isFinite(max) && max > 0) out.maxTokens = Math.round(Math.min(1_000_000, max));
+  return out;
+}
+
+function saveTaskSettings(settings: Record<AITask, AITaskSettings>) {
+  try { storage()?.setItem(TASK_SETTINGS_KEY, JSON.stringify(settings)); } catch { /* ignore */ }
+}
+
 export function getAITaskSettings(): Record<AITask, AITaskSettings> {
-  try {
-    const raw = localStorage.getItem(TASK_SETTINGS_KEY);
-    if (!raw) return { ...DEFAULT_TASK_SETTINGS };
-    return { ...DEFAULT_TASK_SETTINGS, ...(JSON.parse(raw) as Record<AITask, AITaskSettings>) };
-  } catch { return { ...DEFAULT_TASK_SETTINGS }; }
+  const out: Record<AITask, AITaskSettings> = { ...DEFAULT_TASK_SETTINGS };
+  const raw = (() => {
+    try {
+      const text = storage()?.getItem(TASK_SETTINGS_KEY);
+      return text ? JSON.parse(text) as unknown : null;
+    } catch { return null; }
+  })();
+  if (raw && typeof raw === 'object') {
+    const obj = raw as Record<string, unknown>;
+    for (const task of AI_TASKS) out[task] = sanitizeTaskSettings(obj[task]);
+  }
+  return out;
 }
 
 export function setAITaskSetting(task: AITask, patch: AITaskSettings) {
   const cur = getAITaskSettings();
-  const next = { ...cur, [task]: { ...cur[task], ...patch } };
-  try { localStorage.setItem(TASK_SETTINGS_KEY, JSON.stringify(next)); } catch { /* ignore */ }
+  // 0 means "inherit" everywhere, so store it as absent and keep storage clean.
+  const next = { ...cur, [task]: sanitizeTaskSettings({ ...cur[task], ...patch }) };
+  saveTaskSettings(next);
 }
 
-/** Resolve settings for a specific task: task override → active profile → default. */
-export function resolveAISettingsForTask(task: AITask): AISettings {
-  const base = resolveAISettings();
-  const taskSettings = getAITaskSettings()[task];
+/** Apply one task's profile route and overrides on top of a base connection. */
+export function applyTaskSettings(base: AISettings, task: AITask): AISettings {
+  const taskSettings = getAITaskSettings()[task] ?? {};
+  const routed = taskSettings.profileId ? getAIProfile(taskSettings.profileId) : undefined;
+  const s = routed ? profileToSettings(routed) : base;
   return {
-    ...base,
-    temperature: taskSettings?.temperature ?? base.temperature,
-    maxTokens: taskSettings?.maxTokens ?? base.maxTokens,
+    ...s,
+    temperature: taskSettings.temperature ?? s.temperature,
+    maxTokens: taskSettings.maxTokens ?? s.maxTokens,
   };
+}
+
+/** Resolve settings for a specific task: task profile/overrides → active
+ * profile → legacy Settings connection. */
+export function resolveAISettingsForTask(task: AITask): AISettings {
+  return applyTaskSettings(resolveAISettings(), task);
 }
 
 /* =========================================================================
  * USAGE TRACKING
  * ========================================================================= */
 
+/** Which profile served this task, for the usage log. */
+export function profileIdForTask(task: AITask): string {
+  const route = getAITaskSettings()[task]?.profileId;
+  if (route && getAIProfile(route)) return route;
+  const active = getActiveAIProfileId();
+  if (active && getAIProfile(active)) return active;
+  return 'settings';
+}
+
+const TASK_SET = new Set<string>(AI_TASKS);
+
 function loadUsage(): UsageRecord[] {
   try {
-    const raw = localStorage.getItem(USAGE_KEY);
-    if (!raw) return [];
-    const arr = JSON.parse(raw) as UsageRecord[];
-    return Array.isArray(arr) ? arr : [];
+    const arr = JSON.parse(storage()?.getItem(USAGE_KEY) ?? '[]') as unknown;
+    if (!Array.isArray(arr)) return [];
+    return arr
+      .filter((r): r is Record<string, unknown> => !!r && typeof r === 'object')
+      .map((r) => ({
+        id: typeof r.id === 'string' ? r.id : uid('use'),
+        profileId: typeof r.profileId === 'string' ? r.profileId : 'settings',
+        task: (TASK_SET.has(String(r.task)) ? r.task : 'chat') as AITask,
+        model: typeof r.model === 'string' ? r.model : 'unknown',
+        at: Number.isFinite(Number(r.at)) ? Number(r.at) : Date.now(),
+        ok: r.ok === true,
+        tokensEstimate: Math.max(0, Math.round(Number(r.tokensEstimate) || 0)),
+        costUsdEstimate: Math.max(0, Number(r.costUsdEstimate) || 0),
+      }))
+      .slice(-MAX_USAGE);
   } catch { return []; }
 }
 
 function saveUsage(usage: UsageRecord[]) {
-  try { localStorage.setItem(USAGE_KEY, JSON.stringify(usage.slice(-MAX_USAGE))); } catch { /* ignore */ }
+  try { storage()?.setItem(USAGE_KEY, JSON.stringify(usage.slice(-MAX_USAGE))); } catch { /* ignore */ }
 }
 
 export function listUsage(): UsageRecord[] { return loadUsage(); }
@@ -860,7 +1017,7 @@ export function usageSummary(): { calls: number; ok: number; fail: number; token
   const byTask: Record<AITask, number> = { chat: 0, plan: 0, caption: 0, translate: 0, analysis: 0 };
   let tokens = 0, cost = 0, ok = 0;
   for (const r of usage) {
-    byTask[r.task as AITask] = (byTask[r.task as AITask] ?? 0) + 1;
+    byTask[r.task] += 1;
     tokens += r.tokensEstimate;
     cost += r.costUsdEstimate;
     if (r.ok) ok++;
@@ -873,9 +1030,23 @@ function uid(prefix: string): string {
 }
 
 /* =========================================================================
- * aiRequest wrapper — record usage after every call
+ * TOOL PERMISSIONS — tools the model may not call
  * ========================================================================= */
 
-// Wrap the existing aiRequest call sites in chatComplete/geminiComplete/openaiComplete
-// to record usage. We do it at the chatComplete entry point instead, which is
-// where all traffic funnels through.
+export function listDisabledTools(): string[] {
+  try {
+    const arr = JSON.parse(storage()?.getItem(DISABLED_TOOLS_KEY) ?? '[]') as unknown;
+    return Array.isArray(arr) ? [...new Set(arr.filter((n): n is string => typeof n === 'string' && !!n))] : [];
+  } catch { return []; }
+}
+
+export function isToolEnabled(name: string): boolean {
+  return !listDisabledTools().includes(name);
+}
+
+export function setToolEnabled(name: string, enabled: boolean) {
+  const disabled = new Set(listDisabledTools());
+  if (enabled) disabled.delete(name);
+  else disabled.add(name);
+  try { storage()?.setItem(DISABLED_TOOLS_KEY, JSON.stringify([...disabled].sort())); } catch { /* ignore */ }
+}

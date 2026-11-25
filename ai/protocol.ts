@@ -4,6 +4,7 @@
  * it forgivingly and validates tool names/params against the real registry.
  */
 import { TOOL_MAP } from '../tools/registry';
+import { isToolEnabled } from './client';
 
 export interface ToolCall {
   tool: string;
@@ -103,6 +104,7 @@ export function validateCalls(calls: ToolCall[]): ValidatedCalls {
   for (const c of calls) {
     const def = TOOL_MAP.get(c.tool);
     if (!def) { errors.push(`Unknown tool "${c.tool}" — skipped.`); continue; }
+    if (!isToolEnabled(c.tool)) { errors.push(`"${def.name}" is turned off in AI Control Center — skipped.`); continue; }
     const params: Record<string, unknown> = { ...(c.params ?? {}) };
     for (const [key, spec] of Object.entries(def.params)) {
       if (params[key] === undefined) {

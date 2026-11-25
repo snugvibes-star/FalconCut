@@ -17,7 +17,7 @@ import { lintProject, type LintReport } from '../../quality/lint';
 import { getPack } from '../../styles/packs';
 import { effectivePack } from '../../styles/rules';
 import { analyzeMedia, mergeAnalysis, recomputeSilences, defaultAnalyzeOptions, taskQueue, type AnalyzeOptions } from '../../analysis/analyze';
-import { makeAIFn, loadAISettings, saveAISettings, hasAI, resolveAISettings, recordUsage as recordAIUsage, type AISettings } from '../../ai/client';
+import { makeAIFn, saveAISettings, hasAI, resolveAISettings, getActiveAIProfileId, getAIProfile, saveAIProfile, isToolEnabled, type AISettings } from '../../ai/client';
 import { type Plan, type PlanStep } from '../../ai/planner';
 import { respond, undoIntent, type HistoryTurn } from '../../ai/agent';
 import { saveProject, loadProject, listProjects, putBlob, getBlob, deleteBlob, garbageCollectBlobs, saveVersion as persistVersion, loadVersions, deleteVersionRecord } from './persistence';
@@ -154,6 +154,8 @@ interface State {
 
   /* AI */
   setAISettings: (patch: Partial<AISettings>) => void;
+  /** Re-read the active profile / legacy Settings connection after profile changes. */
+  refreshAISettings: () => void;
   sendChat: (text: string) => Promise<void>;
   executePlan: (plan: Plan) => Promise<{ applied: number; diff: ProjectDiff; idle: string[]; failed: string[] }>;
   approvePlan: () => Promise<void>;
@@ -265,7 +267,7 @@ export const useStore = create<State>()((set, get) => {
     chat: [],
     plan: null,
     planRunning: false,
-    aiSettings: loadAISettings(),
+    aiSettings: resolveAISettings(),
     aiBusy: false,
 
     locks: {},
@@ -374,6 +376,11 @@ export const useStore = create<State>()((set, get) => {
     },
 
     async previewTool(name, params = {}, source = 'human') {
+      // Permission checks apply to AI-driven calls only: manual buttons and the
+      // command palette keep working even when a tool is hidden from the model.
+      if (source === 'ai' && !isToolEnabled(name)) {
+        throw new Error('That tool is turned off in AI Control Center → Tools. Turn it on to let AI use it.');
+      }
       const locked = source === 'ai' ? get().lockedIds() : undefined;
       const aiSettings = resolveAISettings();
       const ai = hasAI(aiSettings) ? makeAIFn(aiSettings) : undefined;
@@ -800,8 +807,28 @@ export const useStore = create<State>()((set, get) => {
       return v ? diffProjects(v.project, get().project) : null;
     },
 
+    refreshAISettings() {
+      set({ aiSettings: resolveAISettings() });
+    },
+
     setAISettings(patch) {
+      // Settings → AI edits the connection the app is actually using. If a
+      // profile is active, mirror the edit into it so the form is never
+      // cosmetic; the legacy single-settings key stays in sync as well.
       const next = saveAISettings(patch);
+      const activeId = getActiveAIProfileId();
+      const active = activeId ? getAIProfile(activeId) : undefined;
+      if (active) {
+        saveAIProfile({
+          ...active,
+          endpoint: next.endpoint,
+          apiKey: next.apiKey,
+          model: next.model,
+          temperature: next.temperature,
+          maxTokens: next.maxTokens ?? 0,
+          provider: next.provider ?? active.provider,
+        });
+      }
       set({ aiSettings: next });
     },
 

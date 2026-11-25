@@ -12,14 +12,19 @@ vi.stubGlobal('localStorage', {
 import {
   listAIProfiles, saveAIProfile, deleteAIProfile, getActiveAIProfileId, setActiveAIProfile,
   resolveAISettings, getAITaskSettings, setAITaskSetting, resolveAISettingsForTask,
-  recordUsage, usageSummary, listUsage, DEFAULT_AI_PROFILE, type AIProfile,
+  recordUsage, usageSummary, listUsage, DEFAULT_AI_PROFILE, saveAISettings,
+  listDisabledTools, setToolEnabled, isToolEnabled, profileIdForTask,
+  type AIProfile,
 } from '../ai/client';
+
+import { validateCalls } from '../ai/protocol';
+import { toolsPromptText, toolManifest, TOOLS } from '../tools/registry';
 
 function profile(id: string, name: string): AIProfile {
   return {
     id, name, endpoint: 'https://api.openai.com/v1/chat/completions', apiKey: `key-${id}`,
     model: 'gpt-4o-mini', temperature: 0.4, maxTokens: 0, provider: 'openai',
-    allowedTasks: [], createdAt: 1, updatedAt: 1,
+    createdAt: 1, updatedAt: 1,
   };
 }
 
@@ -59,7 +64,8 @@ describe('AI profiles', () => {
     saveAIProfile(profile('p1', 'One'));
     setActiveAIProfile('p1');
     deleteAIProfile('p1');
-    expect(getActiveAIProfileId()).toBe('default');
+    // No connected profile remains, so the legacy Settings connection is used.
+    expect(getActiveAIProfileId()).toBeNull();
     expect(listAIProfiles().some((p) => p.id === 'p1')).toBe(false);
     // Resolving after deletion still works.
     expect(resolveAISettings().model).toBeTruthy();
@@ -85,8 +91,34 @@ describe('per-task AI settings', () => {
   it('tasks persist across module reads', () => {
     setAITaskSetting('caption', { temperature: 0.9 });
     expect(getAITaskSettings().caption.temperature).toBe(0.9);
-    // plan keeps its built-in default (0.2) — unconfigured tasks inherit defaults.
-    expect(getAITaskSettings().plan.temperature).toBe(0.2);
+    // Unconfigured tasks inherit the active profile; there is no invented default.
+    expect(getAITaskSettings().plan.temperature).toBeUndefined();
+  });
+
+  it('treats 0 as inherit and routes a task through another profile', () => {
+    saveAIProfile({ ...profile('p1', 'One'), temperature: 0.4 });
+    saveAIProfile({ ...profile('p2', 'Translator'), endpoint: 'https://generativelanguage.googleapis.com/v1beta/models:generateContent', model: 'gemini-3.8-flash', provider: 'gemini', temperature: 0.9 });
+    setActiveAIProfile('p1');
+
+    setAITaskSetting('translate', { temperature: 0, maxTokens: 0 });
+    expect(getAITaskSettings().translate).toEqual({});
+    expect(resolveAISettingsForTask('translate').temperature).toBe(0.4);
+
+    setAITaskSetting('translate', { profileId: 'p2', temperature: 0.2 });
+    const routed = resolveAISettingsForTask('translate');
+    expect(routed.model).toBe('gemini-3.8-flash');
+    expect(routed.temperature).toBe(0.2);
+    expect(profileIdForTask('translate')).toBe('p2');
+
+    deleteAIProfile('p2');
+    expect(resolveAISettingsForTask('translate').model).toBe('gpt-4o-mini');
+  });
+
+  it('falls back to legacy Settings when no profile is active', () => {
+    saveAISettings({ apiKey: 'sk-legacy', endpoint: 'https://api.openai.com/v1/chat/completions', model: 'gpt-4o-mini', temperature: 1.1 });
+    setActiveAIProfile(null);
+    expect(resolveAISettings().apiKey).toBe('sk-legacy');
+    expect(resolveAISettings().temperature).toBe(1.1);
   });
 });
 
@@ -118,10 +150,40 @@ describe('AI usage tracking', () => {
   });
 });
 
+describe('AI tool permissions', () => {
+  beforeEach(() => { mem.clear(); });
+
+  it('persists a disabled-tool list', () => {
+    expect(listDisabledTools()).toEqual([]);
+    setToolEnabled('remove_dead_air', false);
+    expect(listDisabledTools()).toContain('remove_dead_air');
+    expect(isToolEnabled('remove_dead_air')).toBe(false);
+    setToolEnabled('remove_dead_air', true);
+    expect(isToolEnabled('remove_dead_air')).toBe(true);
+  });
+
+  it('hides disabled tools from prompts and rejects model calls to them', () => {
+    setToolEnabled('add_captions', false);
+    expect(toolsPromptText()).not.toContain('add_captions(');
+    expect(toolManifest().some((t) => t.name === 'add_captions')).toBe(false);
+    expect(toolsPromptText()).toContain('add_text(');
+    const r = validateCalls([
+      { tool: 'add_captions', params: {} },
+      { tool: 'add_text', params: { text: 'Hi' } },
+    ]);
+    expect(r.valid.map((c) => c.tool)).toEqual(['add_text']);
+    expect(r.errors.join(' ')).toContain('turned off');
+  });
+
+  it('the catalog count is derived from the registry', () => {
+    expect(new Set(TOOLS.map((t) => t.name)).size).toBe(TOOLS.length);
+  });
+});
+
 describe('default profile shape', () => {
   it('has the expected fields', () => {
     expect(DEFAULT_AI_PROFILE.provider).toBe('openai');
-    expect(DEFAULT_AI_PROFILE.allowedTasks).toEqual([]);
     expect(DEFAULT_AI_PROFILE.maxTokens).toBe(0);
+    expect(DEFAULT_AI_PROFILE.name).toBe('Default');
   });
 });

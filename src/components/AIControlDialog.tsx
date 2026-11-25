@@ -1,13 +1,17 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import {
   Bot, Plus, Trash2, Check, Settings2, BarChart3, SlidersHorizontal, BookOpen,
-  Shield, Zap,
+  Shield, Zap, RotateCcw,
 } from 'lucide-react';
 import {
   listAIProfiles, getActiveAIProfileId, setActiveAIProfile, saveAIProfile, deleteAIProfile,
   getAITaskSettings, setAITaskSetting, usageSummary, listUsage, resolveAISettings,
-  hasAI, providerOf, type AIProfile, type AITask, type AIProvider,
+  resolveAISettingsForTask, hasAI, providerOf, getAIProfile, PROVIDER_PRESETS, AI_TASKS,
+  listDisabledTools, setToolEnabled,
+  type AIProfile, type AITask, type AIProvider,
 } from '../../ai/client';
+import { TOOLS, toolLabel } from '../../tools/registry';
+import { useStore } from '../state/store';
 import { useUI } from '../state/ui';
 import { Dialog } from './Dialog';
 
@@ -28,6 +32,8 @@ const TABS: { id: Tab; label: string; icon: typeof Bot }[] = [
   { id: 'usage', label: 'Usage', icon: BarChart3 },
 ];
 
+/** Display grouping only. The catalog itself always comes from the registry,
+ * with a fallback group so a newly added tool is never hidden from the UI. */
 const TOOL_GROUPS: { name: string; tools: string[] }[] = [
   { name: 'Timeline & structure', tools: ['add_text','timeline_edit','remove_dead_air','remove_fillers','cut_retakes','crop_region','duplicate_clip','reverse_clip','remove_section','manage_track','group_clips','time_range_edit'] },
   { name: 'Captions', tools: ['add_captions','add_hook_title','translate_captions','restyle_captions','shift_captions','fix_caption_timing','import_captions','set_caption_style_advanced','set_caption_highlight','set_caption_effects','edit_caption_word'] },
@@ -38,6 +44,13 @@ const TOOL_GROUPS: { name: string; tools: string[] }[] = [
   { name: 'Markers & notes', tools: ['add_marker','add_marker_advanced','add_review_note'] },
 ];
 
+function validEndpoint(value: string): boolean {
+  try {
+    const u = new URL(value.trim());
+    return u.protocol === 'http:' || u.protocol === 'https:';
+  } catch { return false; }
+}
+
 export function AIControlDialog() {
   const close = () => useUI.getState().close('aiControl');
   const toast = useUI((s) => s.toast);
@@ -47,6 +60,7 @@ export function AIControlDialog() {
   const [editing, setEditing] = useState<AIProfile | null>(null);
   const [taskSettings, setTaskSettings] = useState(() => getAITaskSettings());
   const [usage, setUsage] = useState(() => usageSummary());
+  const [disabledTools, setDisabledTools] = useState<string[]>(() => listDisabledTools());
   const [, force] = useState(0);
 
   const refresh = () => {
@@ -54,40 +68,50 @@ export function AIControlDialog() {
     setActiveId(getActiveAIProfileId());
     setTaskSettings(getAITaskSettings());
     setUsage(usageSummary());
+    setDisabledTools(listDisabledTools());
+    // Keep the chat's "connected" badge and Settings form in step with profiles.
+    useStore.getState().refreshAISettings();
     force((n) => n + 1);
   };
 
   const newProfile = () => {
-    const p: AIProfile = {
+    const preset = PROVIDER_PRESETS.openai;
+    setEditing({
       id: `prof_${Date.now().toString(36)}`,
       name: 'New profile',
-      endpoint: 'https://api.openai.com/v1/chat/completions',
+      endpoint: preset.endpoint,
       apiKey: '',
-      model: 'gpt-4o-mini',
+      model: preset.model,
       temperature: 0.4,
       maxTokens: 0,
       provider: 'openai',
-      allowedTasks: [],
       createdAt: Date.now(),
       updatedAt: Date.now(),
-    };
-    setEditing(p);
+    });
   };
 
   const saveProfile = () => {
     if (!editing) return;
-    if (!editing.name.trim() || !editing.endpoint.trim()) {
-      toast('Give the profile a name and endpoint.', 'error');
+    if (!editing.name.trim() || !editing.model.trim()) {
+      toast('Give the profile a name and a model.', 'error');
       return;
     }
+    if (!validEndpoint(editing.endpoint)) {
+      toast('Enter a valid http(s) endpoint URL.', 'error');
+      return;
+    }
+    const wasConnected = hasAI(resolveAISettings());
     saveAIProfile(editing);
+    // A first working profile should just work — don't leave the user staring
+    // at a key they saved while the chat still says "not connected".
+    if (!wasConnected && hasAI(editing)) setActiveAIProfile(editing.id);
     setEditing(null);
     refresh();
     toast(`Profile "${editing.name}" saved.`, 'success');
   };
 
   const removeProfile = (id: string) => {
-    if (!window.confirm('Delete this AI profile? Your other profiles are unaffected.')) return;
+    if (!window.confirm('Delete this AI profile? Tasks routed to it will fall back to the active profile.')) return;
     deleteAIProfile(id);
     refresh();
     toast('Profile deleted.', 'info');
@@ -95,17 +119,35 @@ export function AIControlDialog() {
 
   const activate = (id: string) => {
     setActiveAIProfile(id);
-    setActiveId(id);
+    refresh();
     toast('Active AI profile switched.', 'success');
   };
 
-  const setTask = (task: AITask, patch: { temperature?: number; maxTokens?: number }) => {
+  const setTask = (task: AITask, patch: { profileId?: string; temperature?: number; maxTokens?: number }) => {
     setAITaskSetting(task, patch);
-    setTaskSettings(getAITaskSettings());
+    refresh();
+  };
+
+  const toggleTool = (name: string) => {
+    setToolEnabled(name, disabledTools.includes(name));
+    refresh();
+  };
+
+  const allTools = (enabled: boolean) => {
+    if (!enabled && !window.confirm('Hide every tool from AI calls? Buttons and the command palette will still work.')) return;
+    for (const t of TOOLS) setToolEnabled(t.name, enabled);
+    refresh();
+    toast(enabled ? 'All AI tools enabled.' : 'All AI tools hidden from AI calls.', 'info');
   };
 
   const resolved = resolveAISettings();
   const connected = hasAI(resolved);
+  const profileName = (id: string) => id === 'active' ? 'Active profile'
+    : profiles.find((p) => p.id === id)?.name ?? (id === 'settings' ? 'Settings key' : id);
+  const assigned = new Set(TOOL_GROUPS.flatMap((g) => g.tools));
+  const groups = [...TOOL_GROUPS.map((g) => ({ name: g.name, tools: g.tools.filter((t) => TOOLS.some((d) => d.name === t)) })),
+    { name: 'Other tools', tools: TOOLS.filter((t) => !assigned.has(t.name)).map((t) => t.name) }]
+    .filter((g) => g.tools.length > 0);
 
   return (
     <Dialog title="AI Control Center" onClose={close}>
@@ -142,7 +184,7 @@ export function AIControlDialog() {
               {profiles.map((p) => (
                 <div key={p.id} className={`flex items-center gap-2 rounded-lg border px-2 py-1.5 ${activeId === p.id ? 'border-signal/60 bg-signal/5' : 'border-line'}`}>
                   <button className="icon-btn p-1 shrink-0" title={activeId === p.id ? 'Active profile' : 'Make active'}
-                    onClick={() => activate(p.id)} aria-label={`Activate ${p.name}`}>
+                    onClick={() => activate(p.id)} aria-label={activeId === p.id ? `${p.name} (active profile)` : `Activate ${p.name}`}>
                     {activeId === p.id ? <Check size={14} className="text-signal" /> : <Settings2 size={14} />}
                   </button>
                   <div className="min-w-0 flex-1">
@@ -157,10 +199,11 @@ export function AIControlDialog() {
                   </button>
                 </div>
               ))}
+              {!profiles.length && <p className="py-4 text-center text-[11px] text-paper-faint">No profiles. Create one, or add a key in Settings → AI.</p>}
             </div>
             {editing && (
               <div className="rounded-lg border border-signal/40 bg-ink-850 p-3 space-y-2">
-                <h3 className="text-xs font-semibold text-paper">{editing.name === 'New profile' ? 'New AI profile' : 'Edit AI profile'}</h3>
+                <h3 className="text-xs font-semibold text-paper">{profiles.some((p) => p.id === editing.id) ? 'Edit AI profile' : 'New AI profile'}</h3>
                 <label className="block">
                   <span className="label">Name</span>
                   <input className="field py-1 text-xs" value={editing.name} onChange={(e) => setEditing({ ...editing, name: e.target.value })} />
@@ -168,10 +211,14 @@ export function AIControlDialog() {
                 <label className="block">
                   <span className="label">Provider</span>
                   <select className="field py-1 text-xs cursor-pointer" value={editing.provider}
-                    onChange={(e) => setEditing({ ...editing, provider: e.target.value as AIProvider })}>
-                    <option value="openai">OpenAI-compatible</option>
-                    <option value="openrouter">OpenRouter</option>
-                    <option value="gemini">Google Gemini</option>
+                    onChange={(e) => {
+                      const provider = e.target.value as AIProvider;
+                      const preset = PROVIDER_PRESETS[provider];
+                      setEditing({ ...editing, provider, endpoint: preset.endpoint, model: preset.model });
+                    }}>
+                    {(Object.keys(PROVIDER_PRESETS) as AIProvider[]).map((id) => (
+                      <option key={id} value={id}>{PROVIDER_PRESETS[id].label}</option>
+                    ))}
                   </select>
                 </label>
                 <label className="block">
@@ -190,7 +237,7 @@ export function AIControlDialog() {
                 </div>
                 <div className="grid grid-cols-2 gap-2">
                   <label className="block">
-                    <span className="label">Temperature</span>
+                    <span className="label">Temperature (0–2)</span>
                     <input className="field py-1 text-xs" type="number" min="0" max="2" step="0.1" value={editing.temperature}
                       onChange={(e) => setEditing({ ...editing, temperature: Number(e.target.value) })} />
                   </label>
@@ -212,18 +259,34 @@ export function AIControlDialog() {
         {/* ---- Per-task settings ---- */}
         {tab === 'tasks' && (
           <section className="space-y-3" aria-label="Per-task AI settings">
-            <p className="text-[11px] text-paper-dim">
-              Fine-tune how the model behaves for each kind of request. Leave a value at 0 to inherit the active profile.
+            <p className="text-[11px] leading-relaxed text-paper-dim">
+              Route each kind of request through a saved profile and fine-tune it. Leave a value at 0 to inherit the profile.
+              These settings apply to chat, model-written plans, captions, translation and analysis alike.
             </p>
             <div className="space-y-2">
-              {TASKS.map((t) => {
+              {TASKS.filter((t) => AI_TASKS.includes(t.id)).map((t) => {
                 const s = taskSettings[t.id] ?? {};
+                const effective = resolveAISettingsForTask(t.id);
+                const route = s.profileId ? getAIProfile(s.profileId) : undefined;
                 return (
                   <div key={t.id} className="rounded-lg border border-line bg-ink-850 p-2.5">
-                    <div className="mb-2">
-                      <div className="text-xs font-medium text-paper">{t.label}</div>
-                      <div className="text-[10px] text-paper-dim">{t.desc}</div>
+                    <div className="mb-2 flex items-start justify-between gap-2">
+                      <div>
+                        <div className="text-xs font-medium text-paper">{t.label}</div>
+                        <div className="text-[10px] text-paper-dim">{t.desc}</div>
+                      </div>
+                      <span className="text-right text-[10px] text-paper-faint">
+                        {profileName(route ? route.id : (s.profileId ?? 'active'))} · {effective.model}
+                      </span>
                     </div>
+                    <label className="mb-2 block">
+                      <span className="label">Profile (empty = active profile)</span>
+                      <select className="field py-1 text-xs cursor-pointer" value={s.profileId ?? ''}
+                        onChange={(e) => setTask(t.id, { profileId: e.target.value || undefined })}>
+                        <option value="">Active profile</option>
+                        {profiles.map((p) => <option key={p.id} value={p.id}>{p.name} — {p.model}</option>)}
+                      </select>
+                    </label>
                     <div className="grid grid-cols-2 gap-2">
                       <label className="block">
                         <span className="label">Temperature (0 = inherit)</span>
@@ -247,21 +310,38 @@ export function AIControlDialog() {
 
         {/* ---- Tool permissions / catalog ---- */}
         {tab === 'tools' && (
-          <section className="space-y-3" aria-label="AI tool catalog">
-            <div className="flex items-center gap-2">
-              <BookOpen size={14} className="text-signal" />
-              <p className="text-[11px] text-paper-dim">
-                The AI can call {new Set(TOOL_GROUPS.flatMap((g) => g.tools)).size} real editing tools. Every call is previewed and undoable.
+          <section className="space-y-3" aria-label="AI tool permissions">
+            <div className="flex items-start gap-2">
+              <BookOpen size={14} className="mt-0.5 shrink-0 text-signal" />
+              <p className="text-[11px] leading-relaxed text-paper-dim">
+                {TOOLS.length - disabledTools.length} of {TOOLS.length} real editing tools are available to AI.
+                Hidden tools are removed from model prompts and rejected if a model calls them. Buttons and the
+                command palette still work — this controls AI access only.
               </p>
             </div>
+            <div className="flex items-center gap-2">
+              <button className="btn-solid text-[11px] py-1 flex items-center gap-1" onClick={() => allTools(true)}>
+                <RotateCcw size={12} /> Enable all
+              </button>
+              <button className="btn-solid text-[11px] py-1" onClick={() => allTools(false)}>Hide all from AI</button>
+              <span className="text-[10px] text-paper-faint">{disabledTools.length} hidden</span>
+            </div>
             <div className="max-h-72 space-y-2 overflow-y-auto panel bg-ink-850 p-3">
-              {TOOL_GROUPS.map((group) => (
+              {groups.map((group) => (
                 <div key={group.name}>
                   <h3 className="mb-1 font-display text-[11px] font-semibold uppercase tracking-wide text-paper-dim">{group.name}</h3>
                   <div className="flex flex-wrap gap-1">
-                    {group.tools.map((t) => (
-                      <span key={t} className="rounded border border-line bg-ink-800 px-1.5 py-0.5 font-mono text-[10px] text-paper-dim">{t}</span>
-                    ))}
+                    {group.tools.map((t) => {
+                      const enabled = !disabledTools.includes(t);
+                      return (
+                        <button key={t} title={`${enabled ? 'Hide from AI' : 'Allow AI to use'}: ${toolLabel(t)}`}
+                          aria-pressed={enabled}
+                          onClick={() => toggleTool(t)}
+                          className={`rounded border px-1.5 py-0.5 font-mono text-[10px] transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-signal ${enabled ? 'border-line bg-ink-800 text-paper-dim hover:text-paper' : 'border-line/60 bg-ink-900 text-paper-faint line-through'}`}>
+                          {t}
+                        </button>
+                      );
+                    })}
                   </div>
                 </div>
               ))}
@@ -296,6 +376,7 @@ export function AIControlDialog() {
                   <span className="text-paper-dim">{new Date(r.at).toLocaleString()}</span>
                   <span className="text-paper">{r.task}</span>
                   <span className="font-mono text-paper-dim">{r.model}</span>
+                  <span className="hidden text-paper-faint sm:inline">{profileName(r.profileId)}</span>
                   <span className="ml-auto text-paper-dim">~{r.tokensEstimate} tok</span>
                 </div>
               ))}

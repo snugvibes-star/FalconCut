@@ -343,7 +343,8 @@ export async function translateCaptions(ctx: ToolContext, params: { language: st
     try {
       reply = await ctx.ai(
         `Translate each numbered caption line into ${params.language}. Keep the same numbering. Return ONLY the numbered lines, nothing else. Keep them short and natural for social video.`,
-        payload
+        payload,
+        'translate',
       );
     } catch (e) {
       return { actions, summary: `Translation stopped: ${(e as Error).message}`, warnings: ['AI request failed.'] };
