@@ -43,6 +43,23 @@ function getFx(w: number, h: number): { canvas: HTMLCanvasElement | OffscreenCan
   return { canvas: fxCanvas, ctx: fxCtx! };
 }
 
+/** Browser 2D contexts default to low-quality (bilinear) resampling. Crops and
+ * export upscales are exactly the cases where that shows, so ask for the best
+ * filter the browser implements. Setting an unknown property on a stub/test
+ * context is harmless. */
+function highQualityResample(ctx: Ctx2D): void {
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
+}
+
+/** Effect scratch canvases must not throw away source detail before the frame
+ * is composited: a 1600 px scratch upscaled into a 4K export is visibly soft.
+ * Keep at least 4K (or the output size, whichever is larger) while capping
+ * memory for extreme scale values. */
+function scratchCap(w: number, h: number): number {
+  return Math.min(8192, Math.max(3840, w, h));
+}
+
 export function resolvedTransform(clip: Clip, localT: number): Transform {
   // Merge defaults so projects saved before skewX/skewY still render.
   const tr = { ...defaultTransform(), ...clip.transform };
@@ -160,19 +177,25 @@ function drawMediaLayer(p: Project, clip: Clip, t: number, ctx: Ctx2D, resolver:
     if (lutObj) { fx.lut.lut = lutObj; fx.lut.baked = bakeLut(lutObj); }
     else fx.lut = undefined;
   }
+  highQualityResample(outCtx);
   if (useScratch || fx.filter) {
-    const capW = 1600;
+    // Use the actual destination canvas: an upscaled export renders into a
+    // larger canvas than p.settings, and the scratch must not become the
+    // bottleneck there either.
+    const capW = scratchCap(ctx.canvas.width, ctx.canvas.height);
     const rw = Math.max(2, Math.min(Math.round(drawW), capW));
     const rh = Math.max(2, Math.round((rw * drawH) / Math.max(1, drawW)));
     const { canvas: fc, ctx: fctx } = getFx(rw, rh);
     fctx.save();
     fctx.setTransform(1, 0, 0, 1, 0, 0);
     fctx.clearRect(0, 0, rw, rh);
+    highQualityResample(fctx);
     fctx.filter = supportsFilter(ctx) ? fx.filter || 'none' : 'none';
     fctx.drawImage(source, sx, sy, cw, ch, 0, 0, rw, rh);
     fctx.filter = 'none';
     fctx.restore();
     if (fx.needsPixels) applyPixelOps(fc, fx, supportsFilter(ctx));
+    highQualityResample(outCtx);
     outCtx.drawImage(fc, -drawW / 2, -drawH / 2, drawW, drawH);
   } else {
     outCtx.drawImage(source, sx, sy, cw, ch, -drawW / 2, -drawH / 2, drawW, drawH);
@@ -417,6 +440,7 @@ function applyAdjustmentLayers(p: Project, t: number, ctx: Ctx2D) {
     const scratch = getFx(w, h);
     scratch.ctx.setTransform(1, 0, 0, 1, 0, 0);
     scratch.ctx.clearRect(0, 0, w, h);
+    highQualityResample(scratch.ctx);
     // CSS filters must be applied to the scratch copy even when a CPU pass is
     // also needed; otherwise brightness/contrast silently vanish on layers
     // that also contain temperature, grain or a LUT.
@@ -428,6 +452,7 @@ function applyAdjustmentLayers(p: Project, t: number, ctx: Ctx2D) {
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.globalAlpha = Math.max(0, Math.min(1, c.transform?.opacity ?? 1));
     if (c.blendMode && c.blendMode !== 'normal') ctx.globalCompositeOperation = c.blendMode;
+    highQualityResample(ctx);
     ctx.drawImage(scratch.canvas, 0, 0);
     ctx.restore();
   }
@@ -494,6 +519,7 @@ export function renderFrame(p: Project, t: number, ctx: Ctx2D, resolver: MediaRe
   const s = cw / p.settings.width;
   ctx.save();
   ctx.setTransform(1, 0, 0, 1, 0, 0);
+  highQualityResample(ctx);
   ctx.fillStyle = p.settings.background || '#000';
   ctx.fillRect(0, 0, cw, chh);
   ctx.scale(s, s);

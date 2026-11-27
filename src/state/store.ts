@@ -8,6 +8,7 @@ import { create } from 'zustand';
 import {
   History, MediaPool, createProject, diffProjects,
   projectDuration, uid, getMedia, applyActions, encodeWAV,
+  probeAudioTracks, audioBufferKey, decodeMp4AudioTrack,
   type Project, type Action, type Clip, type MediaAsset, type Aspect, type ProjectDiff,
 } from '../../engine';
 import { runTool, type ToolResult } from '../../tools/registry';
@@ -441,6 +442,14 @@ export const useStore = create<State>()((set, get) => {
             const meta = await probeMedia(file, type);
             asset.duration = meta.duration; asset.width = meta.width; asset.height = meta.height;
             asset.hasAudio = type === 'audio' ? true : meta.hasAudio;
+            // Header-only MP4 scan: exposes every language track without
+            // loading the movie payload. Old single-track projects are
+            // unaffected (the field simply stays absent).
+            const tracks = await probeAudioTracks(file, file.name);
+            if (tracks?.length) {
+              asset.audioTracks = tracks;
+              asset.hasAudio = true;
+            }
           } else if (type === 'image') {
             const bmp = await createImageBitmap(file);
             asset.width = bmp.width; asset.height = bmp.height; bmp.close();
@@ -494,6 +503,10 @@ export const useStore = create<State>()((set, get) => {
           hasAudio: type === 'audio', blobKey: `media_${id}`,
           mime: file.type, size: blob.size, source: 'file',
         };
+        if (type === 'video') {
+          const tracks = await probeAudioTracks(file, name);
+          if (tracks?.length) { asset.audioTracks = tracks; asset.hasAudio = true; }
+        }
         await get().pool.register(asset, file);
         get().commit([{ type: 'add_media', asset }], `Add demo ${name}`);
         return id;
@@ -535,6 +548,8 @@ export const useStore = create<State>()((set, get) => {
         hasAudio: meta.hasAudio, blobKey: `media_${id}`,
         mime: 'video/mp4', size: file.size, source: 'file',
       };
+      const showcaseTracks = await probeAudioTracks(file, file.name);
+      if (showcaseTracks?.length) { asset.audioTracks = showcaseTracks; asset.hasAudio = true; }
       await get().pool.register(asset, file);
       get().commit([{ type: 'add_media', asset }], 'Add showcase sample');
       // The sample is vertical: match the canvas so it plays full-frame.
@@ -568,9 +583,19 @@ export const useStore = create<State>()((set, get) => {
       const clip = s.project.clips.find((c) => c.id === clipId);
       const asset = clip ? getMedia(s.project, clip.mediaId) : undefined;
       if (!clip || !asset) return 'no-clip';
-      const buffer = clip.mediaId ? s.pool.getBuffer(clip.mediaId) : undefined;
+      const trackId = clip.audioTrackId;
+      let buffer = clip.mediaId ? s.pool.getBuffer(clip.mediaId, trackId) : undefined;
+      // A selected language track may still be decoding (or not cached yet).
+      if (!buffer && trackId != null && clip.mediaId && asset.blobKey) {
+        s.pool.ensureTrackBuffer(clip.mediaId, trackId);
+        const blob = await getBlob(asset.blobKey);
+        if (blob) {
+          try { buffer = await decodeMp4AudioTrack(blob, trackId); }
+          catch { return 'undecodable'; }
+        }
+      }
       if (!buffer) {
-        return s.pool.decodeFailedFor(asset.id) ? 'undecodable' : 'no-buffer';
+        return s.pool.decodeFailedFor(asset.id, trackId) ? 'undecodable' : 'no-buffer';
       }
       const wav = encodeWAV(buffer);
       const id = uid('media');
@@ -578,7 +603,7 @@ export const useStore = create<State>()((set, get) => {
       await putBlob(blobKey, wav);
       const newAsset: MediaAsset = {
         id,
-        name: `${asset.name.replace(/\.[^.]+$/, '')} (audio).wav`,
+        name: `${asset.name.replace(/\.[^.]+$/, '')}${asset.audioTracks?.find((t) => t.id === trackId) ? ` (${asset.audioTracks.find((t) => t.id === trackId)!.language})` : ''} (audio).wav`,
         type: 'audio',
         duration: buffer.duration,
         width: 0, height: 0,

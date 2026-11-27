@@ -56,6 +56,14 @@ export function usePlayback() {
         const b = s.pool.getBuffer(m.id);
         if (b) buffers.set(m.id, b);
       }
+      // Explicitly selected tracks live under `mediaId#trackId`. Start their
+      // decode here too: a buffer that finishes late triggers the rebuild below.
+      for (const clip of s.project.clips) {
+        if (clip.audioTrackId == null || !clip.mediaId) continue;
+        s.pool.ensureTrackBuffer(clip.mediaId, clip.audioTrackId);
+        const b = s.pool.getBuffer(clip.mediaId, clip.audioTrackId);
+        if (b) buffers.set(`${clip.mediaId}#${clip.audioTrackId}`, b);
+      }
       try {
         const when = ctx.currentTime + 0.03;
         graphRef.current = buildAudioGraph(s.project, ctx, ctx.destination, buffers, {
@@ -71,6 +79,9 @@ export function usePlayback() {
         const track = s.project.tracks.find((t) => t.id === clip.trackId);
         const asset = getMedia(s.project, clip.mediaId);
         if (!trackAudible(s.project, track) || !asset || asset.type !== 'video') continue;
+        // A video element always plays the file's default track — never let it
+        // leak that audio when the clip selected a different language.
+        if (clip.audioTrackId != null) continue;
         const el = s.pool.elementFor(asset.id);
         if (el && s.pool.decodeFailedFor(asset.id)) {
           el.muted = false;
@@ -172,7 +183,7 @@ export function usePlayback() {
         // Every field the audio graph reads must be here: fades, keyframes,
         // speed ramps, DSP effects and pitch settings all change live sound.
         parts.push(JSON.stringify([
-          c.id, c.start, c.duration, c.volume, c.speed, c.mediaId, c.inPoint,
+          c.id, c.start, c.duration, c.volume, c.speed, c.mediaId, c.inPoint, c.audioTrackId,
           c.fades, c.speedPoints, c.preservePitch, c.reversed,
           c.keyframes.map((k) => [k.path, k.time, k.value]),
           c.effects.map((e) => [e.id, e.type, e.enabled, e.params]),

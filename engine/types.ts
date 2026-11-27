@@ -26,6 +26,21 @@ export interface GeneratorSpec {
   label?: string;
 }
 
+/** One audio track discovered in an ISO-BMFF file (MP4/MOV/M4A). */
+export interface AudioTrackInfo {
+  /** MP4 track id — stable within this file, used by the decoder. */
+  id: number;
+  /** 1-based position among the file's audio tracks (what the UI shows). */
+  index: number;
+  codec: string;
+  /** ISO 639-2 language code from the file, or 'und' when unlabelled. */
+  language: string;
+  channels: number;
+  sampleRate: number;
+  /** Average bitrate in kbps, when the file declares it. */
+  bitrate?: number;
+}
+
 export interface MediaAsset {
   id: string;
   name: string;
@@ -34,6 +49,10 @@ export interface MediaAsset {
   width: number;
   height: number;
   hasAudio: boolean;
+  /** Every audio track in an MP4/MOV/M4A file, when it exposes more than one.
+   * Absent for single-track files and formats mp4box cannot inspect — those
+   * keep the browser's normal whole-file audio decoding. */
+  audioTracks?: AudioTrackInfo[];
   /** IndexedDB blob key for file media; absent for generators. */
   blobKey?: string;
   mime?: string;
@@ -283,6 +302,9 @@ export interface Clip {
   reversed?: boolean;
   /** Keep the original pitch when the clip speed is changed (preview + export). */
   preservePitch?: boolean;
+  /** Selected audio track id from MediaAsset.audioTracks. Absent = the file's
+   * default mix (the pre-existing whole-file decode path). */
+  audioTrackId?: number;
   /** Shape mask applied to this clip in frame-normalized coordinates. */
   mask?: {
     shape: 'none' | 'rect' | 'ellipse' | 'polygon';

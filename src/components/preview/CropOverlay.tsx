@@ -89,6 +89,8 @@ export function CropOverlay({ scale }: { scale: number }) {
     if (canvas.height !== dh) canvas.height = dh;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
     ctx.clearRect(0, 0, dw, dh);
     ctx.fillStyle = '#0b0b0e';
     ctx.fillRect(0, 0, dw, dh);
@@ -227,7 +229,11 @@ export function CropOverlay({ scale }: { scale: number }) {
     const tr = { ...defaultTransform(), ...patchFromRect(rect) };
     actions.push({
       type: 'add_clip',
-      clip: { trackId, mediaId: clip.mediaId, start, duration, inPoint, fit: 'fill', name: `${clip.name || asset.name || 'Region'} · region`, transform: tr },
+      // Keep the clip's fit mode: 'fill' would stretch the extracted region
+      // whenever its aspect differs from the project frame. Cover/contain
+      // preserve the source pixels' proportions, so a small crop is only
+      // resampled, never distorted.
+      clip: { trackId, mediaId: clip.mediaId, start, duration, inPoint, fit: clip.fit ?? 'cover', audioTrackId: clip.audioTrackId, name: `${clip.name || asset.name || 'Region'} · region`, transform: tr },
     });
     s.commit(actions, 'Extract region as new clip', 'human');
     useUI.getState().toast('Region extracted as an independent clip on a video track', 'success');
@@ -235,6 +241,19 @@ export function CropOverlay({ scale }: { scale: number }) {
   };
 
   void frameTick;
+
+  // Honest resolution readout: a crop can only ever contain the pixels that
+  // were in the source rectangle. Showing the resampling factor makes it clear
+  // when the editor is magnifying real source detail versus merely stretching
+  // it (no AI detail is invented).
+  const nativeW = rect ? Math.max(1, Math.round(rect.w)) : 0;
+  const nativeH = rect ? Math.max(1, Math.round(rect.h)) : 0;
+  const fitMode = clip?.fit ?? 'cover';
+  const sampleScale = nativeW > 0 && nativeH > 0
+    ? fitMode === 'fill'
+      ? Math.max(W / nativeW, H / nativeH)
+      : (fitMode === 'contain' ? Math.min(W / nativeW, H / nativeH) : Math.max(W / nativeW, H / nativeH))
+    : 1;
 
   return (
     <>
@@ -249,7 +268,12 @@ export function CropOverlay({ scale }: { scale: number }) {
       />
       <div className="pointer-events-none absolute left-1.5 top-1.5 z-20 max-w-[calc(100%-0.75rem)] rounded-md border border-line bg-ink-950/85 px-1.5 py-0.5 text-[clamp(8px,2vw,10px)] leading-tight text-paper-dim">
         <span className="font-semibold text-signal">REGION</span>
-        <span className="ml-1 hidden min-[360px]:inline">drag the box or its handles</span>
+        {nativeW > 0 && (
+          <span className="ml-1" title="A crop keeps only the source pixels inside the box. Upscaling resamples them; it does not generate new detail. Choose a higher export resolution to give each source pixel more output pixels.">
+            {nativeW}×{nativeH}px → {W}×{H} · {sampleScale.toFixed(2)}× resample
+          </span>
+        )}
+        <span className="ml-1 hidden min-[500px]:inline">drag the box or its handles</span>
       </div>
       <div className="absolute bottom-1.5 left-1/2 z-20 flex max-w-[calc(100%-0.75rem)] -translate-x-1/2 flex-wrap items-center justify-center gap-1 rounded-lg border border-line bg-ink-950/90 px-1.5 py-1 shadow-panel">
         <button className="btn-ghost px-2 py-1 text-[clamp(9px,2.2vw,11px)] leading-tight" onClick={applyCrop} disabled={!rect || !size} title="Crop the original clip (non-destructive)">Apply Crop</button>

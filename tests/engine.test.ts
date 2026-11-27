@@ -9,8 +9,12 @@ import type { MediaAsset, Project } from '../engine/types';
 /* Recording canvas: lets us verify renderer determinism in Node. */
 class FakeCtx {
   ops: string[] = [];
+  /** Resampling quality in force at each drawImage call. */
+  qualities: string[] = [];
   canvas: { width: number; height: number };
   filter = 'none'; globalAlpha = 1; fillStyle = ''; strokeStyle = ''; lineWidth = 1;
+  imageSmoothingEnabled = true;
+  imageSmoothingQuality = 'low';
   font = ''; textAlign = ''; textBaseline = ''; lineJoin = ''; lineCap = '';
   shadowColor = ''; shadowBlur = 0; shadowOffsetY = 0;
   constructor(c: { width: number; height: number }) { this.canvas = c; }
@@ -36,7 +40,7 @@ class FakeCtx {
   fill() { this.rec('fill', this.fillStyle); } stroke() { this.rec('stroke'); }
   fillText(t: string, ...a: number[]) { this.rec('fillText', t, ...a, this.fillStyle, this.font); }
   strokeText(t: string, ...a: number[]) { this.rec('strokeText', t, ...a); }
-  drawImage(_src: unknown, ...a: number[]) { this.rec('drawImage', ...a); }
+  drawImage(_src: unknown, ...a: number[]) { this.qualities.push(this.imageSmoothingQuality); this.rec('drawImage', ...a); }
   measureText(t: string) { return { width: t.length * 10 }; }
   createLinearGradient(...a: number[]) { this.rec('lg', ...a); return { addColorStop: (o: number, c: string) => this.rec('stop', o, c) }; }
   createRadialGradient(...a: number[]) { this.rec('rg', ...a); return { addColorStop: (o: number, c: string) => this.rec('stop', o, c) }; }
@@ -399,6 +403,28 @@ describe('region crop / extraction', () => {
     expect(extracted.transform.cropT).toBeCloseTo(0.2);
     expect(original.transform.cropL).toBe(0); // original not modified
     expect(p.tracks.find((t) => t.id === newTrack)?.kind).toBe('video');
+  });
+
+  it('crops are resampled with high-quality smoothing, never default bilinear', () => {
+    let p = baseProject();
+    p = applyAction(p, { type: 'set_transform', clipId: p.clips[0].id, patch: { cropL: 0.25, cropR: 0.25, cropT: 0.1, cropB: 0.2 } });
+    const c = new FakeOffscreen(p.settings.width, p.settings.height);
+    renderFrame(p, 2, c.getContext() as any, null);
+    expect(c.ctx.qualities.length).toBeGreaterThan(0);
+    expect(c.ctx.qualities.every((q) => q === 'high')).toBe(true);
+  });
+
+  it('effect scratch keeps at least output resolution (no 1600px detail loss)', () => {
+    let p = baseProject();
+    const id = p.clips[0].id;
+    p = applyAction(p, { type: 'set_transform', clipId: id, patch: { cropL: 0.25, cropR: 0.25, cropT: 0.1, cropB: 0.2 } });
+    p = applyAction(p, { type: 'add_effect', clipId: id, effect: { id: 'fx1', type: 'sharpen', enabled: true, params: { amount: 0.5 } } as any });
+    FakeOffscreen.all = [];
+    const c = new FakeOffscreen(p.settings.width, p.settings.height);
+    renderFrame(p, 2, c.getContext() as any, null);
+    // The scratch canvas must never rasterize the cropped source below the
+    // frame it is composited into (the old hard-coded 1600 cap did).
+    expect(FakeOffscreen.all.some((o) => o !== c && o.width >= p.settings.width)).toBe(true);
   });
 
   it('auto-create-track + move is one undoable group with a shared track id', () => {

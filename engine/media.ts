@@ -6,6 +6,7 @@
  */
 import type { Clip, MediaAsset } from './types';
 import { sourceTimeOf, speedAtLocal } from './types';
+import { audioBufferKey, decodeMp4AudioTrack } from './audioTracks';
 
 export interface MediaResolver {
   /** Synchronous: returns the best currently-available frame source, or null.
@@ -35,8 +36,12 @@ export class MediaPool implements MediaResolver {
   private images = new Map<string, ImageBitmap>();
   private buffers = new Map<string, AudioBuffer>();
   private assets = new Map<string, MediaAsset>();
+  /** Source blobs kept so an alternate track can be decoded on first use. */
+  private blobs = new Map<string, Blob>();
+  private trackPending = new Set<string>();
   private audioCtx: AudioContext | null = null;
-  /** Media ids whose audio the browser could not decode (e.g. AC3 in MP4). */
+  /** Buffer keys whose audio the browser could not decode (e.g. AC3 in MP4,
+   * or an alternate WebCodecs track this browser cannot handle). */
   private decodeFailed = new Set<string>();
   onFrameReady: (() => void) | null = null;
   onBufferReady: ((mediaId: string) => void) | null = null;
@@ -48,6 +53,7 @@ export class MediaPool implements MediaResolver {
 
   async register(asset: MediaAsset, blob?: Blob): Promise<void> {
     this.assets.set(asset.id, asset);
+    if (blob) this.blobs.set(asset.id, blob);
     if (asset.type === 'video' && blob) {
       const url = URL.createObjectURL(blob);
       const el = document.createElement('video');
@@ -98,13 +104,29 @@ export class MediaPool implements MediaResolver {
     }
   }
 
-  getBuffer(mediaId: string): AudioBuffer | undefined {
-    return this.buffers.get(mediaId);
+  /** `trackId` omitted = the file's default mix; given = one decoded track. */
+  getBuffer(mediaId: string, trackId?: number): AudioBuffer | undefined {
+    return this.buffers.get(audioBufferKey(mediaId, trackId));
   }
 
   /** True when this media's audio exists but the browser cannot decode it. */
-  decodeFailedFor(mediaId: string): boolean {
-    return this.decodeFailed.has(mediaId);
+  decodeFailedFor(mediaId: string, trackId?: number): boolean {
+    return this.decodeFailed.has(audioBufferKey(mediaId, trackId));
+  }
+
+  /** Decode an explicitly selected MP4 audio track on first use. The result is
+   * cached under `mediaId#trackId`, so switching back and forth is instant.
+   * Failures are recorded instead of falling back to another language. */
+  ensureTrackBuffer(mediaId: string, trackId: number): void {
+    const key = audioBufferKey(mediaId, trackId);
+    if (this.buffers.has(key) || this.trackPending.has(key) || this.decodeFailed.has(key)) return;
+    const blob = this.blobs.get(mediaId);
+    if (!blob) return;
+    this.trackPending.add(key);
+    void decodeMp4AudioTrack(blob, trackId)
+      .then((buf) => { this.buffers.set(key, buf); this.onBufferReady?.(key); })
+      .catch(() => { this.decodeFailed.add(key); this.onBufferReady?.(key); })
+      .finally(() => { this.trackPending.delete(key); });
   }
 
   /** The live preview <video> element for a media asset, if any. */

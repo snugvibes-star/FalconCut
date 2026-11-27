@@ -3,7 +3,7 @@ import { Plus, Trash2, Diamond, Lock, Unlock, Sparkles, RotateCcw, X, Palette } 
 import { useStore } from '../state/store';
 import { useUI } from '../state/ui';
 import { MaskPolygonEditor, type MaskPoint } from './MaskPolygonEditor';
-import { resolvedTransform, clipVolumeAt, getMedia, COLOR_PRESETS, BLEND_MODES, TRANSITION_TYPES, speedPointsOf, avgSpeed, parseCube, type Clip, type Effect, type EffectType, type Easing, type Transform, type Transition, type Aspect, type Action, type BlendMode, type SpeedPoint, ASPECT_SIZES } from '../../engine';
+import { resolvedTransform, clipVolumeAt, getMedia, audioTrackLabel, canDecodeAlternateAudio, COLOR_PRESETS, BLEND_MODES, TRANSITION_TYPES, speedPointsOf, avgSpeed, parseCube, type Clip, type Effect, type EffectType, type Easing, type Transform, type Transition, type Aspect, type Action, type BlendMode, type SpeedPoint, ASPECT_SIZES } from '../../engine';
 
 const EASINGS: Easing[] = ['linear', 'easeIn', 'easeOut', 'easeInOut', 'easeOutBack', 'easeOutExpo'];
 
@@ -421,10 +421,41 @@ export function Inspector() {
             <Slider label="Volume" value={clip.volume} min={0} max={2} step={0.01} fmt={(v) => `${Math.round(v * 100)}%`} onChange={(v) => set([{ type: 'set_clip_props', clipId: id, patch: { volume: v } }], 'Volume', `${id}:vol`)} />
             <Slider label="Fade in" value={clip.fades.in} min={0} max={3} step={0.05} fmt={(v) => `${v.toFixed(2)}s`} onChange={(v) => set([{ type: 'set_fades', clipId: id, fadeIn: v }], 'Fade in', `${id}:fi`)} />
             <Slider label="Fade out" value={clip.fades.out} min={0} max={3} step={0.05} fmt={(v) => `${v.toFixed(2)}s`} onChange={(v) => set([{ type: 'set_fades', clipId: id, fadeOut: v }], 'Fade out', `${id}:fo`)} />
+            {asset && asset.type === 'video' && !!asset.audioTracks?.length && (
+              <div className="pt-1.5">
+                <label className="block text-[10px] uppercase tracking-wide text-paper-faint" htmlFor={`audio-track-${id}`}>Audio track</label>
+                <select
+                  id={`audio-track-${id}`}
+                  className="field mt-0.5 w-full cursor-pointer text-[11px]"
+                  value={clip.audioTrackId ?? 'default'}
+                  onChange={(e) => {
+                    const value = e.target.value;
+                    const trackId = value === 'default' ? undefined : Number(value);
+                    set([{ type: 'set_clip_props', clipId: id, patch: { audioTrackId: trackId } }], 'Audio track', `${id}:track`);
+                    if (trackId != null) useStore.getState().pool.ensureTrackBuffer(asset.id, trackId);
+                  }}
+                >
+                  <option value="default">Default mix (file's first track)</option>
+                  {asset.audioTracks.map((t) => (
+                    <option key={t.id} value={t.id} disabled={!canDecodeAlternateAudio()}>
+                      {audioTrackLabel(t)}{canDecodeAlternateAudio() ? '' : ' — needs WebCodecs'}
+                    </option>
+                  ))}
+                </select>
+                <p className="mt-0.5 text-[10px] leading-snug text-paper-faint">
+                  All languages found in this file are listed. The choice is per clip, so the same movie can use different languages at different points. Preview and export use the selected track; unmute-by-element fallback stays off for a selected track.
+                </p>
+                {!canDecodeAlternateAudio() && clip.audioTrackId != null && (
+                  <p className="mt-0.5 text-[10px] leading-snug text-signal" title="WebCodecs AudioDecoder is unavailable in this browser">
+                    This browser cannot decode a selected track — this clip will be silent. Choose “Default mix” or use a browser with WebCodecs.
+                  </p>
+                )}
+              </div>
+            )}
             {asset && asset.type === 'video' && (
               <div className="pt-1">
                 <button className="btn-ghost text-[11px] px-2 py-1 w-full justify-center"
-                  title="Detach this video's audio to its own audio clip (original is muted)"
+                  title="Detach the selected audio track to its own audio clip (original is muted)"
                   onClick={() => {
                     const s = useStore.getState();
                     void s.extractAudio(id).then((status) => {

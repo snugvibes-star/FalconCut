@@ -28,7 +28,7 @@ export type Action =
   | { type: 'set_speed'; clipId: string; speed: number }
   | { type: 'set_speed_ramp'; clipId: string; points: SpeedPoint[] }
   | { type: 'set_transform'; clipId: string; patch: Partial<Transform> }
-  | { type: 'set_clip_props'; clipId: string; patch: Partial<Pick<Clip, 'volume' | 'fit' | 'label' | 'name' | 'locked' | 'groupId' | 'blendMode' | 'reversed' | 'preservePitch' | 'mask'>> }
+  | { type: 'set_clip_props'; clipId: string; patch: Partial<Pick<Clip, 'volume' | 'fit' | 'label' | 'name' | 'locked' | 'groupId' | 'blendMode' | 'reversed' | 'preservePitch' | 'mask' | 'audioTrackId'>> }
   | { type: 'set_fades'; clipId: string; fadeIn?: number; fadeOut?: number }
   | { type: 'add_effect'; clipId: string; effect: Partial<Effect> & { type: Effect['type'] } }
   | { type: 'remove_effect'; clipId: string; effectId: string }
@@ -84,7 +84,7 @@ export const ACTION_SCHEMA: Record<Action['type'], string> = {
   set_speed: 'Change playback speed (0.25..4). Duration adjusts automatically; pitch is preserved on export. Clears any speed ramp.',
   set_speed_ramp: 'Time remap: piecewise-linear speed curve. points = [{t, speed}] with t in clip-local seconds, speed 0.1..8. Video is truly remapped; audio under a ramp plays at the ramp average speed. Media clips only.',
   set_transform: 'Set position x/y (px from center), scale (1=fit), rotation (deg), opacity (0..1), crop fractions.',
-  set_clip_props: 'Set volume (linear gain), fit mode, color label, name, lock, group, blendMode (normal/multiply/screen/overlay/darken/lighten/color-dodge/color-burn/hard-light/soft-light/difference/exclusion/hue/saturation/color/luminosity), reversed (play the source backward).',
+  set_clip_props: 'Set volume (linear gain), fit mode, color label, name, lock, group, blendMode (normal/multiply/screen/overlay/darken/lighten/color-dodge/color-burn/hard-light/soft-light/difference/exclusion/hue/saturation/color/luminosity), reversed (play the source backward), audioTrackId (select one audio language track from the media; omit to use the file default).',
   set_fades: 'Audio+video fade in/out seconds. Tiny 0.015s fades at cuts prevent audio pops.',
   add_effect: 'Add an effect: color, blur, sharpen, vignette, chromaKey, eq, gate, deess, denoise.',
   remove_effect: 'Remove an effect by id.',
@@ -173,6 +173,8 @@ function normalizeClip(p: Project, partial: Partial<Clip> & { trackId: string; s
     drawing: partial.drawing,
     speedPoints: partial.speedPoints,
     reversed: partial.reversed ?? false,
+    preservePitch: partial.preservePitch,
+    audioTrackId: partial.audioTrackId,
     blendMode: partial.blendMode,
     transitionIn: partial.transitionIn,
     transitionOut: partial.transitionOut,

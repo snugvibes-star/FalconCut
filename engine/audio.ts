@@ -7,6 +7,7 @@
 import type { Clip, Project, Track } from './types';
 import { getMedia, avgSpeed, sourceTimeOf } from './types';
 import { clipVolumeAt } from './render';
+import { audioBufferKey } from './audioTracks';
 
 /**
  * Is this track's audio audible right now?
@@ -81,7 +82,12 @@ export function buildAudioGraph(
     if (!track || !trackAudible(p, track)) continue;
     const asset = getMedia(p, clip.mediaId);
     if (!asset) continue;
-    const buffer = clip.mediaId ? buffers.get(clip.mediaId) : undefined;
+    // Per-clip track choice: the same source can use Hindi in one clip and
+    // English in another. Never silently fall back to the default mix when a
+    // track was explicitly chosen — that would play the wrong language.
+    const buffer = clip.mediaId
+      ? buffers.get(audioBufferKey(clip.mediaId, clip.audioTrackId))
+      : undefined;
     // Buffer presence is ground truth. The hasAudio flag comes from best-effort
     // probing and is often false for videos that DO have audio tracks (Chromium
     // reports 0 decoded audio bytes until an element plays) — trusting it here

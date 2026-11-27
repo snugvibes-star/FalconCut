@@ -1,5 +1,6 @@
 import { getMedia, projectDuration, type Project } from '../engine/types';
 import { buildAudioGraph } from '../engine/audio';
+import { audioBufferKey, decodeMp4AudioTrack } from '../engine/audioTracks';
 import { renderFrame } from '../engine/render';
 import { abortable, type BlobLoader } from './lifecycle';
 import { collectFrameRequests, frameKey, ExportFrameResolver, prepareExportFonts } from './frames';
@@ -48,7 +49,17 @@ export async function mixProjectAudio(project: Project, loadBlob: BlobLoader): P
   // silently produced video with NO audio because video.ts swallowed the error.
   const decoder = new OfflineAudioContext(1, 1, sr);
   const buffers = new Map<string, AudioBuffer>();
-  const ids = new Set(project.clips.filter((c) => !project.tracks.find((t) => t.id === c.trackId)?.muted).map((c) => c.mediaId));
+  const audibleClips = project.clips.filter((c) => !project.tracks.find((t) => t.id === c.trackId)?.muted);
+  const ids = new Set(audibleClips.map((c) => c.mediaId));
+  // Explicitly chosen tracks must be decoded separately: the browser's
+  // decodeAudioData always picks the file's default track.
+  const chosenTracks = new Map<string, Set<number>>();
+  for (const c of audibleClips) {
+    if (c.audioTrackId == null || !c.mediaId) continue;
+    const set = chosenTracks.get(c.mediaId) ?? new Set<number>();
+    set.add(c.audioTrackId);
+    chosenTracks.set(c.mediaId, set);
+  }
   for (const asset of project.media) {
     if (!ids.has(asset.id)) continue;
     if (asset.type === 'generator' || !asset.blobKey) continue;
@@ -56,6 +67,16 @@ export async function mixProjectAudio(project: Project, loadBlob: BlobLoader): P
     if (!blob) throw new Error(`Missing source audio: ${asset.name}. Reimport the file.`);
     try { buffers.set(asset.id, await decoder.decodeAudioData(await blob.arrayBuffer())); }
     catch { /* no decodable audio in this container — fine for images/silent video */ }
+    for (const trackId of chosenTracks.get(asset.id) ?? []) {
+      const key = audioBufferKey(asset.id, trackId);
+      if (buffers.has(key)) continue;
+      try {
+        buffers.set(key, await decodeMp4AudioTrack(blob, trackId));
+      } catch (e) {
+        // Fail loudly instead of exporting the wrong language silently.
+        throw new Error(`Selected audio track ${trackId} of "${asset.name}" could not be decoded: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    }
   }
   const CHUNK = 120; // seconds per offline render
   const PREROLL = 2.5; // seconds of overlap so delay/compressor tails carry across chunks

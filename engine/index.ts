@@ -6,6 +6,7 @@ export * from './easing';
 export * from './render';
 export * from './media';
 export * from './audio';
+export * from './audioTracks';
 export * from './captions';
 export * from './subtitles';
 export * from './effects';
