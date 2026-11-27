@@ -31,7 +31,11 @@ export function ToolRunner({ toolName, onClose }: { toolName: string; onClose: (
     setBusy('apply');
     try {
       const r = await useStore.getState().applyTool(toolName, params);
-      ui.toast(r.summary || `${toolName} applied`, 'success');
+      if (r.warnings?.length && (!r.actions.length || toolName === 'ui_action')) {
+        ui.toast(r.warnings[0], 'error');
+        return;
+      }
+      ui.toast(r.summary || `${toolName} applied`, r.actions.length ? 'success' : 'info');
       onClose();
     } catch (e) { ui.toast((e as Error).message, 'error'); }
     finally { setBusy(null); }

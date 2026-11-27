@@ -6,7 +6,7 @@
   "description": "A modern video editor built for human creators and AI agents. Create, edit, automate, and export videos with a powerful professional editing workflow.",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build",
+    "build": "npm run manifest && tsc -b && vite build",
     "preview": "vite preview",
     "serve": "node scripts/serve.mjs",
     "test": "vitest run",

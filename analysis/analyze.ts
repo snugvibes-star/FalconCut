@@ -4,6 +4,7 @@
  * Transcription is optional (needs a one-time model download).
  */
 import type { Analysis, MediaAnalysis, MediaAsset, Project } from '../engine/types';
+import { LARGE_MEDIA_BYTES, LONG_MEDIA_SECONDS } from '../engine/types';
 import { analyzeAudio, detectSilences } from './audioAnalysis';
 import { analyzeFrames } from './frames';
 import { detectFillers, detectRetakes, extractKeywords, textEmphasis } from './textAnalysis';
@@ -66,9 +67,14 @@ export async function analyzeMedia(
     return ma;
   }
 
+  // A 2-hour soundtrack needs gigabytes of PCM. Never try to decode it for
+  // analysis: keep the movie editable and say why the analysis is sparse.
+  const tooLong = asset.duration > LONG_MEDIA_SECONDS || (blob?.size ?? 0) > LARGE_MEDIA_BYTES;
+  if (tooLong) flags.push('long file: full audio/frame analysis skipped (native preview audio still plays)');
+
   // Audio
   let audioBuffer: AudioBuffer | null = null;
-  if (blob && (asset.type === 'audio' || asset.hasAudio)) {
+  if (!tooLong && blob && (asset.type === 'audio' || asset.hasAudio)) {
     onProgress('audio', 0.05, 'Decoding audio');
     audioBuffer = await decodeBlob(blob);
     if (audioBuffer) {
@@ -89,7 +95,7 @@ export async function analyzeMedia(
   onProgress('audio', 1);
 
   // Frames (video only)
-  if (asset.type === 'video' && blob) {
+  if (asset.type === 'video' && blob && !tooLong) {
     try {
       const fr = await analyzeFrames(asset, blob, (p) => onProgress('frames', p));
       ma.scenes = fr.scenes;

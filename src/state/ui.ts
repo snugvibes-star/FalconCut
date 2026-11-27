@@ -212,8 +212,8 @@ export const useUI = create<UIState>((set, get) => ({
   toggle: (d) => set((s) => ({ dialogs: { ...s.dialogs, [d]: !s.dialogs[d] } })),
   toast: (text, kind = 'info') => {
     const id = uid('toast');
-    set((s) => ({ toasts: [...s.toasts, { id, text, kind }].slice(-4) }));
-    setTimeout(() => get().dismiss(id), 4200);
+    set((s) => ({ toasts: [...s.toasts, { id, text, kind }].slice(-2) }));
+    setTimeout(() => get().dismiss(id), 3200);
   },
   dismiss: (id) => set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) })),
 }));

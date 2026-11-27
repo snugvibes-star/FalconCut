@@ -3,7 +3,7 @@ import { produce } from 'immer';
 import { createProject, applyActions, projectDuration, uid } from '../engine';
 import type { MediaAsset, MediaAnalysis, Project, TranscriptWord } from '../engine/types';
 import { validateActions, type Action } from '../engine/actions';
-import { runTool, TOOLS, toolManifest } from '../tools/registry';
+import { runTool, TOOLS, toolManifest, toolsPromptText, uiCommandCatalog } from '../tools/registry';
 import { lintProject } from '../quality/lint';
 import { effectivePack, parseNote, rulesFromNote } from '../styles/rules';
 import { BUILT_IN_PACKS, getPack } from '../styles/packs';
@@ -70,6 +70,23 @@ function fixture(): Project {
   return p;
 }
 
+describe('caption provenance', () => {
+  it('regeneration removes only AI captions, never hand-typed ones', async () => {
+    const base = fixture();
+    const trackId = base.tracks.find((t) => t.kind === 'text')!.id;
+    const p = applyActions(base, [
+      { type: 'add_text', trackId, start: 1, duration: 2, text: 'manual', role: 'caption', source: 'manual' },
+      { type: 'add_text', trackId, start: 3, duration: 2, text: 'generated', role: 'caption', source: 'ai' },
+    ]);
+    const manual = p.clips.find((c) => c.text?.text === 'manual')!;
+    const generated = p.clips.find((c) => c.text?.text === 'generated')!;
+    const r = await runTool(p, 'add_captions', {});
+    const removed = r.actions.filter((a) => a.type === 'remove_clip').map((a: any) => a.clipId);
+    expect(removed).toContain(generated.id);
+    expect(removed).not.toContain(manual.id);
+  });
+});
+
 describe('tool registry', () => {
   it('exposes a manifest with descriptions + examples for every tool', () => {
     const m = toolManifest();
@@ -78,6 +95,25 @@ describe('tool registry', () => {
       expect(t.description.length).toBeGreaterThan(20);
       expect(t.example.input).toBeDefined();
     }
+  });
+
+  it('advertises human labels, groups and visible UI commands to agents', () => {
+    const m = toolManifest();
+    expect(m.length).toBe(TOOLS.length);
+    for (const t of m) {
+      expect(typeof t.label).toBe('string');
+      expect(t.label!.length).toBeGreaterThan(0);
+      expect(t.group).toBeTruthy();
+      expect(Array.isArray(t.aliases)).toBe(true);
+    }
+    const prompt = toolsPromptText();
+    expect(prompt).toContain('human label');
+    expect(prompt).toContain('VISIBLE EDITOR COMMANDS');
+    expect(uiCommandCatalog().some((c) => c.id === 'undo')).toBe(true);
+  });
+
+  it('includes the UI control tool for human command labels', () => {
+    expect(TOOLS.some((t) => t.name === 'ui_action' && t.kind === 'control')).toBe(true);
   });
 
   it('rejects unknown tools with a helpful error', async () => {

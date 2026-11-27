@@ -144,17 +144,26 @@ export function drawCaption(
   let dy = 0;
   let dx = 0;
   const anim = style.animation;
-  if (anim === 'fade' || anim === 'fade-in') alpha = Math.min(1, localT / 0.15);
-  if (anim === 'fade-out') alpha = Math.min(1, (duration - localT) / 0.15);
-  if (anim === 'pop') { scale = 0.6 + 0.4 * ease('easeOutBack', localT / 0.22); alpha = Math.min(1, localT / 0.08); }
-  if (anim === 'rise' || anim === 'slide') { dy = (1 - ease('easeOutExpo', localT / 0.3)) * fontSize * 0.8; alpha = Math.min(1, localT / 0.12); }
-  if (anim === 'zoom') { scale = 0.5 + 0.5 * ease('easeOutExpo', localT / 0.3); alpha = Math.min(1, localT / 0.1); }
-  if (anim === 'bounce') { scale = 0.4 + 0.6 * ease('easeOutBack', localT / 0.4); alpha = Math.min(1, localT / 0.06); }
-  if (anim === 'blur') { alpha = Math.min(1, localT / 0.25); }
-  if (anim === 'glitch') { dx = Math.sin(localT * 90) * fontSize * 0.06 * (1 - clamp01(localT / 0.4)); alpha = Math.min(1, localT / 0.05); }
-  if (anim === 'wave') { dy = Math.sin(localT * 6) * fontSize * 0.05; }
-  if (anim === 'shake') { dx = Math.sin(localT * 70) * fontSize * 0.03; dy = Math.cos(localT * 60) * fontSize * 0.02; }
-  if (anim === 'pulse') { scale = 1 + Math.sin(localT * 4) * 0.03; }
+  // "Animation detail" controls now really drive the renderer: duration,
+  // delay, speed and easing apply to every entrance animation.
+  const motion = style.motion;
+  const mdur = Math.max(0.01, motion?.duration ?? 0.3);
+  const mdelay = Math.max(0, motion?.delay ?? 0);
+  const mspeed = Math.max(0.1, motion?.speed ?? 1);
+  const easing = motion?.easing ?? 'easeOutExpo';
+  const mt = clamp01(((localT - mdelay) / mdur) * mspeed);
+  const at = clamp01(localT / Math.max(0.01, mdur * 0.35));
+  if (anim === 'fade' || anim === 'fade-in') alpha = mt;
+  if (anim === 'fade-out') alpha = clamp01((duration - localT - mdelay) / mdur);
+  if (anim === 'pop') { scale = 0.6 + 0.4 * ease(easing, mt); alpha = at; }
+  if (anim === 'rise' || anim === 'slide') { dy = (1 - ease(easing, mt)) * fontSize * 0.8; alpha = at; }
+  if (anim === 'zoom') { scale = 0.5 + 0.5 * ease(easing, mt); alpha = at; }
+  if (anim === 'bounce') { scale = 0.4 + 0.6 * ease(easing, mt); alpha = at; }
+  if (anim === 'blur') { alpha = mt; }
+  if (anim === 'glitch') { dx = Math.sin(localT * 90 * mspeed) * fontSize * 0.06 * (1 - clamp01(localT / mdur)); alpha = at; }
+  if (anim === 'wave') { dy = Math.sin(localT * 6 * mspeed) * fontSize * 0.05; }
+  if (anim === 'shake') { dx = Math.sin(localT * 70 * mspeed) * fontSize * 0.03; dy = Math.cos(localT * 60 * mspeed) * fontSize * 0.02; }
+  if (anim === 'pulse') { scale = 1 + Math.sin(localT * 4 * mspeed) * 0.03; }
   if (anim === 'typewriter') alpha = 1;
   alpha = clamp01(alpha) * (style.textOpacity ?? 1);
   if (alpha <= 0.01) return;

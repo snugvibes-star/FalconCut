@@ -225,7 +225,7 @@ export function CommandPalette() {
     ['Alt + Space', 'Loop the zone'],
     ['← / →', 'Step 0.1s (Shift + ←/→ steps one frame)'],
     ['Delete', 'Ripple delete selected'],
-    ['Esc', 'Close menu → clear selection → clear zone → theater'],
+    ['Esc', 'Close menu → clear selection → clear zone → exit theater'],
     ['Ctrl + S', 'Save a checkpoint now (Versions)'],
   ];
   const shortcuts: [string, string][] = [

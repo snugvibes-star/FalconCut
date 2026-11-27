@@ -38,7 +38,7 @@ export type Action =
   | { type: 'update_keyframe'; clipId: string; keyframeId: string; time?: number; value?: number; easing?: Keyframe['easing'] }
   | { type: 'remove_keyframe'; clipId: string; keyframeId: string }
   | { type: 'clear_keyframes'; clipId: string; path?: string }
-  | { type: 'add_text'; trackId?: string; start: number; duration: number; text: string; style?: Partial<TextData['style']>; words?: TextData['words']; role?: TextData['role']; preset?: TextData['style']['preset'] }
+  | { type: 'add_text'; trackId?: string; start: number; duration: number; text: string; style?: Partial<TextData['style']>; words?: TextData['words']; role?: TextData['role']; source?: TextData['source']; preset?: TextData['style']['preset'] }
   | { type: 'set_text'; clipId: string; text?: string; words?: TextData['words'] }
   | { type: 'set_text_style'; clipId: string; patch: Partial<TextData['style']> }
   | { type: 'add_motif'; trackId?: string; start: number; duration: number; motif: MotifData }
@@ -491,7 +491,7 @@ export function applyAction(project: Project, action: Action): Project {
         const style = { ...defaultTextStyle(preset), ...(action.style ?? {}) };
         p.clips.push(normalizeClip(p, {
           trackId, start: action.start, duration: action.duration, kind: 'text',
-          text: { text: action.text, style, words: action.words, role: action.role ?? 'caption' },
+          text: { text: action.text, style, words: action.words, role: action.role ?? 'caption', source: action.source },
         }));
         break;
       }

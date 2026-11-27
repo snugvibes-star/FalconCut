@@ -3,7 +3,7 @@ import { Plus, Trash2, Diamond, Lock, Unlock, Sparkles, RotateCcw, X, Palette } 
 import { useStore } from '../state/store';
 import { useUI } from '../state/ui';
 import { MaskPolygonEditor, type MaskPoint } from './MaskPolygonEditor';
-import { resolvedTransform, clipVolumeAt, getMedia, audioTrackLabel, canDecodeAlternateAudio, COLOR_PRESETS, BLEND_MODES, TRANSITION_TYPES, speedPointsOf, avgSpeed, parseCube, type Clip, type Effect, type EffectType, type Easing, type Transform, type Transition, type Aspect, type Action, type BlendMode, type SpeedPoint, ASPECT_SIZES } from '../../engine';
+import { resolvedTransform, clipVolumeAt, getMedia, audioStreamLabel, canDecodeAlternateAudio, COLOR_PRESETS, BLEND_MODES, TRANSITION_TYPES, speedPointsOf, avgSpeed, parseCube, type Clip, type Effect, type EffectType, type Easing, type Transform, type Transition, type Aspect, type Action, type BlendMode, type SpeedPoint, ASPECT_SIZES } from '../../engine';
 
 const EASINGS: Easing[] = ['linear', 'easeIn', 'easeOut', 'easeInOut', 'easeOutBack', 'easeOutExpo'];
 
@@ -141,6 +141,7 @@ export const EFFECT_DEFAULTS: Record<string, Record<string, number | string | bo
   blur: { amount: 4 },
   sharpen: { amount: 0.5 },
   vignette: { amount: 0.5 },
+  pixelate: { amount: 8 }, noise: { amount: 0.15 }, rgbSplit: { amount: 4 }, glow: { amount: 0.4 },
   chromaKey: { color: '#00FF00', tolerance: 0.28, softness: 0.12 },
   eq: { highpass: 80, lowpass: 0, gain: 0 },
   gate: { thresholdDb: -45 },
@@ -165,7 +166,7 @@ const RANGES: Record<string, [number, number, number]> = {
 const TRANSITIONS: Transition['type'][] = [...TRANSITION_TYPES];
 const ANIMATIONS = ['none', 'pop', 'fade', 'rise', 'typewriter'] as const;
 const PRESETS = ['clean', 'karaoke', 'bold-keywords', 'word-pop'] as const;
-const VISUAL_EFFECTS: EffectType[] = ['blur', 'sharpen', 'vignette', 'chromaKey', 'negate', 'normalize'];
+const VISUAL_EFFECTS: EffectType[] = ['blur', 'sharpen', 'vignette', 'chromaKey', 'negate', 'normalize', 'pixelate', 'noise', 'rgbSplit', 'glow'];
 const AUDIO_EFFECTS: EffectType[] = ['eq', 'gate', 'deess', 'denoise', 'compressor', 'limiter', 'echo', 'pan'];
 const COLOR_PARAMS = ['brightness', 'contrast', 'saturation', 'temperature'] as const;
 
@@ -421,9 +422,9 @@ export function Inspector() {
             <Slider label="Volume" value={clip.volume} min={0} max={2} step={0.01} fmt={(v) => `${Math.round(v * 100)}%`} onChange={(v) => set([{ type: 'set_clip_props', clipId: id, patch: { volume: v } }], 'Volume', `${id}:vol`)} />
             <Slider label="Fade in" value={clip.fades.in} min={0} max={3} step={0.05} fmt={(v) => `${v.toFixed(2)}s`} onChange={(v) => set([{ type: 'set_fades', clipId: id, fadeIn: v }], 'Fade in', `${id}:fi`)} />
             <Slider label="Fade out" value={clip.fades.out} min={0} max={3} step={0.05} fmt={(v) => `${v.toFixed(2)}s`} onChange={(v) => set([{ type: 'set_fades', clipId: id, fadeOut: v }], 'Fade out', `${id}:fo`)} />
-            {asset && asset.type === 'video' && !!asset.audioTracks?.length && (
+            {asset && asset.type === 'video' && (asset.audioTracks?.length ?? 0) > 1 && (
               <div className="pt-1.5">
-                <label className="block text-[10px] uppercase tracking-wide text-paper-faint" htmlFor={`audio-track-${id}`}>Audio track</label>
+                <label className="block text-[10px] uppercase tracking-wide text-paper-faint" htmlFor={`audio-track-${id}`}>Audio streams</label>
                 <select
                   id={`audio-track-${id}`}
                   className="field mt-0.5 w-full cursor-pointer text-[11px]"
@@ -435,18 +436,18 @@ export function Inspector() {
                     if (trackId != null) useStore.getState().pool.ensureTrackBuffer(asset.id, trackId);
                   }}
                 >
-                  <option value="default">Default mix (file's first track)</option>
-                  {asset.audioTracks.map((t) => {
+                  <option value="default">Default mix (file's first stream)</option>
+                  {(asset.audioTracks ?? []).map((t) => {
                     const usable = canDecodeAlternateAudio() && t.decodable !== false;
                     return (
                       <option key={t.id} value={t.id} disabled={!usable}>
-                        {audioTrackLabel(t)}{usable ? '' : t.decodable === false ? ' — cannot decode in this browser' : ' — needs WebCodecs'}
+                        {audioStreamLabel(t)}{usable ? '' : t.decodable === false ? ' — cannot decode in this browser' : ' — needs WebCodecs'}
                       </option>
                     );
                   })}
                 </select>
                 <p className="mt-0.5 text-[10px] leading-snug text-paper-faint">
-                  All languages found in this file are listed. The choice is per clip, so the same movie can use different languages at different points. Preview and export use the selected track — never the file's default mix by accident.
+                  This file has {asset.audioTracks?.length ?? 0} audio streams. Choose the stream this clip plays; preview and export use exactly that stream — never the default mix by accident.
                 </p>
                 {clip.audioTrackId != null && (!canDecodeAlternateAudio() || asset.audioTracks?.find((t) => t.id === clip.audioTrackId)?.decodable === false || useStore.getState().pool.decodeFailedFor(asset.id, clip.audioTrackId)) && (
                   <p className="mt-0.5 text-[10px] leading-snug text-signal" title="The selected track could not be decoded in this browser">
@@ -455,10 +456,15 @@ export function Inspector() {
                 )}
               </div>
             )}
+            {asset && asset.type === 'video' && useStore.getState().pool.usesElementAudio(asset.id) && (
+              <p className="mt-1 text-[10px] leading-snug text-signal" title="Long videos are too big to decode into an AudioBuffer">
+                Long file: preview uses the video's native audio. Clip volume, fades and audio effects do not apply in preview; split the source to edit its sound. Export with audio is limited to short clips.
+              </p>
+            )}
             {asset && asset.type === 'video' && (
               <div className="pt-1">
                 <button className="btn-ghost text-[11px] px-2 py-1 w-full justify-center"
-                  title="Detach the selected audio track to its own audio clip (original is muted)"
+                  title="Detach this clip's audio to its own WAV clip (original is muted)"
                   onClick={() => {
                     const s = useStore.getState();
                     void s.extractAudio(id).then((status) => {
@@ -469,8 +475,21 @@ export function Inspector() {
                       else if (status === 'no-clip') ui.toast('Clip not found', 'error');
                     });
                   }}>
-                  Extract audio to new clip
+                  Extract audio (WAV)
                 </button>
+                {asset && (asset.audioTracks?.length ?? 0) > 1 && (
+                  <button className="btn-ghost mt-1 text-[11px] px-2 py-1 w-full justify-center"
+                    title="Create one WAV clip per audio stream, like Kdenlive's multi-stream Extract Audio"
+                    onClick={() => {
+                      const ui = useUI.getState();
+                      void useStore.getState().extractAudioStreams(id).then((n) => {
+                        if (n > 0) ui.toast(`Extracted ${n} audio streams to WAV clips`, 'success');
+                        else ui.toast('No decodable audio streams found', 'error');
+                      });
+                    }}>
+                    Extract all audio streams
+                  </button>
+                )}
               </div>
             )}
           </Section>

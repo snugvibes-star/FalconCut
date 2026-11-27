@@ -238,7 +238,16 @@ export function MediaTab() {
                 <div className="flex items-center gap-1 px-1.5 py-1">
                   <span className="text-[11px] text-paper truncate flex-1">{m.name}</span>
                   <button className="icon-btn p-0.5 cf-hover-action opacity-0 group-hover:opacity-100 shrink-0" onClick={(e) => { e.stopPropagation(); addToTimeline(m); }} title="Add to timeline"><Plus size={13} /></button>
-                  <button className="icon-btn p-0.5 cf-hover-action opacity-0 group-hover:opacity-100 hover:text-heat shrink-0" onClick={(e) => { e.stopPropagation(); useStore.getState().removeMedia(m.id); if (selectedId === m.id) setSelectedId(null); }} title="Remove media"><Trash2 size={13} /></button>
+                  <button className="icon-btn p-0.5 cf-hover-action opacity-0 group-hover:opacity-100 hover:text-heat shrink-0" onClick={(e) => {
+                     e.stopPropagation();
+                     const count = useStore.getState().project.clips.filter((c) => c.mediaId === m.id).length;
+                     const question = count
+                       ? `Remove “${m.name}” and its ${count} timeline clip${count === 1 ? '' : 's'}? Undo restores them.`
+                       : `Remove “${m.name}” from the media library?`;
+                     if (!window.confirm(question)) return;
+                     useStore.getState().removeMedia(m.id);
+                     if (selectedId === m.id) setSelectedId(null);
+                   }} title="Remove media"><Trash2 size={13} /></button>
                 </div>
               </div>
             );

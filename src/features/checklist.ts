@@ -1,6 +1,6 @@
 /**
  * Engineering status board for FalconCut capabilities — what the browser
- * build can actually do today. Grounded in tools/registry.ts (24 AI tools),
+ * build can actually do today. Grounded in tools/registry.ts (56 AI tools),
  * engine/effects.ts, engine/types.ts, engine/captions.ts, engine/generators.ts,
  * engine/motifs.ts, analysis/whisper.worker.ts and exporter/*. Keep honest.
  */
@@ -48,7 +48,7 @@ export const FEATURE_CHECKLIST: FeatureItem[] = [
   { id: 'context-inspector', group: 'Editing core', label: 'Inspector tabs adapt to selected clip kind (video / audio / text)', status: 'working' },
   { id: 'audio-playback', group: 'Editing core', label: 'Audio plays during preview (buffers decode even when probe misses audio tracks)', status: 'working', note: 'playhead anchored to the AudioContext clock (no drift in background windows); audio graph rebuilds mid-playback on speed/volume/mute/undo edits; same asset used by two clips gets independent elements' },
   { id: 'extract-audio', group: 'Editing core', label: 'Extract audio from video (Kdenlive-style detach: new WAV asset + audio clip, original muted)', status: 'working', note: 'verified live; requires a decodable audio track (AC3 files must be converted first); honours the clip\'s selected language track' },
-  { id: 'multi-audio-tracks', group: 'Editing core', label: 'Multiple audio tracks per movie (Kdenlive-style language list): MP4/MOV files expose every audio track with language and channel labels; the Audio tab chooses one track per clip, and preview + export use that exact track', status: 'working', note: 'header-only mp4box probe; WebCodecs AudioDecoder for selected tracks; browsers without it keep the default decode path and disable alternate tracks instead of playing the wrong language' },
+  { id: 'multi-audio-tracks', group: 'Editing core', label: 'Multiple audio streams per movie (Kdenlive-style): MP4/MOV files expose every audio stream; the stream list appears only when there is more than one, with technical labels and language as a detail; one stream can be selected per clip and "Extract all audio streams" creates one WAV per stream on separate tracks', status: 'working', note: 'header-only mp4box probe; WebCodecs AudioDecoder for selected streams; single-stream files get one neutral "Extract audio (WAV)" action, never a language-specific option' },
   { id: 'crop-fidelity', group: 'Editing core', label: 'Crop fidelity: only the selected source pixels are sampled, resampled with high-quality smoothing, and effect scratch canvases keep at least output resolution', status: 'working', note: 'a crop cannot contain more real detail than its source rectangle; the crop overlay shows the native crop size and resampling factor, and "Extract as New Clip" preserves the source aspect instead of stretching it' },
   { id: 'first-run-demo', group: 'Editing core', label: 'First-run demo timeline (one click: sample video + music + title in a single undo step)', status: 'working', note: 'button on the empty canvas state' },
   { id: 'keyboard-cheatsheet', group: 'Editing core', label: 'Keyboard cheatsheet inside the command palette, generated from the live shortcut registry (so it reflects any remap)', status: 'working' },

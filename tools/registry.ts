@@ -10,6 +10,7 @@ import type { ToolContext, ToolResult } from './cutTools';
 export type { ToolContext, ToolResult } from './cutTools';
 import { makeContext } from './helpers';
 import { listDisabledTools } from '../ai/client';
+import { DEFAULT_SHORTCUTS } from '../src/features/shortcuts';
 import { removeDeadAir, removeFillers, cutRetakes } from './cutTools';
 import { addCaptions, addHookTitle, translateCaptions, restyleCaptions, shiftCaptions, fixCaptionTiming, importCaptions } from './captionTools';
 import { zoomOnEmphasis, reframe, addTransitions, snapToBeats, addMotif } from './motionTools';
@@ -32,12 +33,22 @@ import {
 
 export interface ParamSpec { type: 'string' | 'number' | 'boolean' | 'enum'; desc: string; default?: unknown; enum?: string[]; optional?: boolean }
 
+export type ToolKind = 'edit' | 'app' | 'control';
+
 export interface ToolDef {
   name: string;
   description: string;
   params: Record<string, ParamSpec>;
   example: { input: Record<string, unknown>; why: string };
   roles: string[]; // multi-agent team roles allowed to use this tool
+  /** Data-only metadata for AI prompt/manifest. Visible UI labels are derived
+   * from the same source, so agents know the words humans use without adding
+   * any new buttons. All fields are optional for older tool definitions. */
+  label?: string;
+  group?: string;
+  aliases?: string[];
+  kind?: ToolKind;
+  requires?: string[];
   run: (ctx: ToolContext, params: any) => Promise<ToolResult> | ToolResult;
 }
 
@@ -745,6 +756,33 @@ export const TOOLS: ToolDef[] = [
     roles: ['sound', 'story'],
     run: (c, p) => setClipFades(c, { ...p, fadeIn: p.fade_in, fadeOut: p.fade_out }),
   },
+  {
+    name: 'ui_action',
+    description: 'Run a visible editor command by its human label or id: undo, redo, copy, paste, play/pause, nudge, zoom, go to start/end, open the command palette or export dialog. Control actions take effect immediately and do NOT create a project edit; report them as UI actions, not video edits.',
+    params: {
+      action: {
+        type: 'enum',
+        desc: 'Shortcut id or human command label from uiCommandCatalog().',
+        enum: [...DEFAULT_SHORTCUTS.map((s) => s.id), 'export'],
+      },
+    },
+    example: { input: { action: 'undo' }, why: 'Undo the last edit, exactly like the toolbar button.' },
+    roles: ['story', 'sound', 'captions', 'review'],
+    label: 'Editor command',
+    group: 'Interface',
+    aliases: ['undo', 'redo', 'copy', 'paste', 'play', 'pause', 'zoom', 'go to start', 'command palette', 'open export'],
+    kind: 'control',
+    requires: [],
+    run: async (_c, p) => {
+      const { runEditorAction } = await import('../src/features/editorActions');
+      const ok = runEditorAction(String(p.action));
+      return {
+        actions: [],
+        summary: ok ? `Ran editor command: ${p.action}` : `Unknown or unavailable editor command: ${p.action}`,
+        warnings: ok ? [] : ['Use uiCommandCatalog() to choose a valid command id.'],
+      };
+    },
+  },
 ];
 
 export const TOOL_MAP = new Map(TOOLS.map((t) => [t.name, t]));
@@ -758,6 +796,61 @@ export function toolLabel(name: string): string {
     .map((word) => word ? word[0].toUpperCase() + word.slice(1) : '')
     .join(' ')
     .replace(/\bAi\b/g, 'AI').replace(/\bSrt\b/g, 'SRT').replace(/\bSfx\b/g, 'SFX');
+}
+
+/** Words a human says in the UI but an agent would never guess from the
+ * snake_case tool id. These are prompt metadata only — no visible UI changes. */
+const TOOL_ALIASES: Record<string, string[]> = {
+  add_text: ['add title', 'add a title', 'text clip', 'heading'],
+  timeline_edit: ['split', 'trim', 'move clip', 'delete clip', 'speed', 'mute'],
+  crop_region: ['crop', 'extract area', 'region crop', 'reframe crop'],
+  add_captions: ['generate captions', 'auto captions', 'subtitles'],
+  import_captions: ['import srt', 'import vtt', 'upload subtitles'],
+  auto_edit: ['one click edit', 'professional edit', 'auto edit'],
+  auto_fix: ['fix video', 'self fix', 'quality fix'],
+  freeze_frame: ['freeze frame', 'still from playhead', 'snapshot frame'],
+  add_marker: ['add marker', 'mark chapter', 'bookmark'],
+  set_transition: ['transition', 'crossfade', 'wipe'],
+  balance_audio: ['normalize audio', 'loudness', 'level audio'],
+  cleanup_audio: ['noise reduction', 'de-ess', 'clean audio'],
+  export_video: ['export', 'render video', 'download mp4'],
+  analyze_media: ['analyze', 'transcribe', 'detect silences'],
+  ui_action: ['undo', 'redo', 'copy', 'paste', 'play', 'pause', 'zoom', 'go to start', 'command palette', 'open export'],
+};
+
+const GROUP_RULES: [RegExp, string][] = [
+  [/caption|subtitle|transcript/i, 'Captions'],
+  [/audio|sound|music|voice/i, 'Audio'],
+  [/color|grade|look|lut/i, 'Color & look'],
+  [/transition|motion|zoom|broll|reframe|motif/i, 'Motion'],
+  [/crop|marker|note|track|clip|keyframe|effect|speed|section|duplicate|reverse/i, 'Editing'],
+  [/project|style|rule|ai|auto|variant/i, 'Automation'],
+];
+
+export interface ToolMeta {
+  label: string;
+  group: string;
+  aliases: string[];
+  kind: ToolKind;
+  requires: string[];
+}
+
+/** One place that supplies human words to models and external agents. */
+export function toolMeta(t: ToolDef): ToolMeta {
+  const fallbackLabel = toolLabel(t.name);
+  return {
+    label: t.label ?? fallbackLabel,
+    group: t.group ?? GROUP_RULES.find(([re]) => re.test(t.name))?.[1] ?? 'Editing',
+    aliases: t.aliases ?? TOOL_ALIASES[t.name] ?? [],
+    kind: t.kind ?? 'edit',
+    requires: t.requires ?? [],
+  };
+}
+
+/** Every visible editor command, labelled, for agents that need to drive the
+ * UI rather than only the edit engine (Claude/Codex/Hermes/OpenCode). */
+export function uiCommandCatalog(): { id: string; label: string; group: string; combo: string }[] {
+  return DEFAULT_SHORTCUTS.map((s) => ({ id: s.id, label: s.label, group: s.group, combo: s.combo }));
 }
 
 /** Filter out actions that touch human-locked clips (co-editing priority). */
@@ -793,13 +886,19 @@ export function toolManifest() {
     description: t.description,
     params: Object.fromEntries(Object.entries(t.params).map(([k, v]) => [k, { type: v.type, description: v.desc, ...(v.default !== undefined ? { default: v.default } : {}), ...(v.enum ? { enum: v.enum } : {}), ...(v.optional ? { optional: true } : {}) }])),
     example: t.example,
+    ...toolMeta(t),
   }));
 }
 
 export function toolsPromptText(): string {
   const disabled = new Set(listDisabledTools());
   return TOOLS.filter((t) => !disabled.has(t.name)).map((t) => {
-    const ps = Object.entries(t.params).map(([k, v]) => `${k}${v.optional ? '?' : ''}: ${v.type}${v.enum ? ` (${v.enum.join('|')})` : ''} — ${v.desc}`).join('; ');
-    return `- ${t.name}(${ps || 'no params'}): ${t.description} Example: ${JSON.stringify(t.example.input)}`;
-  }).join('\n');
+    const ps = Object.entries(t.params).map(([k, v]) => `${k}${v.optional ? '?' : ''}: ${v.type}${v.enum ? ` (${v.enum.slice(0, 12).join('|')}${v.enum.length > 12 ? '|…' : ''})` : ''} — ${v.desc}`).join('; ');
+    const meta = toolMeta(t);
+    const words = [`human label "${meta.label}"`, `group ${meta.group}`, `kind ${meta.kind}`];
+    if (meta.aliases.length) words.push(`also called ${meta.aliases.map((a) => `"${a}"`).join(', ')}`);
+    if (meta.requires.length) words.push(`needs ${meta.requires.join(', ')}`);
+    return `- ${t.name}(${ps || 'no params'}) [${words.join('; ')}]: ${t.description} Example: ${JSON.stringify(t.example.input)}`;
+  }).join('\n') + '\n\nVISIBLE EDITOR COMMANDS — use ui_action with the id when the user says the label (these are UI controls, not project edits):\n'
+    + uiCommandCatalog().map((c) => `- ${c.id}: "${c.label}" [${c.group}] (${c.combo})`).join('\n');
 }

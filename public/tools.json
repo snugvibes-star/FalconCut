@@ -92,7 +92,17 @@
           "bold": true
         },
         "why": "Open the video with a bold welcome title."
-      }
+      },
+      "label": "Add Text",
+      "group": "Editing",
+      "aliases": [
+        "add title",
+        "add a title",
+        "text clip",
+        "heading"
+      ],
+      "kind": "edit",
+      "requires": []
     },
     {
       "name": "timeline_edit",
@@ -129,7 +139,19 @@
           "value": 5
         },
         "why": "Drop the first five seconds of dead time."
-      }
+      },
+      "label": "Timeline Edit",
+      "group": "Editing",
+      "aliases": [
+        "split",
+        "trim",
+        "move clip",
+        "delete clip",
+        "speed",
+        "mute"
+      ],
+      "kind": "edit",
+      "requires": []
     },
     {
       "name": "remove_dead_air",
@@ -147,7 +169,12 @@
           "max_pause_ms": 600
         },
         "why": "Tighten a talking-head video without losing natural breaths."
-      }
+      },
+      "label": "Remove Dead Air",
+      "group": "Automation",
+      "aliases": [],
+      "kind": "edit",
+      "requires": []
     },
     {
       "name": "remove_fillers",
@@ -156,7 +183,12 @@
       "example": {
         "input": {},
         "why": "Clean up hesitant speech."
-      }
+      },
+      "label": "Remove Fillers",
+      "group": "Editing",
+      "aliases": [],
+      "kind": "edit",
+      "requires": []
     },
     {
       "name": "cut_retakes",
@@ -165,11 +197,16 @@
       "example": {
         "input": {},
         "why": "The speaker restarted a sentence 3 times; keep the best one."
-      }
+      },
+      "label": "Cut Retakes",
+      "group": "Editing",
+      "aliases": [],
+      "kind": "edit",
+      "requires": []
     },
     {
       "name": "add_captions",
-      "description": "Generate styled captions from the transcript. Styles: clean (subtitles), karaoke (word highlight), bold-keywords, word-pop (one big word at a time). Max 2 lines, safe-zone positioned.",
+      "description": "Generate styled captions from the transcript. Styles: clean (subtitles), karaoke (word highlight), bold-keywords, word-pop (one big word at a time). Density tight/balanced/relaxed controls cue length and reading speed; fillers are removed by default. Max 2 lines, safe-zone positioned.",
       "params": {
         "style": {
           "type": "enum",
@@ -181,14 +218,63 @@
             "word-pop"
           ],
           "optional": true
+        },
+        "density": {
+          "type": "enum",
+          "description": "Text per cue: tight (1 line, ~3s), balanced (2 lines, ~6s), relaxed (longer, ~9s).",
+          "default": "balanced",
+          "enum": [
+            "tight",
+            "balanced",
+            "relaxed"
+          ],
+          "optional": true
+        },
+        "max_chars": {
+          "type": "number",
+          "description": "Max characters per caption line (12–60). Auto-capped per aspect.",
+          "optional": true
+        },
+        "max_lines": {
+          "type": "number",
+          "description": "Max lines per cue (1–3). Default 2 (1 for word-pop).",
+          "optional": true
+        },
+        "max_seconds": {
+          "type": "number",
+          "description": "Max seconds a single cue stays on screen.",
+          "optional": true
+        },
+        "remove_fillers": {
+          "type": "boolean",
+          "description": "Drop um/uh/hmm from captions.",
+          "default": true,
+          "optional": true
+        },
+        "highlight_keywords": {
+          "type": "boolean",
+          "description": "Colour keywords for karaoke/bold-keywords styles.",
+          "default": true,
+          "optional": true
         }
       },
       "example": {
         "input": {
-          "style": "karaoke"
+          "style": "karaoke",
+          "density": "tight",
+          "remove_fillers": true
         },
         "why": "Social clip where viewers watch without sound."
-      }
+      },
+      "label": "Add Captions",
+      "group": "Captions",
+      "aliases": [
+        "generate captions",
+        "auto captions",
+        "subtitles"
+      ],
+      "kind": "edit",
+      "requires": []
     },
     {
       "name": "add_hook_title",
@@ -205,7 +291,12 @@
           "text": "STOP doing this"
         },
         "why": "Grab attention in the first second."
-      }
+      },
+      "label": "Add Hook Title",
+      "group": "Editing",
+      "aliases": [],
+      "kind": "edit",
+      "requires": []
     },
     {
       "name": "zoom_on_emphasis",
@@ -214,7 +305,12 @@
       "example": {
         "input": {},
         "why": "Add visual energy to a static talking head."
-      }
+      },
+      "label": "Zoom On Emphasis",
+      "group": "Motion",
+      "aliases": [],
+      "kind": "edit",
+      "requires": []
     },
     {
       "name": "reframe",
@@ -237,7 +333,12 @@
           "aspect": "9:16"
         },
         "why": "Turn a landscape recording into a TikTok."
-      }
+      },
+      "label": "Reframe",
+      "group": "Motion",
+      "aliases": [],
+      "kind": "edit",
+      "requires": []
     },
     {
       "name": "add_music",
@@ -264,7 +365,12 @@
           "mood": "chill"
         },
         "why": "Background music that never fights the voice."
-      }
+      },
+      "label": "Add Music",
+      "group": "Audio",
+      "aliases": [],
+      "kind": "edit",
+      "requires": []
     },
     {
       "name": "balance_audio",
@@ -273,7 +379,16 @@
       "example": {
         "input": {},
         "why": "Make volume consistent and broadcast-safe."
-      }
+      },
+      "label": "Balance Audio",
+      "group": "Audio",
+      "aliases": [
+        "normalize audio",
+        "loudness",
+        "level audio"
+      ],
+      "kind": "edit",
+      "requires": []
     },
     {
       "name": "cleanup_audio",
@@ -295,7 +410,16 @@
       "example": {
         "input": {},
         "why": "Room hiss and harsh sibilance on a voice recording."
-      }
+      },
+      "label": "Cleanup Audio",
+      "group": "Audio",
+      "aliases": [
+        "noise reduction",
+        "de-ess",
+        "clean audio"
+      ],
+      "kind": "edit",
+      "requires": []
     },
     {
       "name": "apply_color_preset",
@@ -320,7 +444,12 @@
           "name": "cinematic"
         },
         "why": "Moody look for a quote video."
-      }
+      },
+      "label": "Apply Color Preset",
+      "group": "Color & look",
+      "aliases": [],
+      "kind": "edit",
+      "requires": []
     },
     {
       "name": "add_transitions",
@@ -345,7 +474,12 @@
           "style": "crossfade"
         },
         "why": "Smooth shot changes in a vlog."
-      }
+      },
+      "label": "Add Transitions",
+      "group": "Motion",
+      "aliases": [],
+      "kind": "edit",
+      "requires": []
     },
     {
       "name": "add_broll_slots",
@@ -354,7 +488,12 @@
       "example": {
         "input": {},
         "why": "Find boring static moments in a 2-minute monologue."
-      }
+      },
+      "label": "Add Broll Slots",
+      "group": "Motion",
+      "aliases": [],
+      "kind": "edit",
+      "requires": []
     },
     {
       "name": "auto_broll",
@@ -374,7 +513,12 @@
       "example": {
         "input": {},
         "why": "Cover static talking stretches with matching footage."
-      }
+      },
+      "label": "Auto Broll",
+      "group": "Motion",
+      "aliases": [],
+      "kind": "edit",
+      "requires": []
     },
     {
       "name": "snap_to_beats",
@@ -396,7 +540,12 @@
           "what": "zooms"
         },
         "why": "Punch zooms that hit with the music."
-      }
+      },
+      "label": "Snap To Beats",
+      "group": "Editing",
+      "aliases": [],
+      "kind": "edit",
+      "requires": []
     },
     {
       "name": "add_motif",
@@ -447,7 +596,12 @@
           }
         },
         "why": "Introduce the speaker professionally."
-      }
+      },
+      "label": "Add Motif",
+      "group": "Motion",
+      "aliases": [],
+      "kind": "edit",
+      "requires": []
     },
     {
       "name": "auto_edit",
@@ -485,7 +639,16 @@
           "aspect": "9:16"
         },
         "why": "Make this a viral TikTok in one call."
-      }
+      },
+      "label": "Auto Edit",
+      "group": "Automation",
+      "aliases": [
+        "one click edit",
+        "professional edit",
+        "auto edit"
+      ],
+      "kind": "edit",
+      "requires": []
     },
     {
       "name": "auto_fix",
@@ -501,7 +664,16 @@
       "example": {
         "input": {},
         "why": "Clean up lint issues after an edit run."
-      }
+      },
+      "label": "Auto Fix",
+      "group": "Automation",
+      "aliases": [
+        "fix video",
+        "self fix",
+        "quality fix"
+      ],
+      "kind": "edit",
+      "requires": []
     },
     {
       "name": "smart_cutdown",
@@ -519,7 +691,12 @@
           "count": 8
         },
         "why": "Repurpose a podcast into Shorts."
-      }
+      },
+      "label": "Smart Cutdown",
+      "group": "Editing",
+      "aliases": [],
+      "kind": "edit",
+      "requires": []
     },
     {
       "name": "ab_variants",
@@ -537,7 +714,12 @@
           "variants": 3
         },
         "why": "Test which style performs better."
-      }
+      },
+      "label": "Ab Variants",
+      "group": "Automation",
+      "aliases": [],
+      "kind": "edit",
+      "requires": []
     },
     {
       "name": "auto_multicam",
@@ -552,7 +734,12 @@
       "example": {
         "input": {},
         "why": "Two-camera interview, cut to whoever is talking."
-      }
+      },
+      "label": "Auto Multicam",
+      "group": "Automation",
+      "aliases": [],
+      "kind": "edit",
+      "requires": []
     },
     {
       "name": "translate_captions",
@@ -568,7 +755,490 @@
           "language": "Spanish"
         },
         "why": "Reach a Spanish-speaking audience."
-      }
+      },
+      "label": "Translate Captions",
+      "group": "Captions",
+      "aliases": [],
+      "kind": "edit",
+      "requires": []
+    },
+    {
+      "name": "restyle_captions",
+      "description": "Restyle existing captions without regenerating them: preset, font size, position, uppercase, animation, text/highlight colour or outline width.",
+      "params": {
+        "style": {
+          "type": "enum",
+          "description": "Caption preset.",
+          "enum": [
+            "clean",
+            "karaoke",
+            "bold-keywords",
+            "word-pop"
+          ],
+          "optional": true
+        },
+        "font_size": {
+          "type": "number",
+          "description": "Font size as a fraction of frame height (0.02–0.16).",
+          "optional": true
+        },
+        "y": {
+          "type": "number",
+          "description": "Vertical position 0..1 (0.72 is a 9:16 safe zone).",
+          "optional": true
+        },
+        "x": {
+          "type": "number",
+          "description": "Horizontal position 0..1.",
+          "optional": true
+        },
+        "uppercase": {
+          "type": "boolean",
+          "description": "Force uppercase.",
+          "optional": true
+        },
+        "animation": {
+          "type": "enum",
+          "description": "Entrance animation.",
+          "enum": [
+            "none",
+            "pop",
+            "fade",
+            "rise",
+            "typewriter"
+          ],
+          "optional": true
+        },
+        "color": {
+          "type": "string",
+          "description": "Text colour (#RRGGBB).",
+          "optional": true
+        },
+        "highlight": {
+          "type": "string",
+          "description": "Highlight colour (#RRGGBB).",
+          "optional": true
+        },
+        "outline_width": {
+          "type": "number",
+          "description": "Outline width 0..0.5.",
+          "optional": true
+        }
+      },
+      "example": {
+        "input": {
+          "style": "karaoke",
+          "font_size": 0.055,
+          "y": 0.72,
+          "uppercase": true
+        },
+        "why": "Make existing captions punchier for a 9:16 cut."
+      },
+      "label": "Restyle Captions",
+      "group": "Captions",
+      "aliases": [],
+      "kind": "edit",
+      "requires": []
+    },
+    {
+      "name": "shift_captions",
+      "description": "Shift captions earlier or later in time by a number of seconds. Optionally limit to a time window.",
+      "params": {
+        "offset": {
+          "type": "number",
+          "description": "Seconds to shift (positive = later, negative = earlier)."
+        },
+        "from": {
+          "type": "number",
+          "description": "Only captions starting at/after this time.",
+          "optional": true
+        },
+        "to": {
+          "type": "number",
+          "description": "Only captions starting at/before this time.",
+          "optional": true
+        }
+      },
+      "example": {
+        "input": {
+          "offset": 0.2
+        },
+        "why": "Captions appear slightly too early after a cut."
+      },
+      "label": "Shift Captions",
+      "group": "Captions",
+      "aliases": [],
+      "kind": "edit",
+      "requires": []
+    },
+    {
+      "name": "fix_caption_timing",
+      "description": "Split over-long caption cues into readable chunks, preserving word timing where available. Use when a caption sits on screen for many seconds.",
+      "params": {
+        "max_seconds": {
+          "type": "number",
+          "description": "Maximum cue length in seconds.",
+          "default": 6,
+          "optional": true
+        }
+      },
+      "example": {
+        "input": {
+          "max_seconds": 5
+        },
+        "why": "One caption covered a 20-second story beat."
+      },
+      "label": "Fix Caption Timing",
+      "group": "Captions",
+      "aliases": [],
+      "kind": "edit",
+      "requires": []
+    },
+    {
+      "name": "import_captions",
+      "description": "Import captions from SRT or WebVTT text as editable caption clips. Replaces existing captions by default; set replace=false to keep them.",
+      "params": {
+        "srt": {
+          "type": "string",
+          "description": "The full SRT / WebVTT file contents."
+        },
+        "replace": {
+          "type": "boolean",
+          "description": "Replace existing captions.",
+          "default": true,
+          "optional": true
+        },
+        "offset": {
+          "type": "number",
+          "description": "Shift every imported cue by this many seconds.",
+          "optional": true
+        }
+      },
+      "example": {
+        "input": {
+          "srt": "1\n00:00:01,000 --> 00:00:04,000\nHello world"
+        },
+        "why": "Reuse subtitles from another tool."
+      },
+      "label": "Import Captions",
+      "group": "Captions",
+      "aliases": [
+        "import srt",
+        "import vtt",
+        "upload subtitles"
+      ],
+      "kind": "edit",
+      "requires": []
+    },
+    {
+      "name": "crop_region",
+      "description": "Keep only a rectangle of a video/image clip (non-destructive crop), or extract that rectangle as a new independent clip. Coordinates are fractions by default; set unit to \"percent\" or \"pixels\".",
+      "params": {
+        "clip_id": {
+          "type": "string",
+          "description": "The clip_id from the TIMELINE block."
+        },
+        "x": {
+          "type": "number",
+          "description": "Left edge of the region.",
+          "default": 0,
+          "optional": true
+        },
+        "y": {
+          "type": "number",
+          "description": "Top edge of the region.",
+          "default": 0,
+          "optional": true
+        },
+        "width": {
+          "type": "number",
+          "description": "Region width (defaults to the rest of the frame).",
+          "optional": true
+        },
+        "height": {
+          "type": "number",
+          "description": "Region height (defaults to the rest of the frame).",
+          "optional": true
+        },
+        "unit": {
+          "type": "enum",
+          "description": "Coordinate unit.",
+          "default": "fraction",
+          "enum": [
+            "fraction",
+            "percent",
+            "pixels"
+          ],
+          "optional": true
+        },
+        "extract": {
+          "type": "boolean",
+          "description": "Create a separate clip from the region instead of cropping in place.",
+          "default": false,
+          "optional": true
+        }
+      },
+      "example": {
+        "input": {
+          "clip_id": "clip_abc",
+          "x": 0.25,
+          "y": 0.1,
+          "width": 0.5,
+          "height": 0.8,
+          "extract": true
+        },
+        "why": "Isolate the speaker as its own overlay layer."
+      },
+      "label": "Crop Region",
+      "group": "Editing",
+      "aliases": [
+        "crop",
+        "extract area",
+        "region crop",
+        "reframe crop"
+      ],
+      "kind": "edit",
+      "requires": []
+    },
+    {
+      "name": "add_marker",
+      "description": "Add a timeline marker at a time, with an optional label and colour.",
+      "params": {
+        "time": {
+          "type": "number",
+          "description": "Marker time in seconds."
+        },
+        "label": {
+          "type": "string",
+          "description": "Marker label.",
+          "optional": true
+        },
+        "color": {
+          "type": "string",
+          "description": "Colour name or #RRGGBB.",
+          "optional": true
+        }
+      },
+      "example": {
+        "input": {
+          "time": 12.5,
+          "label": "Hook",
+          "color": "#38BDF8"
+        },
+        "why": "Mark the moment the hook lands."
+      },
+      "label": "Add Marker",
+      "group": "Editing",
+      "aliases": [
+        "add marker",
+        "mark chapter",
+        "bookmark"
+      ],
+      "kind": "edit",
+      "requires": []
+    },
+    {
+      "name": "duplicate_clip",
+      "description": "Duplicate a clip (effects, keyframes and fades included) and place the copy right after it.",
+      "params": {
+        "clip_id": {
+          "type": "string",
+          "description": "The clip_id from the TIMELINE block."
+        }
+      },
+      "example": {
+        "input": {
+          "clip_id": "clip_abc"
+        },
+        "why": "Repeat the best reaction shot."
+      },
+      "label": "Duplicate Clip",
+      "group": "Editing",
+      "aliases": [],
+      "kind": "edit",
+      "requires": []
+    },
+    {
+      "name": "reverse_clip",
+      "description": "Play a clip backwards (video scrubs backward, audio plays a genuinely reversed buffer) or restore normal playback.",
+      "params": {
+        "clip_id": {
+          "type": "string",
+          "description": "The clip_id from the TIMELINE block."
+        },
+        "reverse": {
+          "type": "boolean",
+          "description": "true to reverse, false to restore.",
+          "default": true,
+          "optional": true
+        }
+      },
+      "example": {
+        "input": {
+          "clip_id": "clip_abc",
+          "reverse": true
+        },
+        "why": "A dramatic rewind effect."
+      },
+      "label": "Reverse Clip",
+      "group": "Editing",
+      "aliases": [],
+      "kind": "edit",
+      "requires": []
+    },
+    {
+      "name": "set_clip_look",
+      "description": "Change a clip opacity, add audio/video fades, set a colour label, or set its blend mode (screen, multiply, overlay…).",
+      "params": {
+        "clip_id": {
+          "type": "string",
+          "description": "The clip_id from the TIMELINE block."
+        },
+        "opacity": {
+          "type": "number",
+          "description": "Opacity 0..1.",
+          "optional": true
+        },
+        "fade_in": {
+          "type": "number",
+          "description": "Fade-in length in seconds.",
+          "optional": true
+        },
+        "fade_out": {
+          "type": "number",
+          "description": "Fade-out length in seconds.",
+          "optional": true
+        },
+        "label": {
+          "type": "string",
+          "description": "Colour label (red, amber, green, blue, purple).",
+          "optional": true
+        },
+        "blend_mode": {
+          "type": "string",
+          "description": "normal, multiply, screen, overlay, darken, lighten, soft-light, difference…",
+          "optional": true
+        }
+      },
+      "example": {
+        "input": {
+          "clip_id": "clip_abc",
+          "opacity": 0.6,
+          "fade_in": 0.3,
+          "fade_out": 0.3
+        },
+        "why": "A soft picture-in-picture overlay."
+      },
+      "label": "Set Clip Look",
+      "group": "Color & look",
+      "aliases": [],
+      "kind": "edit",
+      "requires": []
+    },
+    {
+      "name": "remove_section",
+      "description": "Delete a time range from all video/audio tracks and ripple the rest of the timeline closed (markers shift too). Text/caption tracks are left alone.",
+      "params": {
+        "start": {
+          "type": "number",
+          "description": "Range start in seconds."
+        },
+        "end": {
+          "type": "number",
+          "description": "Range end in seconds."
+        }
+      },
+      "example": {
+        "input": {
+          "start": 30,
+          "end": 45
+        },
+        "why": "Cut the boring middle section out."
+      },
+      "label": "Remove Section",
+      "group": "Editing",
+      "aliases": [],
+      "kind": "edit",
+      "requires": []
+    },
+    {
+      "name": "manage_track",
+      "description": "Add a video/audio/text track, update its name/mute/solo/lock/visibility/height, duplicate it with every clip on it, or delete it.",
+      "params": {
+        "operation": {
+          "type": "enum",
+          "description": "What to do with the track.",
+          "enum": [
+            "add",
+            "update",
+            "duplicate",
+            "delete"
+          ]
+        },
+        "track_id": {
+          "type": "string",
+          "description": "Existing track id (not needed for add).",
+          "optional": true
+        },
+        "kind": {
+          "type": "enum",
+          "description": "Track kind for add.",
+          "enum": [
+            "video",
+            "audio",
+            "text"
+          ],
+          "optional": true
+        },
+        "name": {
+          "type": "string",
+          "description": "Track name.",
+          "optional": true
+        },
+        "index": {
+          "type": "number",
+          "description": "Insert position for add (0 = top).",
+          "optional": true
+        },
+        "muted": {
+          "type": "boolean",
+          "description": "Mute the track.",
+          "optional": true
+        },
+        "solo": {
+          "type": "boolean",
+          "description": "Solo the track.",
+          "optional": true
+        },
+        "locked": {
+          "type": "boolean",
+          "description": "Lock the track.",
+          "optional": true
+        },
+        "hidden": {
+          "type": "boolean",
+          "description": "Hide the track from the preview.",
+          "optional": true
+        },
+        "height": {
+          "type": "number",
+          "description": "Track height in px (32–160).",
+          "optional": true
+        }
+      },
+      "example": {
+        "input": {
+          "operation": "add",
+          "kind": "video",
+          "name": "B-roll"
+        },
+        "why": "Give overlays their own lane."
+      },
+      "label": "Manage Track",
+      "group": "Editing",
+      "aliases": [],
+      "kind": "edit",
+      "requires": []
     },
     {
       "name": "set_caption_style_advanced",
@@ -576,13 +1246,12 @@
       "params": {
         "caption_index": {
           "type": "number",
-          "description": "Zero-based caption index in timeline order. Omit for all captions.",
+          "description": "Zero-based caption index (timeline order). Omit to style all captions.",
           "optional": true
         },
         "preset_id": {
           "type": "enum",
-          "description": "Apply a full preset first, then any overrides.",
-          "optional": true,
+          "description": "Apply a full preset first, then any overrides below.",
           "enum": [
             "default",
             "tiktok",
@@ -595,7 +1264,8 @@
             "podcast",
             "gaming",
             "cinematic"
-          ]
+          ],
+          "optional": true
         },
         "font_family": {
           "type": "string",
@@ -655,12 +1325,12 @@
         "align": {
           "type": "enum",
           "description": "Text alignment.",
-          "optional": true,
           "enum": [
             "left",
             "center",
             "right"
-          ]
+          ],
+          "optional": true
         },
         "uppercase": {
           "type": "boolean",
@@ -705,7 +1375,12 @@
           "color": "#FFFFFF"
         },
         "why": "Make all captions large, loud and green-highlighted."
-      }
+      },
+      "label": "Set Caption Style Advanced",
+      "group": "Captions",
+      "aliases": [],
+      "kind": "edit",
+      "requires": []
     },
     {
       "name": "set_caption_highlight",
@@ -724,7 +1399,6 @@
         "anim": {
           "type": "enum",
           "description": "Highlight animation.",
-          "optional": true,
           "enum": [
             "instant",
             "slide",
@@ -735,7 +1409,8 @@
             "color",
             "bar",
             "glitch"
-          ]
+          ],
+          "optional": true
         },
         "bg_color": {
           "type": "string",
@@ -798,10 +1473,16 @@
           "enabled": true,
           "anim": "slide",
           "bg_color": "#FFEB00",
-          "text_color": "#0B1220"
+          "text_color": "#0B1220",
+          "offset": -0.05
         },
         "why": "TikTok-style moving yellow word highlight."
-      }
+      },
+      "label": "Set Caption Highlight",
+      "group": "Captions",
+      "aliases": [],
+      "kind": "edit",
+      "requires": []
     },
     {
       "name": "set_caption_effects",
@@ -845,13 +1526,13 @@
         "blur_direction": {
           "type": "enum",
           "description": "Blur direction.",
-          "optional": true,
           "enum": [
             "left",
             "right",
             "up",
             "down"
-          ]
+          ],
+          "optional": true
         },
         "edge_softness": {
           "type": "number",
@@ -882,7 +1563,12 @@
           "blur_enabled": true
         },
         "why": "Neon glowing captions with soft edges."
-      }
+      },
+      "label": "Set Caption Effects",
+      "group": "Captions",
+      "aliases": [],
+      "kind": "edit",
+      "requires": []
     },
     {
       "name": "edit_caption_word",
@@ -924,12 +1610,12 @@
         "font_style": {
           "type": "enum",
           "description": "Per-word font style.",
-          "optional": true,
           "enum": [
             "normal",
             "italic",
             "oblique"
-          ]
+          ],
+          "optional": true
         },
         "opacity": {
           "type": "number",
@@ -950,7 +1636,12 @@
           "end": 1.4
         },
         "why": "Make one word green and adjust its timing."
-      }
+      },
+      "label": "Edit Caption Word",
+      "group": "Captions",
+      "aliases": [],
+      "kind": "edit",
+      "requires": []
     },
     {
       "name": "set_clip_look_advanced",
@@ -969,12 +1660,12 @@
         "fit": {
           "type": "enum",
           "description": "How source media fits the frame.",
-          "optional": true,
           "enum": [
             "cover",
             "contain",
             "fill"
-          ]
+          ],
+          "optional": true
         },
         "name": {
           "type": "string",
@@ -1014,7 +1705,12 @@
           "fade_in": 0.3
         },
         "why": "Blend an overlay and soften its audio."
-      }
+      },
+      "label": "Set Clip Look Advanced",
+      "group": "Color & look",
+      "aliases": [],
+      "kind": "edit",
+      "requires": []
     },
     {
       "name": "set_project_settings_ai",
@@ -1023,24 +1719,24 @@
         "fps": {
           "type": "enum",
           "description": "Frames per second.",
-          "optional": true,
           "enum": [
             "24",
             "25",
             "30",
             "60"
-          ]
+          ],
+          "optional": true
         },
         "aspect": {
           "type": "enum",
           "description": "Frame aspect ratio.",
-          "optional": true,
           "enum": [
             "16:9",
             "9:16",
             "1:1",
             "4:5"
-          ]
+          ],
+          "optional": true
         },
         "width": {
           "type": "number",
@@ -1064,7 +1760,680 @@
           "aspect": "9:16"
         },
         "why": "Deliver smooth vertical video."
-      }
+      },
+      "label": "Set Project Settings AI",
+      "group": "Automation",
+      "aliases": [],
+      "kind": "edit",
+      "requires": []
+    },
+    {
+      "name": "add_effect",
+      "description": "Add a visual or audio effect to clips: color, blur, sharpen, vignette, glow, pixelate, noise, rgbSplit, chromaKey, negate, normalize, eq, gate, deess, denoise, compressor, limiter, echo, pan, lut. Set enabled and params.",
+      "params": {
+        "clip_id": {
+          "type": "string",
+          "description": "Clip id from the TIMELINE block. Omit to apply to all editable clips.",
+          "optional": true
+        },
+        "type": {
+          "type": "enum",
+          "description": "Effect type.",
+          "enum": [
+            "color",
+            "blur",
+            "sharpen",
+            "vignette",
+            "glow",
+            "pixelate",
+            "noise",
+            "rgbSplit",
+            "chromaKey",
+            "negate",
+            "normalize",
+            "eq",
+            "gate",
+            "deess",
+            "denoise",
+            "compressor",
+            "limiter",
+            "echo",
+            "pan",
+            "lut"
+          ]
+        },
+        "params": {
+          "type": "string",
+          "description": "Optional effect parameters as JSON, e.g. {\"amount\":0.5}.",
+          "optional": true
+        },
+        "enabled": {
+          "type": "boolean",
+          "description": "Enable the effect.",
+          "default": true,
+          "optional": true
+        }
+      },
+      "example": {
+        "input": {
+          "type": "glow"
+        },
+        "why": "Add a soft glow to every clip."
+      },
+      "label": "Add Effect",
+      "group": "Editing",
+      "aliases": [],
+      "kind": "edit",
+      "requires": []
+    },
+    {
+      "name": "configure_effect",
+      "description": "Change the parameters or enabled state of an existing effect on a clip. Give an effect type or an exact effect id (at least one is required).",
+      "params": {
+        "clip_id": {
+          "type": "string",
+          "description": "Clip id.",
+          "optional": true
+        },
+        "effect_type": {
+          "type": "string",
+          "description": "Effect type to match (e.g. glow, blur).",
+          "optional": true
+        },
+        "effect_id": {
+          "type": "string",
+          "description": "Exact effect id (wins over type).",
+          "optional": true
+        },
+        "params": {
+          "type": "string",
+          "description": "New effect parameters as JSON, e.g. {\"amount\":0.3}.",
+          "optional": true
+        },
+        "enabled": {
+          "type": "boolean",
+          "description": "Enable or disable.",
+          "optional": true
+        }
+      },
+      "example": {
+        "input": {
+          "effect_type": "blur",
+          "enabled": false
+        },
+        "why": "Disable the blur effect."
+      },
+      "label": "Configure Effect",
+      "group": "Editing",
+      "aliases": [],
+      "kind": "edit",
+      "requires": []
+    },
+    {
+      "name": "remove_effect",
+      "description": "Remove an effect from clips by type or id.",
+      "params": {
+        "clip_id": {
+          "type": "string",
+          "description": "Clip id.",
+          "optional": true
+        },
+        "effect_type": {
+          "type": "string",
+          "description": "Effect type to remove.",
+          "optional": true
+        },
+        "effect_id": {
+          "type": "string",
+          "description": "Exact effect id.",
+          "optional": true
+        }
+      },
+      "example": {
+        "input": {
+          "effect_type": "vignette"
+        },
+        "why": "Remove all vignettes."
+      },
+      "label": "Remove Effect",
+      "group": "Editing",
+      "aliases": [],
+      "kind": "edit",
+      "requires": []
+    },
+    {
+      "name": "animate_property",
+      "description": "Animate a clip property between two values using keyframes: scale, x, y, rotation, opacity. Use for slow zooms, pans, fades and spins.",
+      "params": {
+        "clip_id": {
+          "type": "string",
+          "description": "Clip id.",
+          "optional": true
+        },
+        "property": {
+          "type": "enum",
+          "description": "Property to animate.",
+          "default": "scale",
+          "enum": [
+            "scale",
+            "x",
+            "y",
+            "rotation",
+            "skewX",
+            "skewY",
+            "opacity",
+            "volume"
+          ]
+        },
+        "from": {
+          "type": "number",
+          "description": "Starting value (e.g. 1 for scale, 0 for opacity)."
+        },
+        "to": {
+          "type": "number",
+          "description": "Ending value (e.g. 1.2 for a slow zoom)."
+        },
+        "start_time": {
+          "type": "number",
+          "description": "Start time within the clip.",
+          "optional": true
+        },
+        "end_time": {
+          "type": "number",
+          "description": "End time within the clip.",
+          "optional": true
+        },
+        "easing": {
+          "type": "enum",
+          "description": "Easing curve.",
+          "default": "ease-in-out",
+          "enum": [
+            "linear",
+            "ease-in",
+            "ease-out",
+            "ease-in-out",
+            "bezier"
+          ],
+          "optional": true
+        }
+      },
+      "example": {
+        "input": {
+          "property": "scale",
+          "from": 1,
+          "to": 1.15,
+          "easing": "ease-in-out"
+        },
+        "why": "Slow cinematic zoom across the clip."
+      },
+      "label": "Animate Property",
+      "group": "Editing",
+      "aliases": [],
+      "kind": "edit",
+      "requires": []
+    },
+    {
+      "name": "speed_ramp",
+      "description": "Apply a multi-point speed ramp to a clip: slow motion, fast-forward, or a curve between speeds.",
+      "params": {
+        "clip_id": {
+          "type": "string",
+          "description": "Clip id."
+        },
+        "points": {
+          "type": "string",
+          "description": "Speed points as JSON: [{\"time\":0,\"speed\":1},{\"time\":2,\"speed\":0.5}]. Times are clip-local seconds; speed multiplier 0.1–8."
+        }
+      },
+      "example": {
+        "input": {
+          "clip_id": "clip_1",
+          "points": "[{\"time\":0,\"speed\":1},{\"time\":1,\"speed\":0.4}]"
+        },
+        "why": "Slow-mo the second half."
+      },
+      "label": "Speed Ramp",
+      "group": "Editing",
+      "aliases": [],
+      "kind": "edit",
+      "requires": []
+    },
+    {
+      "name": "apply_mask",
+      "description": "Apply a rect, ellipse or polygon mask to clips with feathering and optional invert. Use for cropping, vignettes and cutouts.",
+      "params": {
+        "clip_id": {
+          "type": "string",
+          "description": "Clip id.",
+          "optional": true
+        },
+        "shape": {
+          "type": "enum",
+          "description": "Mask shape.",
+          "default": "rect",
+          "enum": [
+            "rect",
+            "ellipse",
+            "polygon"
+          ]
+        },
+        "feather": {
+          "type": "number",
+          "description": "Edge feather 0–0.25.",
+          "optional": true
+        },
+        "invert": {
+          "type": "boolean",
+          "description": "Invert the mask.",
+          "optional": true
+        },
+        "x": {
+          "type": "number",
+          "description": "Left position 0–1.",
+          "optional": true
+        },
+        "y": {
+          "type": "number",
+          "description": "Top position 0–1.",
+          "optional": true
+        },
+        "width": {
+          "type": "number",
+          "description": "Width 0–1.",
+          "optional": true
+        },
+        "height": {
+          "type": "number",
+          "description": "Height 0–1.",
+          "optional": true
+        }
+      },
+      "example": {
+        "input": {
+          "shape": "ellipse",
+          "feather": 0.1
+        },
+        "why": "Circular vignette-style mask."
+      },
+      "label": "Apply Mask",
+      "group": "Editing",
+      "aliases": [],
+      "kind": "edit",
+      "requires": []
+    },
+    {
+      "name": "set_clip_transition",
+      "description": "Set a transition on a clip edge. Use crossfade, dip-black, dip-white, wipe-left, slide-left, zoom-in, push, spin, glitch, light-leak, film, cinematic or a blend-* type.",
+      "params": {
+        "clip_id": {
+          "type": "string",
+          "description": "Clip id."
+        },
+        "edge": {
+          "type": "enum",
+          "description": "Which edge.",
+          "default": "in",
+          "enum": [
+            "in",
+            "out"
+          ]
+        },
+        "type": {
+          "type": "enum",
+          "description": "Transition type.",
+          "default": "crossfade",
+          "enum": [
+            "crossfade",
+            "dip-black",
+            "dip-white",
+            "wipe-left",
+            "slide-left",
+            "zoom-in",
+            "blend-multiply",
+            "blend-screen",
+            "blend-overlay",
+            "push",
+            "spin",
+            "glitch",
+            "light-leak",
+            "film",
+            "cinematic"
+          ]
+        },
+        "duration": {
+          "type": "number",
+          "description": "Duration in seconds (0.05–2, at most half the clip).",
+          "optional": true
+        }
+      },
+      "example": {
+        "input": {
+          "clip_id": "clip_1",
+          "edge": "in",
+          "type": "crossfade",
+          "duration": 0.5
+        },
+        "why": "Fade in the clip."
+      },
+      "label": "Set Clip Transition",
+      "group": "Motion",
+      "aliases": [],
+      "kind": "edit",
+      "requires": []
+    },
+    {
+      "name": "group_clips",
+      "description": "Group several clips so they move together, or ungroup them.",
+      "params": {
+        "clip_ids": {
+          "type": "string",
+          "description": "Comma-separated clip ids to group or ungroup."
+        },
+        "ungroup": {
+          "type": "boolean",
+          "description": "Ungroup instead of group.",
+          "optional": true
+        }
+      },
+      "example": {
+        "input": {
+          "clip_ids": "clip_1,clip_2"
+        },
+        "why": "Move these two clips together."
+      },
+      "label": "Group Clips",
+      "group": "Editing",
+      "aliases": [],
+      "kind": "edit",
+      "requires": []
+    },
+    {
+      "name": "time_range_edit",
+      "description": "Insert a gap at a time, or ripple-delete a time range across tracks.",
+      "params": {
+        "operation": {
+          "type": "enum",
+          "description": "gap or delete.",
+          "default": "delete",
+          "enum": [
+            "gap",
+            "delete"
+          ]
+        },
+        "start": {
+          "type": "number",
+          "description": "Start time in seconds."
+        },
+        "end": {
+          "type": "number",
+          "description": "End time in seconds (for delete).",
+          "optional": true
+        },
+        "duration": {
+          "type": "number",
+          "description": "Gap duration (for gap).",
+          "optional": true
+        }
+      },
+      "example": {
+        "input": {
+          "operation": "delete",
+          "start": 5,
+          "end": 8
+        },
+        "why": "Remove seconds 5 to 8."
+      },
+      "label": "Time Range Edit",
+      "group": "Editing",
+      "aliases": [],
+      "kind": "edit",
+      "requires": []
+    },
+    {
+      "name": "add_marker_advanced",
+      "description": "Add a labeled marker with a color and kind (user, scene, broll, beat, chapter, retake) at a time.",
+      "params": {
+        "time": {
+          "type": "number",
+          "description": "Time in seconds."
+        },
+        "label": {
+          "type": "string",
+          "description": "Marker label."
+        },
+        "color": {
+          "type": "string",
+          "description": "Hex color.",
+          "optional": true
+        },
+        "kind": {
+          "type": "enum",
+          "description": "Marker kind.",
+          "enum": [
+            "user",
+            "scene",
+            "broll",
+            "beat",
+            "chapter",
+            "retake"
+          ],
+          "optional": true
+        }
+      },
+      "example": {
+        "input": {
+          "time": 12,
+          "label": "Hook",
+          "kind": "chapter"
+        },
+        "why": "Mark the hook moment."
+      },
+      "label": "Add Marker Advanced",
+      "group": "Editing",
+      "aliases": [],
+      "kind": "edit",
+      "requires": []
+    },
+    {
+      "name": "add_review_note",
+      "description": "Add a review note (tack) at a time — for feedback and to-dos on the timeline.",
+      "params": {
+        "time": {
+          "type": "number",
+          "description": "Time in seconds."
+        },
+        "text": {
+          "type": "string",
+          "description": "Note text."
+        }
+      },
+      "example": {
+        "input": {
+          "time": 30,
+          "text": "Add b-roll here"
+        },
+        "why": "Leave a note for the editor."
+      },
+      "label": "Add Review Note",
+      "group": "Editing",
+      "aliases": [],
+      "kind": "edit",
+      "requires": []
+    },
+    {
+      "name": "label_clips",
+      "description": "Assign a color label to clips for visual organization.",
+      "params": {
+        "clip_ids": {
+          "type": "string",
+          "description": "Comma-separated clip ids. Omit to label all.",
+          "optional": true
+        },
+        "label": {
+          "type": "string",
+          "description": "Label name (e.g. select, broll, review)."
+        }
+      },
+      "example": {
+        "input": {
+          "label": "broll"
+        },
+        "why": "Mark all clips as b-roll."
+      },
+      "label": "Label Clips",
+      "group": "Editing",
+      "aliases": [],
+      "kind": "edit",
+      "requires": []
+    },
+    {
+      "name": "set_blend_mode",
+      "description": "Set a canvas blend mode on clips: multiply, screen, overlay, darken, lighten, color-dodge, and more.",
+      "params": {
+        "clip_id": {
+          "type": "string",
+          "description": "Clip id.",
+          "optional": true
+        },
+        "mode": {
+          "type": "enum",
+          "description": "Blend mode.",
+          "enum": [
+            "normal",
+            "multiply",
+            "screen",
+            "overlay",
+            "darken",
+            "lighten",
+            "color-dodge",
+            "color-burn",
+            "hard-light",
+            "soft-light",
+            "difference",
+            "exclusion",
+            "hue",
+            "saturation",
+            "color",
+            "luminosity"
+          ]
+        }
+      },
+      "example": {
+        "input": {
+          "mode": "screen"
+        },
+        "why": "Screen blend for a light overlay."
+      },
+      "label": "Set Blend Mode",
+      "group": "Editing",
+      "aliases": [],
+      "kind": "edit",
+      "requires": []
+    },
+    {
+      "name": "set_clip_fades",
+      "description": "Set audio/video fade-in and fade-out durations on clips.",
+      "params": {
+        "clip_id": {
+          "type": "string",
+          "description": "Clip id.",
+          "optional": true
+        },
+        "fade_in": {
+          "type": "number",
+          "description": "Fade-in seconds.",
+          "optional": true
+        },
+        "fade_out": {
+          "type": "number",
+          "description": "Fade-out seconds.",
+          "optional": true
+        }
+      },
+      "example": {
+        "input": {
+          "fade_in": 0.5,
+          "fade_out": 0.5
+        },
+        "why": "Smooth audio in and out."
+      },
+      "label": "Set Clip Fades",
+      "group": "Editing",
+      "aliases": [],
+      "kind": "edit",
+      "requires": []
+    },
+    {
+      "name": "ui_action",
+      "description": "Run a visible editor command by its human label or id: undo, redo, copy, paste, play/pause, nudge, zoom, go to start/end, open the command palette or export dialog. Control actions take effect immediately and do NOT create a project edit; report them as UI actions, not video edits.",
+      "params": {
+        "action": {
+          "type": "enum",
+          "description": "Shortcut id or human command label from uiCommandCatalog().",
+          "enum": [
+            "playPause",
+            "shuttleBack",
+            "shuttleStop",
+            "shuttleFwd",
+            "zoneIn",
+            "zoneOut",
+            "markerLoop",
+            "addEdit",
+            "razor",
+            "split",
+            "lift",
+            "extract",
+            "group",
+            "ungroup",
+            "toggleSnap",
+            "nudgeBack",
+            "nudgeFwd",
+            "undo",
+            "redo",
+            "redoAlt",
+            "selectAll",
+            "copy",
+            "cut",
+            "paste",
+            "duplicate",
+            "addMarker",
+            "addTack",
+            "prevMarker",
+            "nextMarker",
+            "zoomToSelection",
+            "selectTool",
+            "zoomIn",
+            "zoomOut",
+            "goStart",
+            "goEnd",
+            "palette",
+            "export",
+            "export"
+          ]
+        }
+      },
+      "example": {
+        "input": {
+          "action": "undo"
+        },
+        "why": "Undo the last edit, exactly like the toolbar button."
+      },
+      "label": "Editor command",
+      "group": "Interface",
+      "aliases": [
+        "undo",
+        "redo",
+        "copy",
+        "paste",
+        "play",
+        "pause",
+        "zoom",
+        "go to start",
+        "command palette",
+        "open export"
+      ],
+      "kind": "control",
+      "requires": []
     }
   ]
 }

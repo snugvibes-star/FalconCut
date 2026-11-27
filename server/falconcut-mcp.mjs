@@ -94,7 +94,14 @@ function buildTools() {
       properties[k] = paramSchema(v);
       if (!v.optional) required.push(k);
     }
-    return { name: t.name, description: `${t.description} (applied as one undo step)`, inputSchema: { type: 'object', properties, ...(required.length ? { required } : {}) } };
+    const meta = [
+      t.label ? `Human label: ${t.label}` : '',
+      t.group ? `Group: ${t.group}` : '',
+      t.aliases?.length ? `Also called: ${t.aliases.join(', ')}` : '',
+      t.requires?.length ? `Needs: ${t.requires.join(', ')}` : '',
+      t.kind === 'control' ? 'UI control (no project edit)' : '',
+    ].filter(Boolean).join('; ');
+    return { name: t.name, description: `${t.description}${meta ? ` — ${meta}` : ''}${t.kind === 'control' ? '' : ' (applied as one undo step)'}`, inputSchema: { type: 'object', properties, ...(required.length ? { required } : {}) } };
   });
   return [...editTools, ...READ_TOOLS];
 }

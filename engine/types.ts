@@ -26,6 +26,12 @@ export interface GeneratorSpec {
   label?: string;
 }
 
+/** Files above this size (or duration) are NOT decoded whole into an
+ * AudioBuffer: browsers cannot hold a 2-hour PCM buffer. Preview uses the
+ * video element's own audio and analysis samples sparsely instead. */
+export const LARGE_MEDIA_BYTES = 400 * 1024 * 1024;
+export const LONG_MEDIA_SECONDS = 20 * 60;
+
 /** One audio track discovered in an ISO-BMFF file (MP4/MOV/M4A). */
 export interface AudioTrackInfo {
   /** MP4 track id — stable within this file, used by the decoder. */
@@ -228,6 +234,8 @@ export interface TextData {
   style: TextStyle;
   words?: CaptionWord[]; // clip-local times, for karaoke / word-pop
   role: 'caption' | 'title' | 'hook';
+  /** Provenance: only AI-generated captions are replaced on regeneration. */
+  source?: 'ai' | 'manual' | 'import';
 }
 
 export type MotifType = 'title-reveal' | 'lower-third' | 'bar-chart' | 'ring-progress' | 'count-up' | 'burst';

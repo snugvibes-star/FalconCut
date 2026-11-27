@@ -81,8 +81,13 @@ export function addCaptions(ctx: ToolContext, params: AddCaptionsParams = {}): T
   }
 
   const actions: Action[] = [];
-  // idempotent: remove previous auto captions
-  for (const c of p.clips) if (c.kind === 'text' && c.text?.role === 'caption') actions.push({ type: 'remove_clip', clipId: c.id });
+  // Idempotent: remove only captions this tool generated. Hand-typed and
+  // SRT-imported captions must survive a regeneration.
+  for (const c of p.clips) {
+    if (c.kind === 'text' && c.text?.role === 'caption' && c.text.source === 'ai') {
+      actions.push({ type: 'remove_clip', clipId: c.id });
+    }
+  }
 
   const baseStyle: Partial<TextStyle> = {
     preset: styleId,
@@ -118,7 +123,7 @@ export function addCaptions(ctx: ToolContext, params: AddCaptionsParams = {}): T
       if (highlight) words = markKeywords(words);
       actions.push({
         type: 'add_text', trackId, start: tlStart, duration: tlEnd - tlStart,
-        text: cue.text, preset: styleId, style: baseStyle, words, role: 'caption',
+        text: cue.text, preset: styleId, style: baseStyle, words, role: 'caption', source: 'ai',
       });
       cues++;
     }
@@ -281,7 +286,7 @@ export function importCaptions(
   for (const cue of cues) {
     actions.push({
       type: 'add_text', trackId, start: Math.max(0, cue.start + offset), duration: Math.max(0.2, cue.end - cue.start),
-      text: cue.text, preset: style.preset, style, role: 'caption',
+      text: cue.text, preset: style.preset, style, role: 'caption', source: 'import',
     });
   }
   return {

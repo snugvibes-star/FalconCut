@@ -114,7 +114,13 @@ function trackInfo(track: MP4TrackInfo, index: number): AudioTrackInfo {
  * List the audio tracks in an MP4/MOV/M4A file. Returns an empty array for a
  * valid file with no audio and `null` when the container cannot be inspected.
  */
-export async function probeAudioTracks(blob: Blob, fileName = ''): Promise<AudioTrackInfo[] | null> {
+export interface IsoBmffProbe {
+  tracks: AudioTrackInfo[];
+  duration: number;
+  timescale: number;
+}
+
+export async function probeIsoBmff(blob: Blob, fileName = ''): Promise<IsoBmffProbe | null> {
   if (!isIsoBmffCandidate(blob, fileName)) return null;
   const boxes = await topLevelBoxes(blob);
   const moov = boxes.find((b) => b.type === 'moov');
@@ -159,12 +165,22 @@ export async function probeAudioTracks(blob: Blob, fileName = ''): Promise<Audio
         tracks[tracks.indexOf(t)].decodable = false;
       }
     }
-    return tracks;
+    const timescale = info.timescale || 1000;
+    return {
+      tracks,
+      duration: info.duration / timescale,
+      timescale,
+    };
   } catch {
     return null;
   } finally {
     try { file?.stop(); } catch { /* already stopped */ }
   }
+}
+
+/** Tracks-only convenience wrapper used by the UI and tests. */
+export async function probeAudioTracks(blob: Blob, fileName = ''): Promise<AudioTrackInfo[] | null> {
+  return (await probeIsoBmff(blob, fileName))?.tracks ?? null;
 }
 
 /** AudioSpecificConfig from an esds box (the AAC decoder description). */
@@ -246,7 +262,12 @@ function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promi
  * edit list (`media_time`) is trimmed so source time 0 lines up with the
  * picture exactly like the browser's own `decodeAudioData` path.
  */
-export async function decodeMp4AudioTrack(blob: Blob, trackId: number): Promise<AudioBuffer> {
+export async function decodeMp4AudioTrack(blob: Blob, trackId: number, expectedDuration?: number): Promise<AudioBuffer> {
+  // Reject before touching the blob: a 2-hour soundtrack cannot fit in an
+  // AudioBuffer, and reading gigabytes just to fail is the import-hang bug.
+  if (expectedDuration && expectedDuration > MAX_AUDIO_FRAMES / 48000) {
+    throw new AudioTrackDecodeError('Selected audio track exceeds the 30-minute decode limit. Split the source file first.');
+  }
   const wc = globalThis as unknown as WebCodecsAudio;
   if (!wc.AudioDecoder || !wc.EncodedAudioChunk) {
     throw new AudioTrackDecodeError('This browser has no WebCodecs AudioDecoder, so alternate audio tracks cannot be decoded.');
@@ -256,13 +277,18 @@ export async function decodeMp4AudioTrack(blob: Blob, trackId: number): Promise<
   const { createFile } = await mp4box();
   const file = createFile();
   try {
-    const data = await blob.arrayBuffer();
     const ready = new Promise<MP4Info>((resolve, reject) => {
       const timer = setTimeout(() => reject(new AudioTrackDecodeError('Timed out reading the audio track.')), DECODE_TIMEOUT_MS);
       file.onReady = (i) => { clearTimeout(timer); resolve(i); };
       file.onError = (e) => { clearTimeout(timer); reject(new AudioTrackDecodeError(`MP4 parse failed: ${e}`)); };
     });
-    feed(file, data, 0, true);
+    // Feed the file in bounded slices. A single arrayBuffer() of a multi-GB
+    // movie is what made long imports hang or crash the tab.
+    const CHUNK = 8 * 1024 * 1024;
+    for (let offset = 0; offset < blob.size; offset += CHUNK) {
+      const end = Math.min(blob.size, offset + CHUNK);
+      feed(file, await blob.slice(offset, end).arrayBuffer(), offset, end === blob.size);
+    }
     const meta = await ready;
     const track = meta.audioTracks?.find((t) => t.id === trackId)
       ?? meta.tracks.find((t) => t.id === trackId && !!t.audio);
@@ -391,6 +417,15 @@ export async function decodeMp4AudioTrack(blob: Blob, trackId: number): Promise<
  * file's default mix; `mediaId#trackId` is one explicitly selected track. */
 export function audioBufferKey(mediaId: string, trackId?: number): string {
   return trackId == null ? mediaId : `${mediaId}#${trackId}`;
+}
+
+/** Kdenlive-style technical stream label. Language is a detail, not the
+ * headline — a single Hindi-tagged stream is still just "Stream 1". */
+export function audioStreamLabel(track: AudioTrackInfo): string {
+  const layout = track.channels === 1 ? 'mono' : track.channels === 2 ? 'stereo' : `${track.channels}ch`;
+  const rate = track.sampleRate ? `${(track.sampleRate / 1000).toFixed(1)}kHz` : 'unknown rate';
+  const language = track.language && track.language !== 'und' ? ` · ${languageName(track.language)}` : '';
+  return `Stream ${track.index} · ${layout} · ${rate} · ${audioCodecName(track.codec)}${language}`;
 }
 
 /** Human label for a track selector: "2. Hindi · AAC mono". */

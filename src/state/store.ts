@@ -8,7 +8,7 @@ import { create } from 'zustand';
 import {
   History, MediaPool, createProject, diffProjects,
   projectDuration, uid, getMedia, applyActions, encodeWAV,
-  probeAudioTracks, languageName, audioBufferKey,
+  probeIsoBmff, probeAudioTracks, languageName, audioBufferKey, LARGE_MEDIA_BYTES, LONG_MEDIA_SECONDS,
   type Project, type Action, type Clip, type MediaAsset, type Aspect, type ProjectDiff,
 } from '../../engine';
 import { runTool, type ToolResult } from '../../tools/registry';
@@ -123,6 +123,9 @@ interface State {
    * asset + audio-track clip at the same position, and mute the original.
    * Returns 'ok' | 'no-clip' | 'no-buffer' | 'undecodable'. */
   extractAudio: (clipId: string) => Promise<'ok' | 'no-clip' | 'no-buffer' | 'undecodable'>;
+  /** Kdenlive-style multi-stream extraction: one WAV clip per decodable audio
+   * stream, on separate audio tracks. Only offered when the file has >1 stream. */
+  extractAudioStreams: (clipId: string) => Promise<number>;
   /** Real DSP voice isolation → derived WAV asset, same path in preview/export. */
   isolateVoice: (clipId: string, opts?: { reduction?: number; noiseWindow?: number }) => Promise<'ok' | 'no-clip' | 'no-buffer' | 'undecodable'>;
   /** Raise project output resolution with high-quality resampling + mild
@@ -431,6 +434,16 @@ export const useStore = create<State>()((set, get) => {
           const type = classifyFile(file);
           const id = uid('media');
           const blobKey = `media_${id}`;
+          // Preflight local storage. A multi-GB movie that does not fit must
+          // fail with a clear reason, not a generic "skipped" toast.
+          try {
+            const estimate = await navigator.storage?.estimate?.();
+            if (estimate?.quota != null && file.size > estimate.quota - (estimate.usage ?? 0)) {
+              throw new Error('Not enough local storage for this file. Free space or import a shorter clip.');
+            }
+          } catch (e) {
+            if (e instanceof Error && /Not enough local storage/.test(e.message)) throw e;
+          }
           await putBlob(blobKey, file);
           const asset: MediaAsset = {
             id, name: file.name, type, duration: type === 'image' ? 5 : 0,
@@ -442,13 +455,16 @@ export const useStore = create<State>()((set, get) => {
             const meta = await probeMedia(file, type);
             asset.duration = meta.duration; asset.width = meta.width; asset.height = meta.height;
             asset.hasAudio = type === 'audio' ? true : meta.hasAudio;
-            // Header-only MP4 scan: exposes every language track without
-            // loading the movie payload. Old single-track projects are
-            // unaffected (the field simply stays absent).
-            const tracks = await probeAudioTracks(file, file.name);
-            if (tracks?.length) {
-              asset.audioTracks = tracks;
-              asset.hasAudio = true;
+            // Header-only MP4 scan: exposes every audio stream without
+            // loading the movie payload. For long files whose metadata probe
+            // times out, the ISO header gives the true duration.
+            const iso = await probeIsoBmff(file, file.name);
+            if (iso) {
+              if (iso.tracks.length) {
+                asset.audioTracks = iso.tracks;
+                asset.hasAudio = true;
+              }
+              if (!asset.duration && Number.isFinite(iso.duration) && iso.duration > 0) asset.duration = iso.duration;
             }
           } else if (type === 'image') {
             const bmp = await createImageBitmap(file);
@@ -600,7 +616,7 @@ export const useStore = create<State>()((set, get) => {
       const chosen = asset.audioTracks?.find((t) => t.id === trackId);
       const newAsset: MediaAsset = {
         id,
-        name: `${asset.name.replace(/\.[^.]+$/, '')}${chosen ? ` (${languageName(chosen.language)})` : ''} (audio).wav`,
+        name: `${asset.name.replace(/\.[^.]+$/, '')}${(asset.audioTracks?.length ?? 0) > 1 && chosen ? ` - stream ${chosen.index}` : ''} (audio).wav`,
         type: 'audio',
         duration: buffer.duration,
         width: 0, height: 0,
@@ -630,6 +646,52 @@ export const useStore = create<State>()((set, get) => {
       get().commit(actions, `Extract audio from ${asset.name}`);
       get().analyze(id);
       return 'ok';
+    },
+
+    async extractAudioStreams(clipId) {
+      const s = get();
+      const clip = s.project.clips.find((c) => c.id === clipId);
+      const asset = clip && clip.mediaId ? getMedia(s.project, clip.mediaId) : undefined;
+      if (!clip || !asset?.audioTracks || asset.audioTracks.length < 2 || !clip.mediaId) return 0;
+      const base = asset.name.replace(/\.[^.]+$/, '');
+      const actions: Action[] = [];
+      const used = new Set<string>();
+      const audioTracks = get().project.tracks.filter((t) => t.kind === 'audio' && !t.locked);
+      let created = 0;
+      for (const stream of asset.audioTracks) {
+        const buffer = await s.pool.getOrDecodeTrackBuffer(clip.mediaId, stream.id);
+        if (!buffer) continue;
+        const wav = encodeWAV(buffer);
+        const id = uid('media');
+        const blobKey = `media_${id}`;
+        await putBlob(blobKey, wav);
+        const newAsset: MediaAsset = {
+          id, name: `${base} - stream ${stream.index}.wav`, type: 'audio',
+          duration: buffer.duration, width: 0, height: 0, hasAudio: true,
+          blobKey, mime: 'audio/wav', size: wav.size, source: 'reference',
+        };
+        await s.pool.register(newAsset, wav);
+        actions.push({ type: 'add_media', asset: newAsset });
+        let track = audioTracks.find((t) => !used.has(t.id));
+        if (!track) {
+          track = { id: uid('trk'), kind: 'audio', name: `A${audioTracks.length + ++created}`, muted: false, solo: false, hidden: false, locked: false, height: 64 };
+          actions.push({ type: 'add_track', track, index: get().project.tracks.length });
+          audioTracks.push(track);
+        }
+        used.add(track.id);
+        actions.push({
+          type: 'add_clip',
+          clip: {
+            trackId: track.id, mediaId: id, start: clip.start, duration: clip.duration,
+            inPoint: Math.max(0, Math.min(clip.inPoint, buffer.duration - 0.05)), volume: 1,
+          },
+        });
+      }
+      if (!actions.length) return 0;
+      actions.push({ type: 'set_clip_props', clipId: clip.id, patch: { volume: 0 } });
+      get().commit(actions, `Extract ${used.size} audio streams from ${asset.name}`);
+      for (const a of actions) if (a.type === 'add_media') get().analyze(a.asset.id);
+      return used.size;
     },
 
     async isolateVoice(clipId, opts) {

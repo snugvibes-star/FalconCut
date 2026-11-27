@@ -185,7 +185,11 @@ export function CaptionsTab() {
         remove_fillers: cleanFillers,
         highlight_keywords: highlight,
       });
-      ui.toast(r.summary || 'Captions generated', 'success');
+      if (r.warnings?.length && !r.actions.length) {
+        ui.toast(r.warnings[0], 'error');
+      } else {
+        ui.toast(r.summary || 'Captions generated', 'success');
+      }
     } catch (e) {
       ui.toast(`Caption generation failed: ${(e as Error).message}`, 'error');
     } finally {

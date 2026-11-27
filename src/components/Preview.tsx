@@ -461,7 +461,7 @@ export function Preview() {
               >
                 <Theater size={16} />
               </button>
-              <button className="icon-btn" onClick={toggleFullscreen} title={full ? 'Exit fullscreen (Esc)' : 'Fullscreen preview (F)'}>
+              <button className="icon-btn" onClick={toggleFullscreen} title={full ? 'Exit fullscreen (Esc)' : 'Fullscreen preview'}>
                 {full ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
               </button>
             </>

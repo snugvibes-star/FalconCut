@@ -5,7 +5,7 @@
  * Export uses an exact-frame resolver (WebCodecs) with the same interface.
  */
 import type { Clip, MediaAsset } from './types';
-import { sourceTimeOf, speedAtLocal } from './types';
+import { sourceTimeOf, speedAtLocal, LARGE_MEDIA_BYTES, LONG_MEDIA_SECONDS } from './types';
 import { audioBufferKey, decodeMp4AudioTrack } from './audioTracks';
 
 export interface MediaResolver {
@@ -54,6 +54,9 @@ export class MediaPool implements MediaResolver {
   /** Buffer keys whose audio the browser could not decode (e.g. AC3 in MP4,
    * or an alternate WebCodecs track this browser cannot handle). */
   private decodeFailed = new Set<string>();
+  /** Large files intentionally use the video element's own audio instead of
+   * an in-memory AudioBuffer, so preview still has sound. */
+  private elementAudio = new Set<string>();
   onFrameReady: (() => void) | null = null;
   /** Fires when a (possibly late) buffer is ready, or with a reason when a
    * selected track failed — the consumer decides how to surface it. */
@@ -72,7 +75,9 @@ export class MediaPool implements MediaResolver {
       const el = document.createElement('video');
       el.muted = true;
       el.playsInline = true;
-      el.preload = 'auto';
+      // 'auto' on a 2-hour movie makes the browser buffer/parse the whole file
+      // during import. Metadata is enough; frames load on demand when scrubbed.
+      el.preload = asset.duration > 600 || (blob?.size ?? 0) > 200 * 1024 * 1024 ? 'metadata' : 'auto';
       el.src = url;
       const entry: VideoEntry = { el, url, seekingTo: null, lastDrawn: -1 };
       el.addEventListener('seeked', () => {
@@ -84,14 +89,25 @@ export class MediaPool implements MediaResolver {
       el.addEventListener('loadeddata', () => this.onFrameReady?.());
       await new Promise<void>((res) => {
         if (el.readyState >= 2) return res();
-        el.addEventListener('loadeddata', () => res(), { once: true });
-        el.addEventListener('error', () => res(), { once: true });
+        let done = false;
+        const finish = () => { if (!done) { done = true; clearTimeout(timer); res(); } };
+        const timer = setTimeout(finish, 5000);
+        el.addEventListener('loadeddata', finish, { once: true });
+        el.addEventListener('error', finish, { once: true });
       });
       this.onFrameReady?.();
     } else if (asset.type === 'image' && blob) {
       this.images.set(asset.id, await createImageBitmap(blob));
     }
-    if ((asset.type === 'audio' || asset.hasAudio) && blob) {
+    // A 2-hour movie would need gigabytes of PCM if decoded whole. Use the
+    // video element's own audio for those files instead of stalling or
+    // crashing the tab during import.
+    if (blob && (blob.size > LARGE_MEDIA_BYTES || asset.duration > LONG_MEDIA_SECONDS)) {
+      if (asset.type !== 'image') {
+        this.elementAudio.add(asset.id);
+        this.onBufferReady?.(asset.id);
+      }
+    } else if ((asset.type === 'audio' || asset.hasAudio) && blob) {
       this.decodeAudio(asset, blob);
     } else if (asset.type === 'video' && blob) {
       // Best-effort: probe's hasAudio detection is unreliable in Chromium
@@ -131,7 +147,8 @@ export class MediaPool implements MediaResolver {
 
   /** True when this media's audio exists but the browser cannot decode it. */
   decodeFailedFor(mediaId: string, trackId?: number): boolean {
-    return this.decodeFailed.has(audioBufferKey(mediaId, trackId));
+    return this.decodeFailed.has(audioBufferKey(mediaId, trackId))
+      || (trackId == null && this.elementAudio.has(mediaId));
   }
 
   /** Decode an explicitly selected MP4 audio track on first use. The in-flight
@@ -208,7 +225,13 @@ export class MediaPool implements MediaResolver {
   }
 
   ensureAudio(asset: MediaAsset, blob: Blob) {
+    if (blob.size > LARGE_MEDIA_BYTES || asset.duration > LONG_MEDIA_SECONDS) return;
     if (!this.buffers.has(asset.id) && !this.decodeFailed.has(asset.id)) this.decodeAudio(asset, blob);
+  }
+
+  /** True when preview deliberately uses the video element's own audio. */
+  usesElementAudio(mediaId: string): boolean {
+    return this.elementAudio.has(mediaId);
   }
 
   frame(mediaId: string, sourceTime: number, useKey?: string): CanvasImageSource | null {

@@ -142,13 +142,15 @@ export function ClipContextMenu({ menu, onClose }: { menu: CtxMenuState; onClose
                 })} />
             );
           })()}
-          <Item icon={Gauge} label="Adjust speed in Inspector"
-            title="Open the Inspector's Speed tab with curve editor, presets and audio options"
-            onClick={run(() => {
-              s.select([clip.id]);
-              useUI.getState().setRightTab('inspector');
-              window.dispatchEvent(new CustomEvent('falconcut:inspector-tab', { detail: 'speed' }));
-            })} />
+          {clip.kind === 'media' && (
+            <Item icon={Gauge} label="Adjust speed in Inspector"
+              title="Open the Inspector's Speed tab with curve editor, presets and audio options"
+              onClick={run(() => {
+                s.select([clip.id]);
+                useUI.getState().setRightTab('inspector');
+                window.dispatchEvent(new CustomEvent('falconcut:inspector-tab', { detail: 'speed' }));
+              })} />
+          )}
           <div className="h-px bg-line my-1" />
           {(s.selection.length > 1 || clip.groupId) && (
             <>

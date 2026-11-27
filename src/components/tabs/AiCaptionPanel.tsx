@@ -53,14 +53,14 @@ export function AiCaptionPanel() {
   const [jobProgress, setJobProgress] = useState<JobProgress | null>(null);
   const [paused, setPaused] = useState(false);
   const jobRef = useRef<TranscriptionJob | null>(null);
-  const mediaIdRef = useRef<string>('');
+  const [mediaId, setMediaId] = useState('');
   const startedRef = useRef(0);
 
   const media = project.media.filter((m) => (m.type === 'video' || m.type === 'audio') && m.blobKey && m.duration > 0);
   const onTimeline = new Set(project.clips.filter((c) => c.kind === 'media' && c.mediaId).map((c) => c.mediaId!));
   // Prefer the asset that is actually on the timeline: otherwise duplicate
   // imports produce a transcript for a clip that does not exist in the edit.
-  const selectedMedia = media.find((m) => m.id === mediaIdRef.current)
+  const selectedMedia = media.find((m) => m.id === mediaId)
     ?? media.find((m) => onTimeline.has(m.id))
     ?? media[0];
   const model = CAPTION_MODELS.find((m) => m.id === prefs.modelId) ?? CAPTION_MODELS[0];
@@ -201,11 +201,17 @@ export function AiCaptionPanel() {
       const start = mappedStart ?? c.start;
       const end = mappedEnd ?? c.end;
       if (end - start < 0.1) continue;
-      const words = c.words ?? [];
+      // Word times are cue-relative SOURCE seconds. At non-1x clip speeds
+      // they must be remapped like the cue itself, or karaoke drifts 2x.
+      const words = (c.words ?? []).map((w) => ({
+        ...w,
+        start: Math.max(0, (sourceToTimeline(project, selectedMedia.id, c.start + w.start) ?? start) - start),
+        end: Math.max(0.05, (sourceToTimeline(project, selectedMedia.id, c.start + w.end) ?? end) - start),
+      }));
       actions.push({
         type: 'add_text', trackId: tid, start, duration: end - start,
         text: c.text, role: 'caption', preset: style.preset, style,
-        words: words.length ? words : undefined,
+        words: words.length ? words : undefined, source: 'import',
       });
       added++;
     }
@@ -269,7 +275,7 @@ export function AiCaptionPanel() {
       <Section title="Transcription">
         <label className="block">
           <span className="label">Media</span>
-          <select className="field py-1 text-xs" value={selectedMedia?.id ?? ''} onChange={(e) => { mediaIdRef.current = e.target.value; }} disabled={busy}>
+          <select className="field py-1 text-xs" value={selectedMedia?.id ?? ''} onChange={(e) => setMediaId(e.target.value)} disabled={busy}>
             {media.map((m) => <option key={m.id} value={m.id}>{m.name} ({m.duration.toFixed(1)}s)</option>)}
           </select>
         </label>

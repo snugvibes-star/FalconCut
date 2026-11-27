@@ -93,6 +93,7 @@ export function ExportDialog() {
   const applyDestination = (d: (typeof DESTINATIONS)[number]) => {
     const s = project.settings;
     if (s.aspect === d.aspect && s.width === d.width && s.height === d.height) return;
+    setDone(''); setDoneKind('');
     useStore.getState().commit(
       [{ type: 'set_settings', patch: { aspect: d.aspect, width: d.width, height: d.height } }],
       `Reframe for ${d.label}`,
@@ -135,7 +136,8 @@ export function ExportDialog() {
         </div>
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
           {DESTINATIONS.map((d) => {
-            const active = project.settings.aspect === d.aspect;
+            const active = project.settings.aspect === d.aspect
+              && project.settings.width === d.width && project.settings.height === d.height;
             return (
               <button key={d.id} type="button" disabled={!!busy} onClick={() => applyDestination(d)}
                 className={`p-2 rounded-lg border text-left transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
@@ -152,12 +154,12 @@ export function ExportDialog() {
         <div className="mt-2 flex flex-wrap items-center gap-2">
           <span className="text-[11px] text-paper-dim">Output resolution</span>
           <button type="button" className="btn-ghost text-[11px] px-2 py-1" disabled={!!busy}
-            onClick={() => useStore.getState().upscaleOutput(2)}
+            onClick={() => { setDone(''); setDoneKind(''); useStore.getState().upscaleOutput(2); }}
             title="2× output resolution with high-quality resampling and a mild sharpen — one undo step. No AI detail is invented.">
             Upscale 2×
           </button>
           <button type="button" className="btn-ghost text-[11px] px-2 py-1" disabled={!!busy}
-            onClick={() => useStore.getState().upscaleOutput(4)}
+            onClick={() => { setDone(''); setDoneKind(''); useStore.getState().upscaleOutput(4); }}
             title="4× output resolution with high-quality resampling and a mild sharpen — one undo step. No AI detail is invented.">
             Upscale 4×
           </button>

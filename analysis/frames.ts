@@ -40,7 +40,8 @@ export async function analyzeFrames(
   asset: MediaAsset,
   blob: Blob,
   onProgress?: (pct: number) => void,
-  fps = 2
+  fps = 2,
+  maxSamples = 240
 ): Promise<FrameAnalysisResult> {
   const url = URL.createObjectURL(blob);
   const video = document.createElement('video');
@@ -63,7 +64,9 @@ export async function analyzeFrames(
   const diffs: { t: number; d: number }[] = [];
   let lumaSum = 0, lumaN = 0;
   let ema: FaceSample | null = null;
-  const step = 1 / fps;
+  // Cap the number of seeks: at 2 fps a 2-hour movie would need 14,400 seeks
+  // (~hours). Long files still get an evenly spaced, clearly sampled map.
+  const step = Math.max(1 / fps, duration / Math.max(1, maxSamples));
 
   for (let t = 0; t < duration; t += step) {
     await new Promise<void>((res) => {

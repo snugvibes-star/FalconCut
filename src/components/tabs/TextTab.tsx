@@ -45,14 +45,14 @@ export function TextTab() {
   const textClips = project.clips.filter((c) => c.kind === 'text').sort((a, b) => a.start - b.start);
   const selected = textClips.find((c) => selection.includes(c.id));
 
-  const payloadFor = (): TextPresetDrop => ({
+  const payloadFor = (presetOverride?: CaptionStyleId): TextPresetDrop => ({
     text: role === 'title' ? 'Your title' : 'Caption text',
     role, duration: role === 'title' ? 3 : 2.5,
-    preset, effect, transition,
+    preset: presetOverride ?? preset, effect, transition,
   });
 
-  const addText = () => {
-    const p = payloadFor();
+  const addText = (presetOverride?: CaptionStyleId) => {
+    const p = payloadFor(presetOverride);
     const { actions, clipId } = buildStyledText(project, {
       ...p, start: playhead,
     });
@@ -104,7 +104,7 @@ export function TextTab() {
                   e.dataTransfer.setData(FALCONCUT_MIME, JSON.stringify({ kind: 'text', preset: payloadFor() }));
                   e.dataTransfer.effectAllowed = 'copy';
                 }}
-                onClick={() => { setPreset(s); addText(); }}
+                onClick={() => { setPreset(s); addText(s); }}
                 title={`Add a ${s} ${role} at the playhead, or drag onto the timeline — renders into the video`}
                 className={`cursor-grab active:cursor-grabbing rounded-lg border overflow-hidden transition-all select-none ${preset === s ? 'ring-2 ring-signal border-transparent' : 'border-line hover:border-line-bright'}`}
               >
@@ -142,7 +142,7 @@ export function TextTab() {
             ))}
           </div>
         </div>
-        <button className="btn-ghost w-full justify-center text-[11px]" onClick={addText}>
+        <button className="btn-ghost w-full justify-center text-[11px]" onClick={() => addText()}>
           <Plus size={13} /> Add {role} at playhead
         </button>
         {selected ? (
