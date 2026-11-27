@@ -110,6 +110,23 @@ export function Preview() {
   const [box, setBox] = useState({ w: 0, h: 0 });
   const [full, setFull] = useState(false);
   const [capturing, setCapturing] = useState(false);
+  const [demoBusy, setDemoBusy] = useState<null | 'showcase' | 'minimal'>(null);
+
+  /** Both demo buttons fetch/import real media, so they must be single-flight
+   * and must report failure instead of silently doing nothing. */
+  const loadDemo = async (kind: 'showcase' | 'minimal') => {
+    if (demoBusy) return;
+    setDemoBusy(kind);
+    try {
+      const s = useStore.getState();
+      if (kind === 'showcase') await s.loadShowcaseDemo();
+      else await s.loadDemoTimeline();
+    } catch (e) {
+      useUI.getState().toast(e instanceof Error ? e.message : 'Could not load the demo', 'error');
+    } finally {
+      setDemoBusy(null);
+    }
+  };
 
   /** Lossless PNG export of the exact rendered frame at the playhead. */
   const saveFrame = async () => {
@@ -335,11 +352,21 @@ export function Preview() {
             <h2 className="font-display text-lg font-semibold mb-1">Your canvas is empty</h2>
             <p className="text-sm text-paper-dim">Import a video, audio or image from the left panel to begin. Everything stays on this device.</p>
             <div className="mt-5 flex flex-col items-center gap-2">
-              <button className="btn-solid text-xs" onClick={() => { void useStore.getState().loadShowcaseDemo(); }}>
-                Load demo — real footage, cut · reverse · speed · titles
+              <button
+                className="btn-solid text-xs disabled:opacity-60"
+                disabled={demoBusy !== null}
+                aria-busy={demoBusy === 'showcase'}
+                onClick={() => { void loadDemo('showcase'); }}
+              >
+                {demoBusy === 'showcase' ? 'Loading demo footage…' : 'Load demo — real footage, cut · reverse · speed · titles'}
               </button>
-              <button className="btn-ghost text-[11px]" onClick={() => { void useStore.getState().loadDemoTimeline(); }}>
-                or the minimal demo (sample video, music, title)
+              <button
+                className="btn-ghost text-[11px] disabled:opacity-60"
+                disabled={demoBusy !== null}
+                aria-busy={demoBusy === 'minimal'}
+                onClick={() => { void loadDemo('minimal'); }}
+              >
+                {demoBusy === 'minimal' ? 'Loading minimal demo…' : 'or the minimal demo (sample video, music, title)'}
               </button>
             </div>
           </div>

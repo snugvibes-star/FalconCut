@@ -1,5 +1,7 @@
 /** Bottom chrome: project stats, playhead timecode, save/agent/zoom status.
- * Pure read-only mirror of store state — never mutates the document. */
+ * Pure read-only mirror of store state except the one-click undo affordance,
+ * which calls the same store action as the toolbar. */
+import { RotateCcw } from 'lucide-react';
 import { useStore } from '../state/store';
 import { projectDuration } from '../../engine';
 
@@ -23,6 +25,8 @@ export function StatusBar() {
   const saveStatus = useStore((s) => s.saveStatus);
   const session = useStore((s) => s.session);
   const lint = useStore((s) => s.lint);
+  const canUndo = useStore((s) => s.canUndo);
+  const undoLabel = useStore((s) => s.undoLabel);
   const fps = project.settings.fps || 30;
 
   return (
@@ -30,6 +34,16 @@ export function StatusBar() {
       <span className="tabular-nums shrink-0">{project.clips.length} clips · {fmtMMSS(projectDuration(project))}</span>
       <span className="tabular-nums hidden md:inline shrink-0" title="Playhead timecode">TC {fmtTC(playhead, fps)}</span>
       {selection.length > 0 && <span className="text-paper-dim tabular-nums hidden md:inline shrink-0">{selection.length} selected</span>}
+      {canUndo && (
+        <button
+          onClick={() => useStore.getState().undo()}
+          className="hidden sm:flex items-center gap-1 shrink-0 rounded px-1 py-0.5 -mx-1 hover:bg-ink-800 hover:text-paper focus-visible:outline focus-visible:outline-1 focus-visible:outline-signal"
+          title={`Undo ${undoLabel} (Ctrl+Z)`}
+        >
+          <RotateCcw size={10} />
+          <span className="max-w-[150px] truncate">Undo {undoLabel}</span>
+        </button>
+      )}
       {lint && (
         <span
           className={`tabular-nums hidden sm:inline shrink-0 px-1.5 rounded ${

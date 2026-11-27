@@ -3,6 +3,7 @@ import { Upload, Plus, Trash2, Film, Music, Image as ImageIcon, Sparkles, Loader
 import { useStore } from '../state/store';
 import { useUI } from '../state/ui';
 import { projectDuration, uid, type MediaAsset, type GeneratorSpec, type Action } from '../../engine';
+import { resolveFreeStart } from '../features/timelinePlacement';
 
 /** MIME type shared with the Timeline drop zone. */
 export const FALCONCUT_MIME = 'application/x-falconcut';
@@ -54,6 +55,7 @@ export function MediaTab() {
   const inputRef = useRef<HTMLInputElement>(null);
   const [dragging, setDragging] = useState(false);
   const [genOpen, setGenOpen] = useState(false);
+  const [demoBusy, setDemoBusy] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [query, setQuery] = useState('');
   const [typeFilter, setTypeFilter] = useState<MediaFilter>('all');
@@ -79,12 +81,36 @@ export function MediaTab() {
   const addToTimeline = (asset: MediaAsset) => {
     const p = useStore.getState().project;
     const isAudio = asset.type === 'audio';
-    const track = p.tracks.find((t) => t.kind === (isAudio ? 'audio' : 'video'));
-    if (!track) return;
-    const start = isAudio ? 0 : projectDuration(p);
+    const compatible = p.tracks.filter((t) => t.kind === (isAudio ? 'audio' : 'video'));
+    const track = compatible.find((t) => !t.locked);
+    if (!track) {
+      ui.toast(compatible.length
+        ? 'The matching track is locked — unlock it to add media.'
+        : `No ${isAudio ? 'audio' : 'video'} track — add one from the timeline toolbar.`, 'info');
+      return;
+    }
+    const wanted = Math.max(0, useStore.getState().playhead);
     const duration = Math.max(0.5, asset.duration || 5);
-    useStore.getState().commit([{ type: 'add_clip', clip: { trackId: track.id, mediaId: asset.id, start, duration, inPoint: 0 } }], `Add ${asset.name}`);
-    ui.toast(`Added ${asset.name} to timeline`);
+    // Never drop a clip on top of another: same-track overlap makes the later
+    // clip swallow clicks and hides the earlier one. Use the nearest free gap.
+    const start = resolveFreeStart(p.clips, track.id, wanted, duration);
+    const clipId = uid('clip');
+    useStore.getState().commit([{ type: 'add_clip', clip: { id: clipId, trackId: track.id, mediaId: asset.id, start, duration, inPoint: 0 } }], `Add ${asset.name}`);
+    useStore.getState().select([clipId]);
+    const moved = Math.abs(start - wanted) > 0.05;
+    ui.toast(`Added ${asset.name} at ${start.toFixed(1)}s${moved ? ' — nearest open space' : ''}`, 'success');
+  };
+
+  const loadDemo = async () => {
+    setDemoBusy(true);
+    try {
+      await useStore.getState().loadShowcaseDemo();
+      ui.toast('Demo edit loaded — press Space to play', 'success');
+    } catch (e) {
+      ui.toast(`Demo unavailable: ${(e as Error).message}`, 'error');
+    } finally {
+      setDemoBusy(false);
+    }
   };
 
   const addGenerator = (spec: GeneratorSpec, label: string) => {
@@ -132,10 +158,21 @@ export function MediaTab() {
       </div>
 
       {project.media.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-line-bright text-center text-paper-faint text-[11px] py-8 px-3">
-          <Film size={22} className="mx-auto mb-2 opacity-50" />
-          <div className="text-paper-dim font-medium mb-1">Drag media to the timeline</div>
-          Import files or generate a background. Videos never leave this device.
+        <div className="rounded-xl border border-dashed border-line-bright text-center px-3 py-6">
+          <div className="w-11 h-11 mx-auto mb-2.5 rounded-xl bg-ink-800 border border-line flex items-center justify-center">
+            <Film size={20} className="text-paper-faint" />
+          </div>
+          <div className="text-paper font-medium mb-1">Bring in your footage</div>
+          <p className="text-[11px] text-paper-faint leading-relaxed">Drop video, audio or images anywhere in this panel. Files stay on this device.</p>
+          <div className="mt-3 space-y-1.5">
+            <button className="btn-signal w-full justify-center text-xs" onClick={() => inputRef.current?.click()}>
+              <Upload size={14} /> Import media
+            </button>
+            <button className="btn-ghost w-full justify-center text-[11px]" disabled={demoBusy} onClick={() => void loadDemo()}>
+              {demoBusy ? <Loader2 size={13} className="animate-spin" /> : <Sparkles size={13} />} Load the demo edit
+            </button>
+          </div>
+          <p className="text-[10px] text-paper-faint mt-3">Tip: double-click a clip to add it at the playhead.</p>
         </div>
       ) : (
         <>

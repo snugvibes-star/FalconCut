@@ -43,6 +43,8 @@ export const DEFAULT_SHORTCUTS: ShortcutDef[] = [
   { id: 'group', group: 'Editing', label: 'Group clips', combo: 'Ctrl+G' },
   { id: 'ungroup', group: 'Editing', label: 'Ungroup clips', combo: 'Ctrl+Shift+G' },
   { id: 'toggleSnap', group: 'Editing', label: 'Toggle magnetic snapping', combo: 'N' },
+  { id: 'nudgeBack', group: 'Editing', label: 'Nudge selection left one frame', combo: 'Alt+ArrowLeft' },
+  { id: 'nudgeFwd', group: 'Editing', label: 'Nudge selection right one frame', combo: 'Alt+ArrowRight' },
 
   // ---- Clipboard / history ----
   { id: 'undo', group: 'Clipboard', label: 'Undo', combo: 'Ctrl+Z' },
@@ -57,6 +59,8 @@ export const DEFAULT_SHORTCUTS: ShortcutDef[] = [
   // ---- Markers & notes ----
   { id: 'addMarker', group: 'Markers & notes', label: 'Add marker at playhead', combo: 'M' },
   { id: 'addTack', group: 'Markers & notes', label: 'Add a note at playhead', combo: 'T' },
+  { id: 'prevMarker', group: 'Markers & notes', label: 'Go to previous marker', combo: ',' },
+  { id: 'nextMarker', group: 'Markers & notes', label: 'Go to next marker', combo: '.' },
 
   // ---- View ----
   { id: 'zoomToSelection', group: 'View', label: 'Zoom to selection', combo: 'Shift+Z' },

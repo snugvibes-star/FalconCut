@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Scissors, Trash2, ZoomIn, ZoomOut, Magnet, Lock, Unlock, Volume2, VolumeX, Eye, EyeOff, Plus, Flag, Maximize, ChevronsRightLeft, Headphones, Focus, ChevronUp, ChevronDown } from 'lucide-react';
+import { Scissors, Trash2, ZoomIn, ZoomOut, Magnet, Lock, Unlock, Volume2, VolumeX, Eye, EyeOff, Plus, Flag, Maximize, ChevronsRightLeft, Headphones, Focus, ChevronUp, ChevronDown, ArrowLeft, ArrowRight } from 'lucide-react';
 import { useStore } from '../state/store';
 import { useUI } from '../state/ui';
 import { useDeviceClass } from '../hooks/useDeviceClass';
 import { ClipContextMenu, type CtxMenuState } from './ClipContextMenu';
+import { resolveFreeStart } from '../features/timelinePlacement';
+import { runEditorAction } from '../features/editorActions';
 import { buildStyledText, type TextEffect, type TextRole, type TextTransition } from './tabs/textPresets';
 import { projectDuration, clipsOnTrack, getMedia, uid, COLOR_PRESETS, TRANSITION_TYPES, type Action, type Clip, type Track, type MediaAsset, type TextData, type EffectType, type Transition } from '../../engine';
 
@@ -181,6 +183,7 @@ const FALCONCUT_MIME = 'application/x-falconcut';
 export function Timeline() {
   const project = useStore((s) => s.project);
   const playhead = useStore((s) => s.playhead);
+  const playing = useStore((s) => s.playing);
   const zoom = useStore((s) => s.zoom);
   const selection = useStore((s) => s.selection);
   const zone = useStore((s) => s.zone);
@@ -206,6 +209,8 @@ export function Timeline() {
     curStart: number; curDuration: number; curInPoint: number; curTrack: string;
     drop: NewTrackDrop | null;
   } | null>(null);
+  /** Playback auto-follow is suspended briefly while the user scrolls manually. */
+  const followSuspendRef = useRef(0);
   /* pane height resize (drag handle above the toolbar) */
   const paneDrag = useRef<{ startY: number; startH: number } | null>(null);
   const [paneResizing, setPaneResizing] = useState(false);
@@ -248,6 +253,24 @@ export function Timeline() {
   const snap = ui.snap;
   const contentW = Math.max(600, (dur + 6) * zoom);
   const tracks = [...project.tracks].sort((a, b) => Number(b.kind === 'text') - Number(a.kind === 'text'));
+
+  /* Follow the playhead during playback, but never fight a manual scroll:
+     wheel / scrollbar input suspends following for a few seconds. */
+  useEffect(() => {
+    if (!playing) return;
+    const el = scrollRef.current;
+    if (!el || Date.now() < followSuspendRef.current) return;
+    const x = HEADER_W + playhead * zoom;
+    const left = el.scrollLeft;
+    const right = left + el.clientWidth;
+    const rightPad = 72;
+    const leftPad = HEADER_W + 24;
+    if (x > right - rightPad) {
+      el.scrollLeft = Math.max(0, x - el.clientWidth + rightPad);
+    } else if (x < left + leftPad) {
+      el.scrollLeft = Math.max(0, x - leftPad);
+    }
+  }, [playing, playhead, zoom, HEADER_W]);
 
   /* Two-finger pinch zooms the timeline (mobile editors expect this). The
      listener is non-passive only while two fingers are down so normal pane
@@ -332,30 +355,6 @@ export function Timeline() {
     for (const m of project.markers) candidates.push(m.time);
     let best = t, bestD = tol;
     for (const c of candidates) { const d = Math.abs(c - t); if (d < bestD) { bestD = d; best = c; } }
-    return Math.max(0, best);
-  };
-
-  /** Nearest non-overlapping start for a clip of `dur` seconds on `trackId`,
-   * ignoring `ignoreId`. Same-track overlap is what makes clips invisibly
-   * stack under each other (the later-drawn one swallows clicks), so a drop
-   * onto occupied space is clamped into the closest free gap instead. */
-  const resolveFreeStart = (trackId: string, wanted: number, dur: number, ignoreId?: string) => {
-    const others = project.clips
-      .filter((c) => c.trackId === trackId && c.id !== ignoreId)
-      .sort((a, b) => a.start - b.start);
-    const gaps: { lo: number; hi: number }[] = [];
-    let prevEnd = 0;
-    for (const o of others) {
-      if (o.start - prevEnd >= dur - 1e-6) gaps.push({ lo: prevEnd, hi: Math.max(prevEnd, o.start - dur) });
-      prevEnd = Math.max(prevEnd, o.start + o.duration);
-    }
-    gaps.push({ lo: prevEnd, hi: Infinity });
-    let best = wanted, bestD = Infinity;
-    for (const g of gaps) {
-      const c = Math.min(Math.max(wanted, g.lo), g.hi);
-      const d = Math.abs(c - wanted);
-      if (d < bestD - 1e-9) { bestD = d; best = c; }
-    }
     return Math.max(0, best);
   };
 
@@ -558,7 +557,7 @@ export function Timeline() {
       // never emit move_clip with an invalid track id.
       if (targetTrackId === NEW_TRACK_ID) return;
       // Never allow same-track overlap — clamp the drop into the nearest gap.
-      const start = resolveFreeStart(targetTrackId, cur.curStart, d.origDuration, d.clipId);
+      const start = resolveFreeStart(project.clips, targetTrackId, cur.curStart, d.origDuration, d.clipId);
       actions.push({ type: 'move_clip', clipId: d.clipId, start, trackId: targetTrackId });
       // Multi-select drag: shift the rest of the group by the same delta on
       // their own tracks (only the grabbed clip changes tracks).
@@ -699,14 +698,14 @@ export function Timeline() {
       if (!track) { ui.toast(`No ${isAudio ? 'audio' : 'video'} track — add one first`, 'error'); return; }
       if (track.locked) { ui.toast('Track is locked', 'info'); return; }
       const duration = Math.max(0.5, asset.duration || 5);
-      const start = resolveFreeStart(track.id, hit.time, duration);
+      const start = resolveFreeStart(project.clips, track.id, hit.time, duration);
       commitAndSelect([{ type: 'add_clip', clip: { trackId: track.id, mediaId: asset.id, start, duration, inPoint: 0 } }], 'Drop media');
       ui.toast(`Added ${asset.name} to timeline`);
     } else if (payload.kind === 'text' && payload.preset) {
       const preset = payload.preset;
       const textTrackId = project.tracks.find((t) => t.kind === 'text')?.id;
       const duration = preset.duration ?? 3;
-      const start = textTrackId ? resolveFreeStart(textTrackId, hit.time, duration) : hit.time;
+      const start = textTrackId ? resolveFreeStart(project.clips, textTrackId, hit.time, duration) : hit.time;
       const { actions } = buildStyledText(project, {
         start, duration, text: preset.text,
         role: preset.role ?? 'caption',
@@ -719,7 +718,7 @@ export function Timeline() {
       ui.toast(`${preset.preset ?? 'Clean'} ${preset.role ?? 'text'} added to the video`, 'success');
     } else if (payload.kind === 'sticker' && payload.value) {
       const textTrackId = project.tracks.find((t) => t.kind === 'text')?.id;
-      const start = textTrackId ? resolveFreeStart(textTrackId, hit.time, 2) : hit.time;
+      const start = textTrackId ? resolveFreeStart(project.clips, textTrackId, hit.time, 2) : hit.time;
       const actions: Action[] = [];
       if (!textTrackId) actions.push({ type: 'add_track', track: { kind: 'text' } });
       actions.push({ type: 'add_text', start, duration: 2, text: payload.value, role: 'title', preset: 'word-pop', style: { fontSize: 0.12 } });
@@ -969,6 +968,8 @@ export function Timeline() {
         <button className="icon-btn" title="Collapse timeline" onClick={() => ui.setTimelineCollapsed(true)}><ChevronDown size={15} /></button>
         <button className="icon-btn" onClick={splitAtPlayhead} title="Split at playhead (S)"><Scissors size={15} /></button>
         <button className="icon-btn" onClick={deleteSel} disabled={!selection.length} title="Ripple delete selected (Del)"><Trash2 size={15} /></button>
+        <button className="icon-btn" onClick={() => runEditorAction('nudgeBack')} disabled={!selection.length} title="Nudge selection left one frame (Alt+←)"><ArrowLeft size={15} /></button>
+        <button className="icon-btn" onClick={() => runEditorAction('nudgeFwd')} disabled={!selection.length} title="Nudge selection right one frame (Alt+→)"><ArrowRight size={15} /></button>
         <button className={`icon-btn ${snap ? 'text-signal' : ''}`} onClick={() => ui.setSnap(!ui.snap)} title={`Snapping ${snap ? 'on' : 'off'} (N) — hold Alt while dragging to bypass`}><Magnet size={15} /></button>
         <button className="icon-btn" onClick={closeGaps} disabled={!hasGaps} title="Close gaps on video/audio tracks"><ChevronsRightLeft size={15} /></button>
         <div className="h-5 w-px bg-line mx-1" />
@@ -987,6 +988,8 @@ export function Timeline() {
       </div>
 
       <div ref={scrollRef} className="flex-1 min-h-0 overflow-auto relative"
+        onWheelCapture={() => { followSuspendRef.current = Date.now() + 4000; }}
+        onPointerDownCapture={(e) => { if (e.target === e.currentTarget) followSuspendRef.current = Date.now() + 4000; }}
         onDragEnter={onDragEnterZone} onDragOver={onDragOverZone} onDragLeave={onDragLeaveZone} onDrop={onDropZone}
         onContextMenu={onTracksContextMenu}
       >
@@ -1202,6 +1205,16 @@ export function Timeline() {
             );
           })}
           {renderNewTrackGhost('below')}
+
+          {/* First-run hint: the empty timeline is a drop target, not a dead end. */}
+          {project.clips.length === 0 && !drag && !dropHint && (
+            <div className="absolute z-20 pointer-events-none" style={{ left: HEADER_W + 16, right: 16, top: RULER_H + 16 }}>
+              <div className="mx-auto max-w-md rounded-xl border border-dashed border-line-bright bg-ink-900/85 backdrop-blur-sm px-4 py-3 text-center shadow-panel">
+                <div className="text-xs font-medium text-paper">Drop media on a track to start</div>
+                <div className="text-[11px] text-paper-faint mt-0.5">or double-click a clip in the Media panel · Ctrl+/ finds every tool</div>
+              </div>
+            </div>
+          )}
 
           {/* snapping feedback line */}
           {snapLine != null && (
