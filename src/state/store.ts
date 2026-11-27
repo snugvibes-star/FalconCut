@@ -8,7 +8,7 @@ import { create } from 'zustand';
 import {
   History, MediaPool, createProject, diffProjects,
   projectDuration, uid, getMedia, applyActions, encodeWAV,
-  probeAudioTracks, audioBufferKey, decodeMp4AudioTrack,
+  probeAudioTracks, languageName, audioBufferKey,
   type Project, type Action, type Clip, type MediaAsset, type Aspect, type ProjectDiff,
 } from '../../engine';
 import { runTool, type ToolResult } from '../../tools/registry';
@@ -585,14 +585,10 @@ export const useStore = create<State>()((set, get) => {
       if (!clip || !asset) return 'no-clip';
       const trackId = clip.audioTrackId;
       let buffer = clip.mediaId ? s.pool.getBuffer(clip.mediaId, trackId) : undefined;
-      // A selected language track may still be decoding (or not cached yet).
-      if (!buffer && trackId != null && clip.mediaId && asset.blobKey) {
-        s.pool.ensureTrackBuffer(clip.mediaId, trackId);
-        const blob = await getBlob(asset.blobKey);
-        if (blob) {
-          try { buffer = await decodeMp4AudioTrack(blob, trackId); }
-          catch { return 'undecodable'; }
-        }
+      // A selected language track may still be decoding. Share that decode
+      // instead of starting a second whole-file read and PCM allocation.
+      if (!buffer && trackId != null && clip.mediaId) {
+        buffer = await s.pool.getOrDecodeTrackBuffer(clip.mediaId, trackId);
       }
       if (!buffer) {
         return s.pool.decodeFailedFor(asset.id, trackId) ? 'undecodable' : 'no-buffer';
@@ -601,9 +597,10 @@ export const useStore = create<State>()((set, get) => {
       const id = uid('media');
       const blobKey = `media_${id}`;
       await putBlob(blobKey, wav);
+      const chosen = asset.audioTracks?.find((t) => t.id === trackId);
       const newAsset: MediaAsset = {
         id,
-        name: `${asset.name.replace(/\.[^.]+$/, '')}${asset.audioTracks?.find((t) => t.id === trackId) ? ` (${asset.audioTracks.find((t) => t.id === trackId)!.language})` : ''} (audio).wav`,
+        name: `${asset.name.replace(/\.[^.]+$/, '')}${chosen ? ` (${languageName(chosen.language)})` : ''} (audio).wav`,
         type: 'audio',
         duration: buffer.duration,
         width: 0, height: 0,

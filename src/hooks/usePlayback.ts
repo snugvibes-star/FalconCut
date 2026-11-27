@@ -14,7 +14,7 @@
 import { useEffect, useRef } from 'react';
 import { useStore } from '../state/store';
 import { useUI } from '../state/ui';
-import { buildAudioGraph, activeClips, projectDuration, getMedia, trackAudible, type AudioGraphHandle, type Clip, type MediaAsset } from '../../engine';
+import { buildAudioGraph, activeClips, projectDuration, getMedia, trackAudible, audioBufferKey, type AudioGraphHandle, type Clip, type MediaAsset } from '../../engine';
 
 function activeWithAssets(project: ReturnType<typeof useStore.getState>['project'], t: number) {
   const out: { clip: Clip; asset: MediaAsset }[] = [];
@@ -62,7 +62,7 @@ export function usePlayback() {
         if (clip.audioTrackId == null || !clip.mediaId) continue;
         s.pool.ensureTrackBuffer(clip.mediaId, clip.audioTrackId);
         const b = s.pool.getBuffer(clip.mediaId, clip.audioTrackId);
-        if (b) buffers.set(`${clip.mediaId}#${clip.audioTrackId}`, b);
+        if (b) buffers.set(audioBufferKey(clip.mediaId, clip.audioTrackId), b);
       }
       try {
         const when = ctx.currentTime + 0.03;
@@ -82,7 +82,10 @@ export function usePlayback() {
         // A video element always plays the file's default track — never let it
         // leak that audio when the clip selected a different language.
         if (clip.audioTrackId != null) continue;
-        const el = s.pool.elementFor(asset.id);
+        // syncPlayback plays a per-clip clone, not the primary frame element.
+        // Unmute THAT element, otherwise a browser that cannot decode the file
+        // with decodeAudioData still plays a muted element and stays silent.
+        const el = s.pool.ensureElement(asset.id, clip.id);
         if (el && s.pool.decodeFailedFor(asset.id)) {
           el.muted = false;
           el.volume = Math.max(0, Math.min(1, clip.volume ?? 1));
@@ -227,7 +230,13 @@ export function usePlayback() {
     });
 
     // Late audio decodes (register/analyze can finish after play started).
-    useStore.getState().pool.onBufferReady = scheduleRebuild;
+    useStore.getState().pool.onBufferReady = (_key, error) => {
+      if (error) {
+        useUI.getState().toast(`Selected audio track could not be decoded: ${error}`, 'error');
+        return;
+      }
+      scheduleRebuild();
+    };
 
     // Preview rate changes rebuild the audio graph at the new rate. Export is
     // unaffected because it never reads UI state.

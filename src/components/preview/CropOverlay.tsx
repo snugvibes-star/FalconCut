@@ -229,11 +229,10 @@ export function CropOverlay({ scale }: { scale: number }) {
     const tr = { ...defaultTransform(), ...patchFromRect(rect) };
     actions.push({
       type: 'add_clip',
-      // Keep the clip's fit mode: 'fill' would stretch the extracted region
-      // whenever its aspect differs from the project frame. Cover/contain
-      // preserve the source pixels' proportions, so a small crop is only
-      // resampled, never distorted.
-      clip: { trackId, mediaId: clip.mediaId, start, duration, inPoint, fit: clip.fit ?? 'cover', audioTrackId: clip.audioTrackId, name: `${clip.name || asset.name || 'Region'} · region`, transform: tr },
+      // 'contain' shows the ENTIRE selected region without stretching it.
+      // 'fill' (the old behaviour) distorts, while 'cover' silently throws
+      // away most of the region when its aspect differs from the project.
+      clip: { trackId, mediaId: clip.mediaId, start, duration, inPoint, fit: 'contain', audioTrackId: clip.audioTrackId, name: `${clip.name || asset.name || 'Region'} · region`, transform: tr },
     });
     s.commit(actions, 'Extract region as new clip', 'human');
     useUI.getState().toast('Region extracted as an independent clip on a video track', 'success');
@@ -249,11 +248,11 @@ export function CropOverlay({ scale }: { scale: number }) {
   const nativeW = rect ? Math.max(1, Math.round(rect.w)) : 0;
   const nativeH = rect ? Math.max(1, Math.round(rect.h)) : 0;
   const fitMode = clip?.fit ?? 'cover';
-  const sampleScale = nativeW > 0 && nativeH > 0
-    ? fitMode === 'fill'
-      ? Math.max(W / nativeW, H / nativeH)
-      : (fitMode === 'contain' ? Math.min(W / nativeW, H / nativeH) : Math.max(W / nativeW, H / nativeH))
-    : 1;
+  const clipScale = Math.max(0.01, clip?.transform?.scale ?? 1);
+  const sx = nativeW > 0 ? (W / nativeW) * clipScale : 1;
+  const sy = nativeH > 0 ? (H / nativeH) * clipScale : 1;
+  const sampleScale = fitMode === 'fill' ? Math.max(sx, sy) : fitMode === 'contain' ? Math.min(sx, sy) : Math.max(sx, sy);
+  const fitHint = fitMode === 'fill' ? 'stretched to frame' : fitMode === 'contain' ? 'letterboxed to frame' : 'scaled to cover frame';
 
   return (
     <>
@@ -270,7 +269,7 @@ export function CropOverlay({ scale }: { scale: number }) {
         <span className="font-semibold text-signal">REGION</span>
         {nativeW > 0 && (
           <span className="ml-1" title="A crop keeps only the source pixels inside the box. Upscaling resamples them; it does not generate new detail. Choose a higher export resolution to give each source pixel more output pixels.">
-            {nativeW}×{nativeH}px → {W}×{H} · {sampleScale.toFixed(2)}× resample
+            {nativeW}×{nativeH}px → {W}×{H} · {fitMode === 'fill' ? `${sx.toFixed(2)}×/${sy.toFixed(2)}×` : `${sampleScale.toFixed(2)}×`} resample ({fitHint})
           </span>
         )}
         <span className="ml-1 hidden min-[500px]:inline">drag the box or its handles</span>

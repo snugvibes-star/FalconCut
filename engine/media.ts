@@ -26,6 +26,17 @@ interface VideoEntry {
   lastDrawn: number;
 }
 
+/** Cheap peak scan: a whole-file buffer that is completely silent means the
+ * browser picked a disabled/empty track, not that the movie has no sound. */
+function isSilent(buffer: AudioBuffer): boolean {
+  for (let ch = 0; ch < buffer.numberOfChannels; ch++) {
+    const data = buffer.getChannelData(ch);
+    const step = Math.max(1, Math.floor(data.length / 20000));
+    for (let i = 0; i < data.length; i += step) if (Math.abs(data[i]) > 1e-4) return false;
+  }
+  return true;
+}
+
 export class MediaPool implements MediaResolver {
   private videos = new Map<string, VideoEntry>();
   /** Per-use clones: key `${mediaId}|${useKey}` — additional <video> elements
@@ -38,13 +49,15 @@ export class MediaPool implements MediaResolver {
   private assets = new Map<string, MediaAsset>();
   /** Source blobs kept so an alternate track can be decoded on first use. */
   private blobs = new Map<string, Blob>();
-  private trackPending = new Set<string>();
+  private trackPromises = new Map<string, Promise<AudioBuffer | undefined>>();
   private audioCtx: AudioContext | null = null;
   /** Buffer keys whose audio the browser could not decode (e.g. AC3 in MP4,
    * or an alternate WebCodecs track this browser cannot handle). */
   private decodeFailed = new Set<string>();
   onFrameReady: (() => void) | null = null;
-  onBufferReady: ((mediaId: string) => void) | null = null;
+  /** Fires when a (possibly late) buffer is ready, or with a reason when a
+   * selected track failed — the consumer decides how to surface it. */
+  onBufferReady: ((key: string, error?: string) => void) | null = null;
 
   private ctx(): AudioContext {
     if (!this.audioCtx) this.audioCtx = new AudioContext();
@@ -79,21 +92,28 @@ export class MediaPool implements MediaResolver {
       this.images.set(asset.id, await createImageBitmap(blob));
     }
     if ((asset.type === 'audio' || asset.hasAudio) && blob) {
-      this.decodeAudio(asset.id, blob);
+      this.decodeAudio(asset, blob);
     } else if (asset.type === 'video' && blob) {
       // Best-effort: probe's hasAudio detection is unreliable in Chromium
       // (webkitAudioDecodedByteCount is 0 until the element plays), which left
       // many video files with real audio tracks permanently silent. Decode
       // unconditionally — a video without audio decodes to silence, harmless.
-      this.decodeAudio(asset.id, blob);
+      this.decodeAudio(asset, blob);
     }
   }
 
-  private async decodeAudio(mediaId: string, blob: Blob) {
+  private async decodeAudio(asset: MediaAsset, blob: Blob) {
+    const mediaId = asset.id;
     if (this.buffers.has(mediaId)) return;
     try {
       const arr = await blob.arrayBuffer();
-      const buf = await this.ctx().decodeAudioData(arr);
+      let buf = await this.ctx().decodeAudioData(arr);
+      // Some containers expose a disabled/silent "default" track to
+      // decodeAudioData. When the file declares real audio tracks, use the
+      // first decoded track instead of playing silence.
+      if (asset.audioTracks?.length && isSilent(buf)) {
+        buf = await decodeMp4AudioTrack(blob, asset.audioTracks[0].id);
+      }
       this.buffers.set(mediaId, buf);
       this.onBufferReady?.(mediaId);
     } catch {
@@ -114,23 +134,42 @@ export class MediaPool implements MediaResolver {
     return this.decodeFailed.has(audioBufferKey(mediaId, trackId));
   }
 
-  /** Decode an explicitly selected MP4 audio track on first use. The result is
-   * cached under `mediaId#trackId`, so switching back and forth is instant.
-   * Failures are recorded instead of falling back to another language. */
-  ensureTrackBuffer(mediaId: string, trackId: number): void {
+  /** Decode an explicitly selected MP4 audio track on first use. The in-flight
+   * promise is shared so a selection and an immediate export never decode the
+   * same track twice. Failures are recorded instead of falling back to a
+   * different language. */
+  getOrDecodeTrackBuffer(mediaId: string, trackId: number): Promise<AudioBuffer | undefined> {
     const key = audioBufferKey(mediaId, trackId);
-    if (this.buffers.has(key) || this.trackPending.has(key) || this.decodeFailed.has(key)) return;
+    const existing = this.buffers.get(key);
+    if (existing) return Promise.resolve(existing);
+    if (this.decodeFailed.has(key)) return Promise.resolve(undefined);
     const blob = this.blobs.get(mediaId);
-    if (!blob) return;
-    this.trackPending.add(key);
-    void decodeMp4AudioTrack(blob, trackId)
-      .then((buf) => { this.buffers.set(key, buf); this.onBufferReady?.(key); })
-      .catch(() => { this.decodeFailed.add(key); this.onBufferReady?.(key); })
-      .finally(() => { this.trackPending.delete(key); });
+    if (!blob) return Promise.resolve(undefined);
+    let pending = this.trackPromises.get(key);
+    if (!pending) {
+      pending = decodeMp4AudioTrack(blob, trackId)
+        .then((buf) => { this.buffers.set(key, buf); this.onBufferReady?.(key); return buf; })
+        .catch((e: unknown) => {
+          const reason = e instanceof Error ? e.message : String(e);
+          this.decodeFailed.add(key);
+          this.onBufferReady?.(key, reason);
+          return undefined;
+        })
+        .finally(() => { this.trackPromises.delete(key); });
+      this.trackPromises.set(key, pending);
+    }
+    return pending;
   }
 
-  /** The live preview <video> element for a media asset, if any. */
-  elementFor(mediaId: string): HTMLVideoElement | null {
+  ensureTrackBuffer(mediaId: string, trackId: number): void {
+    void this.getOrDecodeTrackBuffer(mediaId, trackId);
+  }
+
+  /** The live preview <video> element for a media asset, if any. When `useKey`
+   * is given, return the per-clip clone that actually plays during preview —
+   * the primary element is only a frame source. */
+  elementFor(mediaId: string, useKey?: string): HTMLVideoElement | null {
+    if (useKey) return this.useVideos.get(`${mediaId}|${useKey}`)?.el ?? this.videos.get(mediaId)?.el ?? null;
     return this.videos.get(mediaId)?.el ?? null;
   }
 
@@ -156,6 +195,12 @@ export class MediaPool implements MediaResolver {
     return v;
   }
 
+  /** Create/fetch the per-clip element ahead of playback so the element-audio
+   * fallback can unmute the element that will actually be played. */
+  ensureElement(mediaId: string, useKey: string): HTMLVideoElement | null {
+    return this.entryFor(mediaId, useKey)?.el ?? null;
+  }
+
   /** Re-mute every preview video element (used when playback stops). */
   muteAllElements() {
     for (const v of this.videos.values()) v.el.muted = true;
@@ -163,7 +208,7 @@ export class MediaPool implements MediaResolver {
   }
 
   ensureAudio(asset: MediaAsset, blob: Blob) {
-    if (!this.buffers.has(asset.id) && !this.decodeFailed.has(asset.id)) this.decodeAudio(asset.id, blob);
+    if (!this.buffers.has(asset.id) && !this.decodeFailed.has(asset.id)) this.decodeAudio(asset, blob);
   }
 
   frame(mediaId: string, sourceTime: number, useKey?: string): CanvasImageSource | null {
@@ -293,6 +338,14 @@ export class MediaPool implements MediaResolver {
     this.images.get(mediaId)?.close();
     this.images.delete(mediaId);
     this.buffers.delete(mediaId);
+    for (const key of [...this.buffers.keys(), ...this.decodeFailed, ...this.trackPromises.keys()]) {
+      if (key === mediaId || key.startsWith(mediaId + '#')) {
+        this.buffers.delete(key);
+        this.decodeFailed.delete(key);
+        this.trackPromises.delete(key);
+      }
+    }
+    this.blobs.delete(mediaId);
     this.assets.delete(mediaId);
   }
 

@@ -427,6 +427,32 @@ describe('region crop / extraction', () => {
     expect(FakeOffscreen.all.some((o) => o !== c && o.width >= p.settings.width)).toBe(true);
   });
 
+  it('effect scratch follows an upscaled export canvas, not just project size', () => {
+    let p = baseProject();
+    p = applyAction(p, { type: 'set_transform', clipId: p.clips[0].id, patch: { cropL: 0.25, cropR: 0.25, cropT: 0.1, cropB: 0.2 } });
+    p = applyAction(p, { type: 'add_effect', clipId: p.clips[0].id, effect: { id: 'fx2', type: 'sharpen', enabled: true, params: { amount: 0.5 } } as any });
+    // getFx() reuses one scratch canvas, so detect the resize instead of a
+    // newly constructed canvas.
+    const before = FakeOffscreen.all.map((o) => ({ o, w: o.width, h: o.height }));
+    const out = new FakeOffscreen(p.settings.width * 2, p.settings.height * 2);
+    renderFrame(p, 2, out.getContext() as any, null);
+    // drawW is 1920 in project space; at 2x export the scratch must be ~3840
+    // wide and ~3024 tall (the old code rasterized only 1920 px).
+    expect(before.some((x) => x.o !== out && x.o.width >= 3800 && x.o.height >= 2900 && (x.w !== x.o.width || x.h !== x.o.height))).toBe(true);
+  });
+
+  it('contain fit keeps a cropped region proportional (no stretch)', () => {
+    let p = baseProject();
+    p = applyAction(p, { type: 'set_transform', clipId: p.clips[0].id, patch: { cropL: 0.25, cropR: 0.25, cropT: 0.1, cropB: 0.2 } });
+    p = applyAction(p, { type: 'set_clip_props', clipId: p.clips[0].id, patch: { fit: 'contain' } });
+    const c = new FakeOffscreen(p.settings.width, p.settings.height);
+    renderFrame(p, 2, c.getContext() as any, null);
+    const d = c.ctx.ops.filter((o) => o.startsWith('drawImage'))[0].split('(')[1].split(')')[0].split(',').map(Number);
+    const srcAspect = d[2] / d[3];
+    const destAspect = d[6] / d[7];
+    expect(destAspect).toBeCloseTo(srcAspect, 3);
+  });
+
   it('auto-create-track + move is one undoable group with a shared track id', () => {
     let p = baseProject();
     const clip = p.clips[0];

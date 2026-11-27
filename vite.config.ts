@@ -39,5 +39,9 @@ export default defineConfig({
     },
   },
   worker: { format: 'es' },
-  optimizeDeps: { exclude: ['@huggingface/transformers'] },
+  // mp4box is loaded on the first media import. Without pre-bundling, Vite
+  // discovers it at runtime, re-optimizes and FULL-RELOADS the page mid-import
+  // — the video can end up on the timeline with no decoded audio. Keep the
+  // dependency warm from startup so importing never reloads the editor.
+  optimizeDeps: { include: ['mp4box'], exclude: ['@huggingface/transformers'] },
 });

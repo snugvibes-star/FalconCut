@@ -405,7 +405,15 @@ export function applyAction(project: Project, action: Action): Project {
       }
       case 'set_clip_props': {
         const c = clip(action.clipId);
-        if (c) Object.assign(c, action.patch);
+        if (!c) break;
+        const patch = { ...action.patch };
+        // An AI/tool action can supply a stale or fabricated track id. An
+        // invalid id would make preview silent and abort export, so drop it.
+        if ('audioTrackId' in patch && patch.audioTrackId != null) {
+          const asset = getMedia(p, c.mediaId);
+          if (!asset?.audioTracks?.some((t) => t.id === patch.audioTrackId)) delete patch.audioTrackId;
+        }
+        Object.assign(c, patch);
         break;
       }
       case 'set_fades': {

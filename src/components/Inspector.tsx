@@ -436,18 +436,21 @@ export function Inspector() {
                   }}
                 >
                   <option value="default">Default mix (file's first track)</option>
-                  {asset.audioTracks.map((t) => (
-                    <option key={t.id} value={t.id} disabled={!canDecodeAlternateAudio()}>
-                      {audioTrackLabel(t)}{canDecodeAlternateAudio() ? '' : ' — needs WebCodecs'}
-                    </option>
-                  ))}
+                  {asset.audioTracks.map((t) => {
+                    const usable = canDecodeAlternateAudio() && t.decodable !== false;
+                    return (
+                      <option key={t.id} value={t.id} disabled={!usable}>
+                        {audioTrackLabel(t)}{usable ? '' : t.decodable === false ? ' — cannot decode in this browser' : ' — needs WebCodecs'}
+                      </option>
+                    );
+                  })}
                 </select>
                 <p className="mt-0.5 text-[10px] leading-snug text-paper-faint">
-                  All languages found in this file are listed. The choice is per clip, so the same movie can use different languages at different points. Preview and export use the selected track; unmute-by-element fallback stays off for a selected track.
+                  All languages found in this file are listed. The choice is per clip, so the same movie can use different languages at different points. Preview and export use the selected track — never the file's default mix by accident.
                 </p>
-                {!canDecodeAlternateAudio() && clip.audioTrackId != null && (
-                  <p className="mt-0.5 text-[10px] leading-snug text-signal" title="WebCodecs AudioDecoder is unavailable in this browser">
-                    This browser cannot decode a selected track — this clip will be silent. Choose “Default mix” or use a browser with WebCodecs.
+                {clip.audioTrackId != null && (!canDecodeAlternateAudio() || asset.audioTracks?.find((t) => t.id === clip.audioTrackId)?.decodable === false || useStore.getState().pool.decodeFailedFor(asset.id, clip.audioTrackId)) && (
+                  <p className="mt-0.5 text-[10px] leading-snug text-signal" title="The selected track could not be decoded in this browser">
+                    Selected track unavailable: preview is silent and export stops with an error. Choose “Default mix” or a decodable track.
                   </p>
                 )}
               </div>

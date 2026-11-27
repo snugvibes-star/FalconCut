@@ -182,8 +182,12 @@ function drawMediaLayer(p: Project, clip: Clip, t: number, ctx: Ctx2D, resolver:
     // Use the actual destination canvas: an upscaled export renders into a
     // larger canvas than p.settings, and the scratch must not become the
     // bottleneck there either.
+    const outScale = ctx.canvas.width / Math.max(1, p.settings.width);
     const capW = scratchCap(ctx.canvas.width, ctx.canvas.height);
-    const rw = Math.max(2, Math.min(Math.round(drawW), capW));
+    // drawW/drawH are in project coordinates; rasterize the scratch at the
+    // destination canvas's scale so an upscaled export never stretches a
+    // project-resolution intermediate.
+    const rw = Math.max(2, Math.min(Math.round(drawW * outScale), capW));
     const rh = Math.max(2, Math.round((rw * drawH) / Math.max(1, drawW)));
     const { canvas: fc, ctx: fctx } = getFx(rw, rh);
     fctx.save();

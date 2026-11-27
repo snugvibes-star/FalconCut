@@ -16,10 +16,13 @@
  * - Waveform/transcript analysis is still per media file (default track).
  */
 import type { AudioTrackInfo } from './types';
-import type { MP4File, MP4Info, MP4Module, MP4Sample, MP4SampleEntry, MP4TrackInfo } from 'mp4box';
+import type { MP4File, MP4Info, MP4Module, MP4SampleEntry, MP4TrackInfo } from 'mp4box';
 
 const ISO_EXTENSIONS = new Set(['mp4', 'mov', 'm4v', 'm4a', 'm4b', 'm4p', 'm4r', '3gp', '3g2']);
 const PROBE_TIMEOUT_MS = 5000;
+const DECODE_TIMEOUT_MS = 20000;
+/** 30 minutes of 48 kHz audio — a hard memory ceiling for one decoded track. */
+const MAX_AUDIO_FRAMES = 30 * 60 * 48000;
 
 export class AudioTrackDecodeError extends Error {
   constructor(message: string) {
@@ -143,7 +146,20 @@ export async function probeAudioTracks(blob: Blob, fileName = ''): Promise<Audio
     const audio = info.audioTracks?.length
       ? info.audioTracks
       : info.tracks.filter((t) => !!t.audio);
-    return audio.map((t, i) => trackInfo(t, i + 1));
+    const tracks = audio.map((t, i) => trackInfo(t, i + 1));
+    // Ask the browser once at import time which of these codecs it can really
+    // decode, so disabled options show an honest reason instead of failing
+    // silently when the user selects them.
+    for (const t of tracks) {
+      try {
+        const trak = file.getTrackById(t.id);
+        const entry = trak?.mdia?.minf?.stbl?.stsd?.entries?.[0];
+        tracks[tracks.indexOf(t)].decodable = await isTrackSupported(t, entry);
+      } catch {
+        tracks[tracks.indexOf(t)].decodable = false;
+      }
+    }
+    return tracks;
   } catch {
     return null;
   } finally {
@@ -156,6 +172,25 @@ function audioSpecificConfig(entry: MP4SampleEntry | undefined): Uint8Array | un
   const dec = entry?.esds?.esd?.descs?.find((d) => d.tag === 4);
   const specific = dec?.descs?.find((d) => d.tag === 5);
   return specific?.data ? new Uint8Array(specific.data) : undefined;
+}
+
+/** Per-track support probe. No description is required for most codecs but
+ * AAC-in-MP4 needs its AudioSpecificConfig, which lives in the moov box we
+ * already read during the header probe. */
+async function isTrackSupported(track: AudioTrackInfo, entry: MP4SampleEntry | undefined): Promise<boolean> {
+  const wc = globalThis as unknown as WebCodecsAudio;
+  if (!wc.AudioDecoder) return false;
+  try {
+    const result = await wc.AudioDecoder.isConfigSupported({
+      codec: track.codec,
+      sampleRate: Math.max(8000, track.sampleRate || 48000),
+      numberOfChannels: Math.max(1, track.channels),
+      ...(audioSpecificConfig(entry) ? { description: audioSpecificConfig(entry)! } : {}),
+    });
+    return result.supported === true;
+  } catch {
+    return false;
+  }
 }
 
 function isWebCodecsAudioAvailable(): boolean {
@@ -192,11 +227,23 @@ interface WebCodecsAudio {
   EncodedAudioChunk?: new (init: { type: 'key'; timestamp: number; duration: number; data: Uint8Array }) => object;
 }
 
+/** Reject a hung WebCodecs flush instead of leaving the track pending forever. */
+function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new AudioTrackDecodeError(message)), ms);
+    promise.then(
+      (v) => { clearTimeout(timer); resolve(v); },
+      (e) => { clearTimeout(timer); reject(e); },
+    );
+  });
+}
+
 /**
  * Decode one audio track from an ISO-BMFF blob into an AudioBuffer.
  *
- * The returned buffer starts at the track's first presented sample (the MP4
- * edit list's `media_time` is trimmed), so source time 0 lines up with the
+ * Samples are decoded straight into the final AudioBuffer as mp4box emits
+ * them: no full-length Float32Array staging copy and no sample array. The MP4
+ * edit list (`media_time`) is trimmed so source time 0 lines up with the
  * picture exactly like the browser's own `decodeAudioData` path.
  */
 export async function decodeMp4AudioTrack(blob: Blob, trackId: number): Promise<AudioBuffer> {
@@ -211,7 +258,7 @@ export async function decodeMp4AudioTrack(blob: Blob, trackId: number): Promise<
   try {
     const data = await blob.arrayBuffer();
     const ready = new Promise<MP4Info>((resolve, reject) => {
-      const timer = setTimeout(() => reject(new AudioTrackDecodeError('Timed out reading the audio track.')), PROBE_TIMEOUT_MS * 2);
+      const timer = setTimeout(() => reject(new AudioTrackDecodeError('Timed out reading the audio track.')), DECODE_TIMEOUT_MS);
       file.onReady = (i) => { clearTimeout(timer); resolve(i); };
       file.onError = (e) => { clearTimeout(timer); reject(new AudioTrackDecodeError(`MP4 parse failed: ${e}`)); };
     });
@@ -225,69 +272,45 @@ export async function decodeMp4AudioTrack(blob: Blob, trackId: number): Promise<
     const entry = trak?.mdia?.minf?.stbl?.stsd?.entries?.[0];
     const description = audioSpecificConfig(entry);
     const sampleRate = Math.max(8000, track.audio?.sample_rate || 48000);
-    const declaredChannels = Math.max(1, track.audio?.channel_count || 2);
+    const channels = Math.max(1, track.audio?.channel_count || 2);
     const config: AudioDecoderConfigLike = {
       codec: track.codec,
       sampleRate,
-      numberOfChannels: declaredChannels,
+      numberOfChannels: channels,
       ...(description ? { description } : {}),
     };
-    let supported = false;
-    try {
-      supported = (await AudioDecoderClass.isConfigSupported(config)).supported === true;
-    } catch {
-      supported = false;
-    }
-    if (!supported) {
+    if (!(await isTrackSupported(trackInfo(track, 1), entry))) {
       throw new AudioTrackDecodeError(`This browser cannot decode ${audioCodecName(track.codec)} (${track.codec}) audio.`);
     }
 
-    const samples: MP4Sample[] = [];
-    file.onSamples = (_id, _user, batch) => { for (const s of batch) samples.push(s); };
-    file.setExtractionOptions(trackId, null, { nbSamples: 500 });
-    file.start();
-    file.flush();
-    // mp4box delivers samples synchronously for a fully provided file, but a
-    // microtask keeps this correct if a future version batches asynchronously.
-    await new Promise<void>((resolve) => setTimeout(resolve, 0));
-    if (!samples.length) throw new AudioTrackDecodeError('The selected audio track has no samples.');
-
-    const timescale = track.timescale || samples[0].timescale || sampleRate;
-    const firstCts = samples[0].cts;
-    const last = samples[samples.length - 1];
-    const lastEnd = last.cts + last.duration;
+    const timescale = track.timescale || sampleRate;
     const mediaTime = Math.max(0, track.edits?.[0]?.media_time ?? 0);
-    const trim = Math.max(0, mediaTime - firstCts);
-    const expected = Math.max(
-      1,
-      Math.ceil(((lastEnd - firstCts) / timescale) * sampleRate) - Math.round((trim / timescale) * sampleRate),
-    );
-    // A little slack absorbs decoder rounding / priming differences; the final
-    // buffer is trimmed to the presentation length.
-    const capacity = expected + 4096;
-    let channels = declaredChannels;
-    let pcm = Array.from({ length: channels }, () => new Float32Array(capacity));
-    let write = -Math.round((trim / timescale) * sampleRate);
+    const trimSamples = Math.round((mediaTime / timescale) * sampleRate);
+    const declaredFrames = Number.isFinite(track.duration) && track.duration > 0
+      ? Math.round((track.duration / timescale) * sampleRate)
+      : 0;
+    const length = Math.min(MAX_AUDIO_FRAMES, Math.max(1, declaredFrames));
+    if (declaredFrames > MAX_AUDIO_FRAMES) {
+      throw new AudioTrackDecodeError('Selected audio track exceeds the 30-minute decode limit. Split the source file first.');
+    }
+    const buffer = new AudioBuffer({ length, numberOfChannels: channels, sampleRate });
+    const planes = Array.from({ length: channels }, (_, ch) => buffer.getChannelData(ch));
+    let write = -trimSamples;
     let planeScratch = new Float32Array(4096);
     let interleavedScratch = new Float32Array(4096);
+    let decodeError: string | null = null;
+    let decodedAny = false;
 
     const decoder = new AudioDecoderClass({
       output: (data: DecodedAudioData) => {
         try {
           const n = data.numberOfFrames;
           if (n <= 0) return;
-          if (data.numberOfChannels > channels) {
-            channels = data.numberOfChannels;
-            pcm = Array.from({ length: channels }, (_, ch) => {
-              const next = new Float32Array(capacity);
-              next.set(pcm[ch] ?? []);
-              return next;
-            });
-          }
+          decodedAny = true;
           const start = write;
           write += n;
           const copyFrom = Math.max(0, -start);
-          const copyTo = Math.min(n, capacity - start);
+          const copyTo = Math.min(n, length - start);
           if (copyTo <= copyFrom) return;
           const dest = Math.max(0, start + copyFrom);
           let planar = true;
@@ -304,12 +327,10 @@ export async function decodeMp4AudioTrack(blob: Blob, trackId: number): Promise<
                 try {
                   data.copyTo(plane, { planeIndex: Math.min(ch, data.numberOfChannels - 1), format: 'f32-planar' });
                 } catch {
-                  // Channel layout mismatch — duplicate the first plane rather
-                  // than dropping the sample.
                   plane.set(planeScratch.subarray(0, n));
                 }
               }
-              pcm[ch].set(plane.subarray(copyFrom, copyTo), dest);
+              planes[ch].set(plane.subarray(copyFrom, copyTo), dest);
             }
           } else {
             const need = n * data.numberOfChannels;
@@ -318,7 +339,7 @@ export async function decodeMp4AudioTrack(blob: Blob, trackId: number): Promise<
             for (let ch = 0; ch < channels; ch++) {
               const srcCh = Math.min(ch, data.numberOfChannels - 1);
               for (let i = copyFrom; i < copyTo; i++) {
-                pcm[ch][dest + i - copyFrom] = interleavedScratch[i * data.numberOfChannels + srcCh];
+                planes[ch][dest + i - copyFrom] = interleavedScratch[i * data.numberOfChannels + srcCh];
               }
             }
           }
@@ -326,30 +347,41 @@ export async function decodeMp4AudioTrack(blob: Blob, trackId: number): Promise<
           data.close();
         }
       },
-      error: () => { /* flush() rejects with the useful error */ },
+      error: (e) => { decodeError = e?.message ?? 'decoder error'; },
     });
 
     try {
       decoder.configure(config);
-      for (const s of samples) {
-        if (!s.data?.byteLength) continue;
-        decoder.decode(new EncodedChunkClass({
-          type: 'key',
-          timestamp: Math.round((s.cts / (s.timescale || timescale)) * 1e6),
-          duration: Math.round((s.duration / (s.timescale || timescale)) * 1e6),
-          data: s.data,
-        }));
-        if (decoder.decodeQueueSize > 128) await new Promise<void>((resolve) => setTimeout(resolve, 0));
-      }
-      await decoder.flush();
+      // Stream samples into the decoder as mp4box emits them. Holding every
+      // sample plus a second PCM copy made long movies exhaust browser memory.
+      file.onSamples = (_id, _user, batch) => {
+        if (decodeError) return;
+        for (const s of batch) {
+          if (!s.data?.byteLength) continue;
+          decoder.decode(new EncodedChunkClass({
+            type: 'key',
+            timestamp: Math.round((s.cts / (s.timescale || timescale)) * 1e6),
+            duration: Math.round((s.duration / (s.timescale || timescale)) * 1e6),
+            data: s.data,
+          }));
+        }
+      };
+      file.setExtractionOptions(trackId, null, { nbSamples: 500 });
+      file.start();
+      file.flush();
+      await withTimeout(decoder.flush(), DECODE_TIMEOUT_MS, 'Timed out decoding the selected audio track.');
     } finally {
       try { decoder.close(); } catch { /* already closed */ }
     }
-
-    const length = Math.max(1, Math.min(capacity, write));
-    const buffer = new AudioBuffer({ length, numberOfChannels: channels, sampleRate });
-    for (let ch = 0; ch < channels; ch++) buffer.copyToChannel(pcm[ch].subarray(0, length), ch);
-    return buffer;
+    if (decodeError) throw new AudioTrackDecodeError(`Audio decoder failed: ${decodeError}`);
+    if (!decodedAny) throw new AudioTrackDecodeError('The selected audio track has no decodable samples.');
+    const actual = Math.max(1, Math.min(length, write));
+    if (actual === length) return buffer;
+    // The decoder may emit fewer frames than the declared duration (AAC
+    // priming). Trim the tail so the buffer length matches the real samples.
+    const trimmed = new AudioBuffer({ length: actual, numberOfChannels: channels, sampleRate });
+    for (let ch = 0; ch < channels; ch++) trimmed.copyToChannel(planes[ch].subarray(0, actual), ch);
+    return trimmed;
   } finally {
     try { file.stop(); } catch { /* already stopped */ }
   }
@@ -370,20 +402,21 @@ export function audioTrackLabel(track: AudioTrackInfo): string {
 
 export function audioCodecName(codec: string): string {
   const c = codec.toLowerCase();
+  // MP3-in-MP4 uses mp4a.69 / mp4a.6b — test it before the generic AAC rule.
+  if (c === 'mp4a.69' || c === 'mp4a.6b' || c.startsWith('mp3')) return 'MP3';
   if (c.startsWith('mp4a')) return 'AAC';
   if (c === 'ac-3' || c === 'ac3') return 'AC-3';
   if (c === 'ec-3' || c === 'eac3') return 'E-AC-3';
   if (c.startsWith('opus')) return 'Opus';
   if (c.startsWith('alac')) return 'ALAC';
   if (c.startsWith('flac')) return 'FLAC';
-  if (c.startsWith('mp3') || c === 'mp4a.69' || c === 'mp4a.6b') return 'MP3';
   return codec || 'audio';
 }
 
 let displayNames: Intl.DisplayNames | null | undefined;
-function languageName(code: string | undefined): string {
+export function languageName(code: string | undefined): string {
   const c = (code || 'und').toLowerCase();
-  if (!c || c === 'und' || c === 'und') return 'Unlabelled';
+  if (!c || c === 'und') return 'Unlabelled';
   if (displayNames === undefined) {
     try { displayNames = new Intl.DisplayNames(['en'], { type: 'language' }); }
     catch { displayNames = null; }

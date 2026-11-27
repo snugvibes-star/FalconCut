@@ -39,6 +39,10 @@ export interface AudioTrackInfo {
   sampleRate: number;
   /** Average bitrate in kbps, when the file declares it. */
   bitrate?: number;
+  /** Result of the browser's AudioDecoder.isConfigSupported check at import
+   * time. False means this browser cannot play the track, so the UI disables
+   * it instead of offering a choice that will be silent. */
+  decodable?: boolean;
 }
 
 export interface MediaAsset {
