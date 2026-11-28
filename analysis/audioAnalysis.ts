@@ -7,6 +7,8 @@
 import type { LoudnessPoint, SilenceSpan } from '../engine/types';
 
 export interface AudioAnalysisResult {
+  /** Sample-accurate peak envelope for the timeline waveform (100 samples/s). */
+  peaks: { t: number; peak: number }[];
   loudness: LoudnessPoint[];
   silences: SilenceSpan[];
   integratedLoudness: number;
@@ -272,5 +274,14 @@ export async function analyzeAudio(buffer: AudioBuffer, opts: { silenceThreshold
   const { beats, bpm, strength } = detectBeats(flux, hopSec, buffer.duration);
   const { speechRatio, isMusic } = classifyAudio(env, flatness, strength, silences, buffer.duration);
   const emphasis = detectEmphasis(env, silences);
-  return { loudness: env, silences, integratedLoudness: integrated, truePeak, speechRatio, isMusic, beats, bpm, emphasis };
+  // Waveform peaks: 100 bins per second, local max of |sample|. Cheap enough
+  // for long files because it is a single linear scan of the mono buffer.
+  const peaks: { t: number; peak: number }[] = [];
+  const win = Math.max(64, Math.floor(buffer.sampleRate / 100));
+  for (let i = 0; i < mono.length; i += win) {
+    let max = 0;
+    for (let j = i; j < Math.min(mono.length, i + win); j++) max = Math.max(max, Math.abs(mono[j]));
+    peaks.push({ t: i / buffer.sampleRate, peak: max });
+  }
+  return { peaks, loudness: env, silences, integratedLoudness: integrated, truePeak, speechRatio, isMusic, beats, bpm, emphasis };
 }

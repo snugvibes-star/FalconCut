@@ -15,7 +15,7 @@ export interface ResolvedEffects {
   pixelate: number; noise: number; rgbSplit: number; glow: number;
   /** Deterministic grain: seed param + quantized frame index. */
   noiseSeed?: number; noiseFrame?: number;
-  chroma?: { color: [number, number, number]; tolerance: number; softness: number };
+  chroma?: { color: [number, number, number]; tolerance: number; softness: number; spill: number };
   /** Lift/gamma/gain grading (Kdenlive `lift_gamma_gain` model): per-channel
    * shadow lift (additive), gamma (exponent), and highlight gain (multiplier).
    * Present only when non-neutral; always requires the CPU pixel pass. */
@@ -156,7 +156,7 @@ export function resolveEffects(clip: Clip, localT: number, filterSupported: bool
       case 'chromaKey': {
         const hex = String(e.params.color ?? '#00FF00');
         const n = parseInt(hex.slice(1), 16);
-        r.chroma = { color: [(n >> 16) & 255, (n >> 8) & 255, n & 255], tolerance: val(e, 'tolerance', 0.28), softness: val(e, 'softness', 0.12) };
+        r.chroma = { color: [(n >> 16) & 255, (n >> 8) & 255, n & 255], tolerance: val(e, 'tolerance', 0.28), softness: val(e, 'softness', 0.12), spill: clamp(val(e, 'spill', 0.5), 0, 1) };
         r.needsPixels = true;
         break;
       }
@@ -330,6 +330,16 @@ export function applyPixelOps(canvas: HTMLCanvasElement | OffscreenCanvas, r: Re
       const t0 = chroma.tolerance, soft = Math.max(0.01, chroma.softness);
       if (dist < t0) d[i + 3] = 0;
       else if (dist < t0 + soft) d[i + 3] = Math.round(d[i + 3] * ((dist - t0) / soft));
+      // Spill reduction: pull the keyed hue toward the other channels so
+      // green (or blue) bounce light does not fringe the subject edges.
+      if (chroma.spill > 0 && d[i + 3] > 0) {
+        const c = chroma.color;
+        const dominant = c[1] >= c[0] && c[1] >= c[2] ? 1 : c[0] >= c[2] ? 0 : 2;
+        const other = Math.max(dominant === 0 ? G : R, dominant === 2 ? G : B);
+        const channels = [R, G, B];
+        channels[dominant] = channels[dominant] * (1 - chroma.spill) + other * chroma.spill;
+        R = channels[0]; G = channels[1]; B = channels[2];
+      }
     }
     d[i] = clamp(R, 0, 255); d[i + 1] = clamp(G, 0, 255); d[i + 2] = clamp(B, 0, 255);
   }

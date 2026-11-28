@@ -81,7 +81,7 @@ export async function analyzeMedia(
       onProgress('audio', 0.2, 'Loudness, silence, beats');
       const ar = await analyzeAudio(audioBuffer, opts);
       Object.assign(ma, {
-        loudness: ar.loudness, silences: ar.silences, integratedLoudness: ar.integratedLoudness,
+        peaks: ar.peaks, loudness: ar.loudness, silences: ar.silences, integratedLoudness: ar.integratedLoudness,
         truePeak: ar.truePeak, speechRatio: ar.speechRatio, isMusic: ar.isMusic,
         beats: ar.beats, bpm: ar.bpm, emphasis: ar.emphasis,
       });

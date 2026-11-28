@@ -87,7 +87,7 @@ function Waveform({ clip, asset, width, height }: { clip: Clip; asset: MediaAsse
   const ma = project.analysis?.byMedia[asset.id];
   useEffect(() => {
     const c = ref.current;
-    if (!c || !ma || !ma.loudness.length) return;
+    if (!c || !ma || !(ma.peaks?.length || ma.loudness.length)) return;
     const w = Math.max(2, Math.floor(width));
     const h = Math.max(2, Math.floor(height - 18));
     c.width = w; c.height = h;
@@ -98,13 +98,22 @@ function Waveform({ clip, asset, width, height }: { clip: Clip; asset: MediaAsse
     const mid = h / 2;
     for (let x = 0; x < w; x++) {
       const srcT = clip.inPoint + (x / w) * clip.duration * clip.speed;
-      const idx = Math.max(0, Math.min(ma.loudness.length - 1, Math.round(srcT * 10)));
-      const rms = ma.loudness[idx]?.rms ?? 0;
-      const amp = Math.min(1, rms * 3) * (mid - 1);
+      const peaks = ma.peaks;
+      let level = 0;
+      if (peaks?.length) {
+        // 100 Hz peak bins — sample-accurate enough to show transients.
+        const i0 = Math.max(0, Math.min(peaks.length - 1, Math.floor(srcT * 100)));
+        const i1 = Math.max(0, Math.min(peaks.length - 1, Math.ceil((srcT + clip.duration * clip.speed / w) * 100)));
+        for (let i = i0; i <= i1; i++) level = Math.max(level, peaks[i].peak);
+      } else {
+        const idx = Math.max(0, Math.min(ma.loudness.length - 1, Math.round(srcT * 10)));
+        level = (ma.loudness[idx]?.rms ?? 0) * 3;
+      }
+      const amp = Math.min(1, level) * (mid - 1);
       ctx.fillRect(x, mid - amp, 1, amp * 2);
     }
   }, [ma, clip.inPoint, clip.duration, clip.speed, width, height]);
-  if (!ma?.loudness.length) return null;
+  if (!ma || !(ma.peaks?.length || ma.loudness.length)) return null;
   return <canvas ref={ref} className="absolute inset-x-0 bottom-0 pointer-events-none" style={{ height: height - 18 }} />;
 }
 
@@ -160,6 +169,7 @@ const EFFECT_DEFAULTS: Record<EffectType, Record<string, number | string | boole
   vignette: { amount: 1 },
   chromaKey: { color: '#00FF00', tolerance: 0.2, softness: 0.12 },
   eq: { highpass: 80, lowpass: 0, gain: 0 },
+  gain: { gainDb: 0 },
   gate: { thresholdDb: -45 },
   deess: { reduction: 4 },
   denoise: { thresholdDb: -45 },
@@ -1132,6 +1142,13 @@ export function Timeline() {
                   onPointerUp={onLanePointerUp}
                   onContextMenu={(e) => { e.preventDefault(); setCtxMenu({ x: e.clientX, y: e.clientY, clipId: null, trackId: track.id }); }}
                 >
+                  {drag && drag.curTrack === track.id && (() => {
+                    const ghost = project.clips.find((c) => c.id === drag.clipId);
+                    if (!ghost || ghost.trackId === track.id) return null;
+                    return <div className="absolute top-1 rounded border border-signal bg-signal/20 pointer-events-none opacity-70 z-10"
+                      style={{ left: drag.curStart * zoom, width: Math.max(6, drag.curDuration * zoom), height: trackH - 8 }}
+                      title="Drop to move this clip to this track" />;
+                  })()}
                   {/* silence / scene overlays for this track's media */}
                   {clips.map((clip) => {
                     const asset = getMedia(project, clip.mediaId);
@@ -1152,10 +1169,11 @@ export function Timeline() {
                     const isDrag = drag?.clipId === clip.id;
                     const start = isDrag ? drag!.curStart : clip.start;
                     const duration = isDrag ? drag!.curDuration : clip.duration;
-                    // The NEW_TRACK sentinel is a ghost lane, not a real track.
-                    // Keep the real clip on its original track until the drop
-                    // commits, so it never blinks out of existence mid-drag.
-                    const trackId = isDrag && drag!.curTrack !== NEW_TRACK_ID ? drag!.curTrack : clip.trackId;
+                    // Keep the real clip mounted on its committed track for the
+                    // entire gesture. Re-parenting the captured DOM node to a
+                    // hovered track unmounts it, loses pointer capture and
+                    // strands the drag state — the reported "disappearing" bug.
+                    const trackId = clip.trackId;
                     if (trackId !== track.id) return null;
                     const asset = getMedia(project, clip.mediaId);
                     const selected = selection.includes(clip.id);

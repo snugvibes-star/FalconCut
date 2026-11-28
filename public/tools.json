@@ -1792,6 +1792,7 @@
             "negate",
             "normalize",
             "eq",
+            "gain",
             "gate",
             "deess",
             "denoise",

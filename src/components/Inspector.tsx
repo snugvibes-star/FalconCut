@@ -144,6 +144,7 @@ export const EFFECT_DEFAULTS: Record<string, Record<string, number | string | bo
   pixelate: { amount: 8 }, noise: { amount: 0.15 }, rgbSplit: { amount: 4 }, glow: { amount: 0.4 },
   chromaKey: { color: '#00FF00', tolerance: 0.28, softness: 0.12 },
   eq: { highpass: 80, lowpass: 0, gain: 0 },
+  gain: { gainDb: 0 },
   gate: { thresholdDb: -45 },
   deess: { reduction: 4 },
   denoise: { thresholdDb: -45 },
@@ -160,14 +161,14 @@ const RANGES: Record<string, [number, number, number]> = {
   amount: [0, 20, 0.1], tolerance: [0, 1, 0.01], softness: [0, 1, 0.01], thresholdDb: [-70, 0, 1],
   highpass: [0, 400, 1], lowpass: [0, 20000, 10], gain: [-20, 20, 0.5], reduction: [0, 20, 0.5],
   invert: [0, 1, 0.05], strength: [0, 1, 0.05], ratio: [1, 20, 0.5], ceilingDb: [-24, 0, 0.5],
-  delayMs: [10, 1000, 10], feedback: [0, 0.9, 0.05], mix: [0, 1, 0.05], pan: [-1, 1, 0.05],
+  delayMs: [10, 1000, 10], feedback: [0, 0.9, 0.05], mix: [0, 1, 0.05], pan: [-1, 1, 0.05], gainDb: [-24, 24, 0.5],
 };
 /** Same table as the Effects/Transitions library — every real transition type. */
 const TRANSITIONS: Transition['type'][] = [...TRANSITION_TYPES];
 const ANIMATIONS = ['none', 'pop', 'fade', 'rise', 'typewriter'] as const;
 const PRESETS = ['clean', 'karaoke', 'bold-keywords', 'word-pop'] as const;
 const VISUAL_EFFECTS: EffectType[] = ['blur', 'sharpen', 'vignette', 'chromaKey', 'negate', 'normalize', 'pixelate', 'noise', 'rgbSplit', 'glow'];
-const AUDIO_EFFECTS: EffectType[] = ['eq', 'gate', 'deess', 'denoise', 'compressor', 'limiter', 'echo', 'pan'];
+const AUDIO_EFFECTS: EffectType[] = ['eq', 'gain', 'gate', 'deess', 'denoise', 'compressor', 'limiter', 'echo', 'pan'];
 const COLOR_PARAMS = ['brightness', 'contrast', 'saturation', 'temperature'] as const;
 
 type Tab = 'video' | 'audio' | 'color' | 'text' | 'animation' | 'effects' | 'speed' | 'mask' | 'ai';

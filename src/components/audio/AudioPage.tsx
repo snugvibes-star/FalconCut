@@ -109,7 +109,7 @@ function TrackStrip({ track, project, playhead, commit }: { track: Track; projec
   const clips = project.clips.filter((c) => c.trackId === track.id).sort((a, b) => a.start - b.start);
   const active = clips.find((c) => playhead >= c.start && playhead < c.start + c.duration);
   const ma = active?.mediaId ? project.analysis?.byMedia[active.mediaId] : undefined;
-  const vol = clips.length ? clips[0].volume : null;
+  const vol = track.volume ?? (clips.length ? clips[0].volume : null);
 
   return (
     <div className="panel w-24 shrink-0 flex flex-col items-center gap-1 px-1 py-2">
@@ -123,17 +123,12 @@ function TrackStrip({ track, project, playhead, commit }: { track: Track; projec
         {track.muted ? <VolumeX size={14} aria-hidden /> : <Volume2 size={14} aria-hidden />}
       </button>
       <div className="flex flex-col items-center gap-0.5">
-        <span className="text-[9px] text-paper-faint" title="One fader writes this volume to every clip on the track">all {clips.length} clip{clips.length === 1 ? '' : 's'}</span>
+        <span className="text-[9px] text-paper-faint" title="Track gain — affects every clip on this track without changing clip volume">track gain · {clips.length} clip{clips.length === 1 ? '' : 's'}</span>
         <Fader
           value={vol ?? 1}
-          disabled={!clips.length || track.locked}
-          disabledReason={!clips.length ? 'No clips on this track' : track.locked ? 'Track is locked' : undefined}
-          onCommit={(v) =>
-            commit(
-              clips.map((c) => ({ type: 'set_clip_props', clipId: c.id, patch: { volume: v } })),
-              `Set ${track.name} volume`,
-            )
-          }
+          disabled={track.locked}
+          disabledReason={track.locked ? 'Track is locked' : undefined}
+          onCommit={(v) => commit([{ type: 'set_track', trackId: track.id, patch: { volume: v } }], `Set ${track.name} gain`)}
         />
         <span className="font-mono text-[10px] text-signal">{vol != null ? `${vol.toFixed(2)}×` : '—'}</span>
       </div>

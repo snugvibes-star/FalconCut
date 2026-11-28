@@ -24,6 +24,7 @@ interface VideoEntry {
   url: string;
   seekingTo: number | null;
   lastDrawn: number;
+  seekTimer?: ReturnType<typeof setTimeout>;
 }
 
 /** Cheap peak scan: a whole-file buffer that is completely silent means the
@@ -49,6 +50,9 @@ export class MediaPool implements MediaResolver {
    * picture-in-picture of itself, etc.). */
   private useVideos = new Map<string, VideoEntry>();
   private images = new Map<string, ImageBitmap>();
+  /** Last successfully decoded frame per asset. Served while a video element
+   * reloads/seeks so a clip never flashes black after a timeline edit. */
+  private lastFrames = new Map<string, HTMLCanvasElement>();
   private buffers = new Map<string, AudioBuffer>();
   private assets = new Map<string, MediaAsset>();
   /** Source blobs kept so an alternate track can be decoded on first use. */
@@ -71,6 +75,22 @@ export class MediaPool implements MediaResolver {
     return this.audioCtx;
   }
 
+  /** Cache a small snapshot of a decoded frame. Only used as a fallback while
+   * an element is loading, never for final export. */
+  private captureFrame(mediaId: string, el: HTMLVideoElement): void {
+    if (!el.videoWidth || !el.videoHeight) return;
+    const asset = this.assets.get(mediaId);
+    if (asset && (!asset.width || !asset.height)) { asset.width = el.videoWidth; asset.height = el.videoHeight; }
+    const scale = Math.min(1, 1280 / el.videoWidth);
+    const w = Math.max(2, Math.round(el.videoWidth * scale));
+    const h = Math.max(2, Math.round(el.videoHeight * scale));
+    let c = this.lastFrames.get(mediaId);
+    if (!c) { c = document.createElement('canvas'); this.lastFrames.set(mediaId, c); }
+    if (c.width !== w) c.width = w;
+    if (c.height !== h) c.height = h;
+    try { c.getContext('2d')?.drawImage(el, 0, 0, w, h); } catch { /* element not paintable yet */ }
+  }
+
   async register(asset: MediaAsset, blob?: Blob): Promise<void> {
     this.assets.set(asset.id, asset);
     if (blob) this.blobs.set(asset.id, blob);
@@ -86,11 +106,13 @@ export class MediaPool implements MediaResolver {
       const entry: VideoEntry = { el, url, seekingTo: null, lastDrawn: -1 };
       el.addEventListener('seeked', () => {
         entry.seekingTo = null;
+        if (entry.seekTimer) { clearTimeout(entry.seekTimer); entry.seekTimer = undefined; }
         entry.lastDrawn = el.currentTime;
+        this.captureFrame(asset.id, el);
         this.onFrameReady?.();
       });
       this.videos.set(asset.id, entry);
-      el.addEventListener('loadeddata', () => this.onFrameReady?.());
+      el.addEventListener('loadeddata', () => { this.captureFrame(asset.id, el); this.onFrameReady?.(); });
       await new Promise<void>((res) => {
         if (el.readyState >= 2) return res();
         let done = false;
@@ -214,9 +236,12 @@ export class MediaPool implements MediaResolver {
       v = { el, url: base.url, seekingTo: null, lastDrawn: -1 };
       el.addEventListener('seeked', () => {
         v!.seekingTo = null;
+        if (v!.seekTimer) { clearTimeout(v!.seekTimer); v!.seekTimer = undefined; }
         v!.lastDrawn = el.currentTime;
+        this.captureFrame(mediaId, el);
         this.onFrameReady?.();
       });
+      el.addEventListener('loadeddata', () => { this.captureFrame(mediaId, el); this.onFrameReady?.(); });
       this.useVideos.set(key, v);
     }
     return v;
@@ -272,7 +297,11 @@ export class MediaPool implements MediaResolver {
     if (img) return img;
     const v = this.entryFor(mediaId, useKey);
     if (!v) return null;
-    if (v.el.readyState < 2) return null;
+    if (v.el.readyState < 2) {
+      // Never leave a hole/black frame while a newly created per-clip element
+      // loads — show the last decoded frame of that same source instead.
+      return this.lastFrames.get(mediaId) ?? null;
+    }
     if (Math.abs(v.el.currentTime - sourceTime) > 0.06 && v.seekingTo === null && v.el.paused) {
       this.seekEntry(v, sourceTime);
     }
@@ -293,7 +322,18 @@ export class MediaPool implements MediaResolver {
     if (v.el.readyState < 1) return;
     if (v.seekingTo !== null && Math.abs(v.seekingTo - t) < 0.001) return;
     v.seekingTo = t;
-    try { v.el.currentTime = Math.max(0, Math.min(t, (v.el.duration || t) - 0.001)); } catch { v.seekingTo = null; }
+    // A seek that never fires 'seeked' must not lock the element forever —
+    // that was the permanent stale/black frame after a timeline move.
+    if (v.seekTimer) clearTimeout(v.seekTimer);
+    v.seekTimer = setTimeout(() => {
+      if (v.seekingTo !== null) {
+        v.seekingTo = null;
+        this.onFrameReady?.();
+      }
+      v.seekTimer = undefined;
+    }, 1500);
+    try { v.el.currentTime = Math.max(0, Math.min(t, (v.el.duration || t) - 0.001)); }
+    catch { v.seekingTo = null; if (v.seekTimer) { clearTimeout(v.seekTimer); v.seekTimer = undefined; } }
   }
 
   /** Keep playing elements in sync with the timeline during playback. Each
@@ -370,9 +410,11 @@ export class MediaPool implements MediaResolver {
 
   size(mediaId: string): { width: number; height: number } | null {
     const a = this.assets.get(mediaId);
-    if (a) return { width: a.width, height: a.height };
+    // A failed/timeout probe leaves 0×0 metadata. Never return that: the
+    // renderer would treat the crop rect as empty and paint a black frame.
+    if (a && a.width > 0 && a.height > 0) return { width: a.width, height: a.height };
     const v = this.videos.get(mediaId);
-    if (v && v.el.videoWidth) return { width: v.el.videoWidth, height: v.el.videoHeight };
+    if (v && v.el.videoWidth > 0 && v.el.videoHeight > 0) return { width: v.el.videoWidth, height: v.el.videoHeight };
     const i = this.images.get(mediaId);
     if (i) return { width: i.width, height: i.height };
     return null;
@@ -423,6 +465,7 @@ export class MediaPool implements MediaResolver {
     }
     this.images.get(mediaId)?.close();
     this.images.delete(mediaId);
+    this.lastFrames.delete(mediaId);
     this.buffers.delete(mediaId);
     for (const key of [...this.buffers.keys(), ...this.decodeFailed, ...this.trackPromises.keys()]) {
       if (key === mediaId || key.startsWith(mediaId + '#')) {

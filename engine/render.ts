@@ -43,6 +43,16 @@ function getFx(w: number, h: number): { canvas: HTMLCanvasElement | OffscreenCan
   return { canvas: fxCanvas, ctx: fxCtx! };
 }
 
+/** Masks need their own buffer: with an effect also active, sharing getFx()
+ * resizes and clears the matte canvas while it is being composited. */
+let maskCanvas: HTMLCanvasElement | OffscreenCanvas | null = null;
+let maskCtx: Ctx2D | null = null;
+function getMaskFx(w: number, h: number): { canvas: HTMLCanvasElement | OffscreenCanvas; ctx: Ctx2D } {
+  if (!maskCanvas) { maskCanvas = makeCanvas(w, h); maskCtx = maskCanvas.getContext('2d', { willReadFrequently: true }) as Ctx2D; }
+  if (maskCanvas.width !== w || maskCanvas.height !== h) { maskCanvas.width = w; maskCanvas.height = h; }
+  return { canvas: maskCanvas, ctx: maskCtx! };
+}
+
 /** Browser 2D contexts default to low-quality (bilinear) resampling. Crops and
  * export upscales are exactly the cases where that shows, so ask for the best
  * filter the browser implements. Setting an unknown property on a stub/test
@@ -152,7 +162,7 @@ function drawMediaLayer(p: Project, clip: Clip, t: number, ctx: Ctx2D, resolver:
   let outCtx: Ctx2D = ctx;
   let maskLayer: ReturnType<typeof getFx> | null = null;
   if (useMask) {
-    maskLayer = getFx(W, H);
+    maskLayer = getMaskFx(W, H);
     maskLayer.ctx.setTransform(1, 0, 0, 1, 0, 0);
     maskLayer.ctx.clearRect(0, 0, W, H);
     outCtx = maskLayer.ctx;
@@ -278,7 +288,7 @@ function drawMediaClip(p: Project, clip: Clip, t: number, ctx: Ctx2D, resolver: 
   const tin = clip.transitionIn;
   if (tin && localT < tin.duration) {
     const prog = Math.max(0, Math.min(1, localT / tin.duration));
-    const e = prog * prog * (3 - 2 * prog); // smoothstep
+    const e = prog * prog * (3 - 2 * prog) * Math.max(0, Math.min(1, tin.intensity ?? 1)); // smoothstep
     const prev = prevClipOnTrack(p, clip);
     const prevT = prev ? prev.start + prev.duration - 0.001 : t;
     switch (tin.type) {
@@ -352,7 +362,7 @@ function drawMediaClip(p: Project, clip: Clip, t: number, ctx: Ctx2D, resolver: 
   const tout = clip.transitionOut;
   if (tout && localT > clip.duration - tout.duration) {
     const prog = Math.max(0, Math.min(1, (localT - (clip.duration - tout.duration)) / tout.duration));
-    const e = prog * prog * (3 - 2 * prog);
+    const e = prog * prog * (3 - 2 * prog) * Math.max(0, Math.min(1, tout.intensity ?? 1));
     const next = nextClipOnTrack(p, clip);
     if (next) {
       // Out transitions are the mirror of in transitions: the following clip
@@ -410,14 +420,9 @@ function drawMediaClip(p: Project, clip: Clip, t: number, ctx: Ctx2D, resolver: 
           break;
         }
       }
-    } else {
-      // No successor on this track: the only honest visual is a fade to black.
-      ctx.save();
-      ctx.globalAlpha = prog;
-      ctx.fillStyle = tout.type === 'dip-white' ? '#fff' : '#000';
-      ctx.fillRect(0, 0, W, H);
-      ctx.restore();
     }
+    // No successor: a transition needs two clips. Painting black here made a
+    // trimmed/moved clip look broken, so simply skip the out transition.
   }
 }
 

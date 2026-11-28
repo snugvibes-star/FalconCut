@@ -47,7 +47,7 @@ const EASING_MAP: Record<string, Easing> = {
 };
 const EFFECT_TYPES: Effect['type'][] = [
   'color', 'blur', 'sharpen', 'vignette', 'chromaKey', 'negate', 'normalize', 'lut',
-  'eq', 'gate', 'deess', 'denoise', 'compressor', 'limiter', 'echo', 'pan',
+  'eq', 'gain', 'gate', 'deess', 'denoise', 'compressor', 'limiter', 'echo', 'pan',
   'pixelate', 'noise', 'rgbSplit', 'glow',
 ];
 

@@ -22,7 +22,7 @@ export type Action =
   | { type: 'remove_media'; mediaId: string }
   | { type: 'add_track'; track: Partial<Track> & { kind: Track['kind'] }; index?: number }
   | { type: 'remove_track'; trackId: string }
-  | { type: 'set_track'; trackId: string; patch: Partial<Pick<Track, 'name' | 'locked' | 'muted' | 'hidden' | 'solo' | 'soloMode' | 'height'>> }
+  | { type: 'set_track'; trackId: string; patch: Partial<Pick<Track, 'name' | 'locked' | 'muted' | 'hidden' | 'solo' | 'soloMode' | 'volume' | 'height'>> }
   | { type: 'move_track'; trackId: string; toIndex: number }
   | { type: 'add_clip'; clip: Partial<Clip> & { trackId: string; start: number; duration: number }; ripple?: boolean; mode?: PlacementMode; /** unique seed so repeated copies never collide on the same generated id */ nonce?: string }
   | { type: 'remove_clip'; clipId: string; ripple?: boolean }
@@ -430,6 +430,9 @@ export function applyAction(project: Project, action: Action): Project {
           c.duration = Math.min(c.duration, Math.max(0.04, maxDur));
         }
         c.keyframes = c.keyframes.filter((k) => k.time <= c.duration + 0.001);
+        // A long fade on a now-short clip leaves almost the whole clip black.
+        c.fades.in = Math.min(c.fades.in, c.duration / 2);
+        c.fades.out = Math.min(c.fades.out, c.duration / 2);
         break;
       }
       case 'move_clip': {
@@ -448,7 +451,7 @@ export function applyAction(project: Project, action: Action): Project {
           if (!target || target.kind !== wantKind) break;
           c.trackId = action.trackId;
         }
-        if (action.start != null) c.start = Math.max(0, action.start);
+        if (action.start != null && Number.isFinite(action.start)) c.start = Math.max(0, action.start);
         if (action.mode) placeClip(p, c, action.mode);
         break;
       }

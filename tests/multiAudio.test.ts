@@ -19,7 +19,8 @@ class Node {
 }
 class FakeCtx {
   sources: any[] = [];
-  createGain() { const n = new Node() as any; n.gain = new Param(); return n; }
+  gains: any[] = [];
+  createGain() { const n = new Node() as any; n.gain = new Param(); this.gains.push(n); return n; }
   createBufferSource() {
     const n = new Node() as any;
     n.buffer = null;
@@ -82,6 +83,20 @@ describe('per-clip audio track selection', () => {
     );
     expect(ctx.sources).toHaveLength(0);
     graph.stop();
+  });
+
+  it('applies a real track gain in the shared audio graph', () => {
+    let p = createProject('Gain', '16:9');
+    const trackId = p.tracks.find((t) => t.kind === 'video')!.id;
+    p = applyActions(p, [
+      { type: 'add_media', asset: asset },
+      { type: 'set_track', trackId, patch: { volume: 0.5 } },
+      { type: 'add_clip', clip: { trackId, mediaId: 'movie', start: 0, duration: 4, inPoint: 0 } },
+    ]);
+    const ctx = new FakeCtx();
+    buildAudioGraph(p, ctx as any, new Node() as any, new Map([['movie', buffer()]]), { startAt: 0, when: 0 });
+    // master, clip gain, track gain — a track gain node must carry 0.5.
+    expect(ctx.gains.some((g) => Math.abs(g.gain.value - 0.5) < 1e-9)).toBe(true);
   });
 
   it('older clips with no selection still use the whole-file buffer', () => {

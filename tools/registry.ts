@@ -579,7 +579,7 @@ export const TOOLS: ToolDef[] = [
     description: 'Add a visual or audio effect to clips: color, blur, sharpen, vignette, glow, pixelate, noise, rgbSplit, chromaKey, negate, normalize, eq, gate, deess, denoise, compressor, limiter, echo, pan, lut. Set enabled and params.',
     params: {
       clip_id: { type: 'string', desc: 'Clip id from the TIMELINE block. Omit to apply to all editable clips.', optional: true },
-      type: { type: 'enum', desc: 'Effect type.', enum: ['color','blur','sharpen','vignette','glow','pixelate','noise','rgbSplit','chromaKey','negate','normalize','eq','gate','deess','denoise','compressor','limiter','echo','pan','lut'] },
+      type: { type: 'enum', desc: 'Effect type.', enum: ['color','blur','sharpen','vignette','glow','pixelate','noise','rgbSplit','chromaKey','negate','normalize','eq','gain','gate','deess','denoise','compressor','limiter','echo','pan','lut'] },
       params: { type: 'string', desc: 'Optional effect parameters as JSON, e.g. {"amount":0.5}.', optional: true },
       enabled: { type: 'boolean', desc: 'Enable the effect.', default: true, optional: true },
     },

@@ -85,6 +85,8 @@ export function TransitionsTab() {
             </div>
             <DragSlider label="Duration" value={current.duration} min={0.1} max={2} step={0.05} fmt={(v) => `${v.toFixed(2)}s`} commitKey="tr-dur"
               onCommit={(v) => apply({ type: current.type, duration: v })} />
+            <DragSlider label="Intensity" value={current.intensity ?? 1} min={0} max={1} step={0.05} fmt={(v) => `${Math.round(v * 100)}%`} commitKey="tr-int"
+              onCommit={(v) => apply({ type: current.type, duration: current.duration, intensity: v })} />
             <button className="btn-solid w-full justify-center text-xs" onClick={() => apply(undefined)}>Remove {edge} transition</button>
           </>
         )}

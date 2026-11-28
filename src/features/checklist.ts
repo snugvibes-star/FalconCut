@@ -148,16 +148,19 @@ export const FEATURE_CHECKLIST: FeatureItem[] = [
   // ── Effects & transitions ──────────────────────────────────────────────────
   { id: 'blur-sharpen', group: 'Effects & transitions', label: 'Blur and sharpen effects', status: 'working' },
   { id: 'vignette', group: 'Effects & transitions', label: 'Vignette', status: 'working' },
-  { id: 'transitions', group: 'Effects & transitions', label: 'Transitions (crossfade, dip-black, dip-white, wipe-left, slide-left, zoom-in)', status: 'working' },
+  { id: 'transitions', group: 'Effects & transitions', label: 'Transitions (crossfade, dip-black, dip-white, wipe-left, slide-left, zoom-in) with adjustable duration and intensity', status: 'working', note: 'intensity 0 keeps the clip unchanged, 1 is a full transition; both values are read by the shared renderer in preview and export' },
   { id: 'blend-modes', group: 'Effects & transitions', label: 'Blend modes on clips (screen, multiply, overlay, soft-light, difference, … via canvas compositing) — preview and export identical', status: 'working', note: 'same engine renders preview and export frames, so blend modes are exported exactly as previewed; there is no additive/linear-dodge blend mode' },
   { id: 'blend-transitions', group: 'Effects & transitions', label: '15 blend-style transitions (dodge, burn, dissolve-family, luminosity, …)', status: 'working', note: 'built on the blend-mode engine, one transition table' },
   { id: 'generators', group: 'Effects & transitions', label: 'Generators (solid, gradient, particles, waves)', status: 'working' },
   { id: 'audio-fades', group: 'Effects & transitions', label: 'Audio fades', status: 'working' },
+  { id: 'track-gain', group: 'Audio', label: 'Real track gain in the shared audio graph (mixer fader writes track gain, not every clip volume)', status: 'working' },
+  { id: 'waveform-peaks', group: 'Audio', label: 'Timeline waveform from a 100 Hz sample-peak envelope, with the older RMS envelope as fallback until analysis runs', status: 'working' },
+  { id: 'audio-gain-effect', group: 'Audio', label: 'Simple dB gain effect on clips, available to the UI and AI tools', status: 'working' },
   { id: 'audio-dynamics', group: 'Effects & transitions', label: 'Compressor, limiter, echo, pan/balance (native Web Audio nodes, preview + export)', status: 'working' },
   { id: 'glitch-styles', group: 'Effects & transitions', label: 'Stylized looks: pixelate, film grain/noise, RGB split, glow and the glitch/light-leak/film transitions', status: 'working', note: 'real pixel effects in the shared renderer; film grain is deterministic per frame (seedable), so preview, PNG and video export match; AI-generated stylization is not included' },
 
   // ── Masks & keying ─────────────────────────────────────────────────────────
-  { id: 'chroma-key', group: 'Masks & keying', label: 'Chroma key (green screen)', status: 'working' },
+  { id: 'chroma-key', group: 'Masks & keying', label: 'Chroma key (green screen) with colour pick, similarity, edge softness and spill reduction', status: 'working', note: 'all four controls run in the shared pixel pass used by preview and export' },
   { id: 'shape-masks', group: 'Masks & keying', label: 'Rectangle / ellipse / polygon masks with frame-normalized geometry, blurred feather, inverted mattes and an editable polygon point graph', status: 'working', note: 'real alpha mattes in the shared renderer — preview and export match; feather uses canvas filter blur where supported. Rotoscoping, tracking and hair-accurate keys are not implemented' },
   { id: 'background-removal', group: 'Masks & keying', label: 'Local background removal for still images (Xenova/modnet q8 ONNX, ~25 MB, on demand, no API key) producing a real transparent PNG cutout', status: 'partial', note: 'image clips only; video needs per-frame inference and a re-encode, so it is intentionally not offered. Not rotoscoping or hair-accurate matting' },
   { id: 'rotoscope', group: 'Masks & keying', label: 'Rotoscoping / puppet pin', status: 'not-possible', note: 'too slow for real-time browser perf' },
@@ -165,7 +168,7 @@ export const FEATURE_CHECKLIST: FeatureItem[] = [
 
   // ── AI vision ──────────────────────────────────────────────────────────────
   { id: 'face-analysis', group: 'AI vision', label: 'Face detection for reframe / zoom framing', status: 'working' },
-  { id: 'object-tracking', group: 'AI vision', label: 'Multipoint object tracking / stabilization / auto-reframe', status: 'partial', note: 'face positions only, no point/object tracking' },
+  { id: 'object-tracking', group: 'AI vision', label: 'Multipoint object tracking / stabilization', status: 'partial', note: 'face positions only (X and Y now), no point/object tracking; no generic object tracking is claimed' },
   { id: 'scene-detect', group: 'AI vision', label: 'Shot / scene change detection', status: 'working' },
   { id: 'beat-detect', group: 'AI vision', label: 'Music beat detection and beat snapping', status: 'working' },
 

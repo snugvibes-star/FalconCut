@@ -22,7 +22,7 @@ import type { MediaPool } from '../../../engine';
 
 interface Hit {
   clip: Clip;
-  kind: 'text' | 'drawing' | 'media';
+  kind: 'text' | 'drawing' | 'media' | 'motif';
   cx: number; cy: number; // center in project px
   hw: number; hh: number; // half extents in project px (unrotated)
   rot: number; // radians
@@ -42,7 +42,7 @@ function rectFor(project: Project, clip: Clip, t: number, pool: MediaPool, measu
   const W = project.settings.width, H = project.settings.height;
   const localT = t - clip.start;
   const tr = resolvedTransform(clip, localT);
-  if (tr.opacity <= 0.05) return null;
+  if (tr.opacity <= 0.003) return null;
   if (clip.kind === 'text' && clip.text) {
     const layout = layoutCaption(measure, clip.text.text, clip.text.style, W, H, localT, clip.text.words);
     if (!layout.lines.length) return null;
@@ -54,11 +54,16 @@ function rectFor(project: Project, clip: Clip, t: number, pool: MediaPool, measu
     const cx0 = (b.minX + b.maxX) / 2, cy0 = (b.minY + b.maxY) / 2;
     return { clip, kind: 'drawing', cx: cx0 + tr.x, cy: cy0 + tr.y, hw: (b.maxX - b.minX) / 2 * tr.scale, hh: (b.maxY - b.minY) / 2 * tr.scale, rot: (tr.rotation * Math.PI) / 180 };
   }
+  if (clip.kind === 'motif' && clip.motif) {
+    // Motifs paint the frame; give them a full-frame selection box so they are
+    // selectable and draggable like any other overlay.
+    return { clip, kind: 'motif', cx: W / 2 + tr.x, cy: H / 2 + tr.y, hw: (W / 2) * tr.scale, hh: (H / 2) * tr.scale, rot: (tr.rotation * Math.PI) / 180 };
+  }
   if (clip.kind === 'media') {
     const asset = getMedia(project, clip.mediaId);
     if (!asset) return null;
     const size = pool.size(asset.id);
-    const sw = size?.width ?? asset.width ?? W, sh = size?.height ?? asset.height ?? H;
+    const sw = size?.width || asset.width || W, sh = size?.height || asset.height || H;
     const cw = sw * (1 - tr.cropL - tr.cropR), ch = sh * (1 - tr.cropT - tr.cropB);
     if (cw <= 2 || ch <= 2) return null;
     let s: number;
@@ -255,7 +260,10 @@ export function OverlayEditor({ scale }: { scale: number }) {
 
   const onPointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
     const s = useStore.getState();
-    if (s.playing) return;
+    // A click on the preview is an intent to manipulate a layer. Pause first
+    // instead of silently ignoring the pointer — otherwise the preview feels
+    // dead while playing and users think overlays cannot be selected.
+    if (s.playing) s.pause();
     (e.currentTarget as HTMLCanvasElement).setPointerCapture(e.pointerId);
     const p = toProject(e);
     const d = useUI.getState().draw;

@@ -193,7 +193,7 @@ export function usePlayback() {
           c.fades, c.speedPoints, c.preservePitch, c.reversed,
           c.keyframes.map((k) => [k.path, k.time, k.value]),
           c.effects.map((e) => [e.id, e.type, e.enabled, e.params]),
-          track ? (trackAudible(s.project, track) ? 0 : 1) : 2,
+          track ? [trackAudible(s.project, track) ? 0 : 1, track.volume ?? 1] : 2,
         ]));
       }
       // analysis feeds gate/denoise envelopes — include it so an analysis job

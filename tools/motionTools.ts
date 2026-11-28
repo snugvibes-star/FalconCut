@@ -95,17 +95,22 @@ export function reframe(ctx: ToolContext, params: { aspect: Aspect }): ToolResul
     if (!ma?.faces.length) continue;
     // face-follow keyframes every 0.5s of timeline
     actions.push({ type: 'clear_keyframes', clipId: clip.id, path: 'transform.x' });
+    actions.push({ type: 'clear_keyframes', clipId: clip.id, path: 'transform.y' });
     const base = Math.max(w / asset.width, h / asset.height);
     const drawnW = asset.width * base * clip.transform.scale;
+    const drawnH = asset.height * base * clip.transform.scale;
     const maxX = Math.max(0, (drawnW - w) / 2);
+    const maxY = Math.max(0, (drawnH - h) / 2);
     let last = -10;
     for (let tl = clip.start; tl <= clip.start + clip.duration; tl += 0.5) {
       const src = clip.inPoint + (tl - clip.start) * clip.speed;
       const face = faceAt(p, clip.mediaId!, src);
       if (!face) continue;
       const x = Math.max(-maxX, Math.min(maxX, (0.5 - face.x) * drawnW));
+      const y = Math.max(-maxY, Math.min(maxY, (0.5 - face.y) * drawnH));
       if (Math.abs(tl - last) >= 0.45) {
         actions.push({ type: 'add_keyframe', clipId: clip.id, path: 'transform.x', time: tl - clip.start, value: Math.round(x), easing: 'easeInOut' });
+        actions.push({ type: 'add_keyframe', clipId: clip.id, path: 'transform.y', time: tl - clip.start, value: Math.round(y), easing: 'easeInOut' });
         last = tl;
       }
     }

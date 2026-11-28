@@ -228,6 +228,9 @@ export const useStore = create<State>()((set, get) => {
     set({
       project: p,
       playhead,
+      // Undo/redo can remove the selected clip; drop stale ids so the preview
+      // never looks like the selected layer vanished.
+      selection: cur.selection.filter((id) => p.clips.some((c) => c.id === id)),
       playing: stopAtEnd ? false : cur.playing,
       canUndo: history.canUndo,
       canRedo: history.canRedo,

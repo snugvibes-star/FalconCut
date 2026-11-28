@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Play, Pause, SkipBack, SkipForward, ChevronsLeft, ChevronsRight, Grid3x3, LayoutGrid, Maximize2, Minimize2, Theater, Repeat, PenLine, Camera, Download, Crop, SlidersHorizontal } from 'lucide-react';
 import { useStore } from '../state/store';
 import { useUI } from '../state/ui';
-import { renderFrame, drawSafeZones, drawThirdsGrid, projectDuration, activeClips, getMedia, type Action } from '../../engine';
+import { renderFrame, drawSafeZones, drawThirdsGrid, projectDuration, activeClips, getMedia, sourceTimeOf, type Action } from '../../engine';
 import { toggleMarkerLoop } from '../features/zoneLoop';
 import { downloadBlob, projectPNG } from '../../exporter/artifacts';
 import { getBlob } from '../state/persistence';
@@ -230,6 +230,12 @@ export function Preview() {
     if (canvas.height !== height) canvas.height = height;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
+    // Prefetch the exact source frame for every active layer before drawing —
+    // otherwise a freshly created per-clip element can paint a black frame.
+    for (const clip of activeClips(project, playhead)) {
+      if (clip.kind !== 'media' || !clip.mediaId) continue;
+      pool.hint(clip.mediaId, sourceTimeOf(clip, playhead), clip.id);
+    }
     renderFrame(project, playhead, ctx, pool);
     if (safe) drawSafeZones(ctx, project);
     if (grid) drawThirdsGrid(ctx, project);

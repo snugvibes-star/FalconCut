@@ -144,6 +144,12 @@ export function buildAudioGraph(
         if (lp > 0) { const f = ctx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = lp; node.connect(f); node = f; }
         const g = typeof e.params.gain === 'number' ? e.params.gain : 0;
         if (g !== 0) { const f = ctx.createBiquadFilter(); f.type = 'peaking'; f.frequency.value = 1000; f.gain.value = g; node.connect(f); node = f; }
+      } else if (e.type === 'gain') {
+        // Simple, predictable linear gain in dB (0 dB = unchanged).
+        const g = ctx.createGain();
+        const db = typeof e.params.gainDb === 'number' ? e.params.gainDb : 0;
+        g.gain.value = Math.max(0, Math.pow(10, db / 20));
+        node.connect(g); node = g;
       } else if (e.type === 'deess') {
         const f = ctx.createBiquadFilter();
         f.type = 'highshelf'; f.frequency.value = 6200;
@@ -191,7 +197,11 @@ export function buildAudioGraph(
     const gain = ctx.createGain();
     node.connect(gain);
     let tg = trackGain.get(track.id);
-    if (!tg) { tg = ctx.createGain(); tg.gain.value = 1; tg.connect(master); trackGain.set(track.id, tg); }
+    if (!tg) {
+      tg = ctx.createGain();
+      tg.gain.value = Math.max(0, Math.min(2, track.volume ?? 1));
+      tg.connect(master); trackGain.set(track.id, tg);
+    }
     gain.connect(tg);
 
     // schedule gain automation at 50 Hz (covers fades, ducking, keyframes, gate)

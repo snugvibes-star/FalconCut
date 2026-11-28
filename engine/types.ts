@@ -95,7 +95,7 @@ export interface Transform {
 
 export type EffectType =
   | 'color' | 'blur' | 'sharpen' | 'vignette' | 'chromaKey' | 'negate' | 'normalize' | 'lut'
-  | 'eq' | 'gate' | 'deess' | 'denoise' | 'compressor' | 'limiter' | 'echo' | 'pan'
+  | 'eq' | 'gain' | 'gate' | 'deess' | 'denoise' | 'compressor' | 'limiter' | 'echo' | 'pan'
   | 'pixelate' | 'noise' | 'rgbSplit' | 'glow';
 
 /** Canvas globalCompositeOperation blend modes, 1:1 with the CSS list. */
@@ -267,6 +267,8 @@ export const TRANSITION_TYPES: TransitionType[] = [
 export interface Transition {
   type: TransitionType;
   duration: number;
+  /** 0 = no effect, 1 = full transition. Keeps the clip's own look at 0. */
+  intensity?: number;
 }
 
 /** One point of a speed ramp: `t` is clip-local seconds, `speed` the effective
@@ -360,6 +362,8 @@ export interface Track {
   hidden: boolean;
   /** Solo this track's audio: when any track of a kind is soloed, only soloed tracks of that kind are heard. */
   solo?: boolean;
+  /** Track-level gain applied in the shared preview/export audio graph. */
+  volume?: number;
   /** Shift+click solo = additive (several tracks of a kind play together);
    * plain click = exclusive (only that track). Kdenlive mixer semantics. */
   soloMode?: 'exclusive' | 'additive';
@@ -408,6 +412,7 @@ export interface MediaAnalysis {
   faces: FaceSample[];
   faceMethod: 'FaceDetector' | 'skin-heuristic' | 'none';
   loudness: LoudnessPoint[]; // 10 Hz envelope
+  peaks?: { t: number; peak: number }[]; // 100 Hz sample-accurate waveform
   integratedLoudness: number; // ~LUFS (K-weighted, gated)
   truePeak: number;
   speechRatio: number; // 0..1 fraction classified as speech
