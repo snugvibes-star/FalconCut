@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Scissors, Trash2, ZoomIn, ZoomOut, Magnet, Lock, Unlock, Volume2, VolumeX, Eye, EyeOff, Plus, Flag, Maximize, ChevronsRightLeft, Headphones, Focus, ChevronUp, ChevronDown, ArrowLeft, ArrowRight } from 'lucide-react';
+import { Scissors, Trash2, ZoomIn, ZoomOut, Magnet, Lock, Unlock, Volume2, VolumeX, Eye, EyeOff, Plus, Flag, ChevronsRightLeft, Headphones, ChevronUp, ChevronDown, ArrowLeft, ArrowRight } from 'lucide-react';
 import { useStore } from '../state/store';
 import { useUI } from '../state/ui';
 import { useDeviceClass } from '../hooks/useDeviceClass';
@@ -1015,9 +1015,7 @@ export function Timeline() {
         <div className="h-5 w-px bg-line mx-1" />
         <button className="icon-btn" onClick={() => useStore.getState().setZoom(zoom / 1.3)} title="Zoom out (-)"><ZoomOut size={15} /></button>
         <button className="icon-btn" onClick={() => useStore.getState().setZoom(zoom * 1.3)} title="Zoom in (+)"><ZoomIn size={15} /></button>
-        <button className="icon-btn" onClick={zoomToFit} title="Zoom to fit"><Maximize size={15} /></button>
-        <button className="icon-btn" onClick={zoomToSelection} disabled={!selection.length} title="Zoom to selection (Shift+Z)"><Focus size={15} /></button>
-        <input type="range" min={8} max={600} step={1} value={Math.round(zoom)} onChange={(e) => useStore.getState().setZoom(Number(e.target.value))} className="w-24 mx-1" title="Zoom (px per second)" />
+        <input type="range" min={2} max={600} step={1} value={Math.round(zoom)} onChange={(e) => useStore.getState().setZoom(Number(e.target.value))} className="w-24 mx-1" title="Zoom (px per second)" />
         <span className="text-[11px] text-paper-faint font-mono ml-1">{Math.round(zoom)}px/s</span>
         <div className="flex-1" />
         <button className="btn-ghost text-xs py-1" onClick={() => addTrack('video')}><Plus size={13} /> Video</button>

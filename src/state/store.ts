@@ -960,7 +960,7 @@ export const useStore = create<State>()((set, get) => {
     select(ids, additive = false) {
       set((s) => ({ selection: additive ? [...new Set([...s.selection, ...ids])] : ids }));
     },
-    setZoom(z) { set({ zoom: Math.max(8, Math.min(600, z)) }); },
+    setZoom(z) { set({ zoom: Math.max(2, Math.min(600, z)) }); },
 
     snapshot(name, source = 'manual', thumbnail) {
       const p = get().project;
