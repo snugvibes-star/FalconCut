@@ -16,13 +16,14 @@ createRoot(document.getElementById('root')!).render(
   </ErrorBoundary>,
 );
 
-// PWA: register the service worker in production builds only (dev HMR must
-// never be cached). Once installed, the editor runs fully offline — media
-// stays in IndexedDB on the device either way.
-if (import.meta.env.PROD && 'serviceWorker' in navigator) {
-  window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/sw.js').catch(() => {
-      // SW registration is a progressive enhancement — never block the app.
-    });
+// PWA: production caches the shell for offline use; dev registers a no-op
+// worker so localhost stays installable and shows the app icon without ever
+// caching Vite's HMR modules. Media always lives in IndexedDB on the device.
+if ('serviceWorker' in navigator) {
+  // Register immediately: module evaluation can happen AFTER `load` has
+  // already fired (dynamic imports), which would silently skip installability.
+  const url = import.meta.env.PROD ? '/sw.js' : '/sw-dev.js';
+  navigator.serviceWorker.register(url).catch(() => {
+    // SW registration is a progressive enhancement — never block the app.
   });
 }
