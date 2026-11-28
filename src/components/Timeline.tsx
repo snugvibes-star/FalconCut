@@ -557,8 +557,10 @@ export function Timeline() {
       // never emit move_clip with an invalid track id.
       if (targetTrackId === NEW_TRACK_ID) return;
       // Never allow same-track overlap — clamp the drop into the nearest gap.
-      const start = resolveFreeStart(project.clips, targetTrackId, cur.curStart, d.origDuration, d.clipId);
-      actions.push({ type: 'move_clip', clipId: d.clipId, start, trackId: targetTrackId });
+      const start = ui.editMode === 'snap'
+        ? resolveFreeStart(project.clips, targetTrackId, cur.curStart, d.origDuration, d.clipId)
+        : Math.max(0, cur.curStart);
+      actions.push({ type: 'move_clip', clipId: d.clipId, start, trackId: targetTrackId, mode: ui.editMode });
       // Multi-select drag: shift the rest of the group by the same delta on
       // their own tracks (only the grabbed clip changes tracks).
       const dt = start - d.origStart;
@@ -710,8 +712,8 @@ export function Timeline() {
       }
       if (track.locked) { ui.toast('Track is locked', 'info'); return; }
       const duration = Math.max(0.5, asset.duration || 5);
-      const start = resolveFreeStart(project.clips, track.id, hit.time, duration);
-      actions.push({ type: 'add_clip', clip: { trackId: track.id, mediaId: asset.id, start, duration, inPoint: 0 } });
+      const start = ui.editMode === 'snap' ? resolveFreeStart(project.clips, track.id, hit.time, duration) : Math.max(0, hit.time);
+      actions.push({ type: 'add_clip', clip: { trackId: track.id, mediaId: asset.id, start, duration, inPoint: 0 }, mode: ui.editMode });
       commitAndSelect(actions, 'Drop media');
       ui.toast(`Added ${asset.name} to timeline`);
     } else if (payload.kind === 'text' && payload.preset) {
@@ -984,7 +986,14 @@ export function Timeline() {
         <button className="icon-btn" onClick={() => runEditorAction('nudgeBack')} disabled={!selection.length} title="Nudge selection left one frame (Alt+←)"><ArrowLeft size={15} /></button>
         <button className="icon-btn" onClick={() => runEditorAction('nudgeFwd')} disabled={!selection.length} title="Nudge selection right one frame (Alt+→)"><ArrowRight size={15} /></button>
         <button className={`icon-btn ${snap ? 'text-signal' : ''}`} onClick={() => ui.setSnap(!ui.snap)} title={`Snapping ${snap ? 'on' : 'off'} (N) — hold Alt while dragging to bypass`}><Magnet size={15} /></button>
+        <button
+          className="icon-btn px-1.5 text-[10px] font-semibold"
+          title={`Edit mode: ${ui.editMode} — click for ${ui.editMode === 'snap' ? 'overwrite' : ui.editMode === 'overwrite' ? 'insert (ripple)' : 'snap to gap'}`}
+          onClick={() => ui.setEditMode(ui.editMode === 'snap' ? 'overwrite' : ui.editMode === 'overwrite' ? 'insert' : 'snap')}
+        >{ui.editMode === 'snap' ? 'SNAP' : ui.editMode === 'overwrite' ? 'OVR' : 'INS'}</button>
         <button className="icon-btn" onClick={closeGaps} disabled={!hasGaps} title="Close gaps on video/audio tracks"><ChevronsRightLeft size={15} /></button>
+        <button className="icon-btn px-1.5 text-[10px]" onClick={() => runEditorAction('zoneLift')} title="Lift I/O zone: remove clips inside it, leave a gap"><Scissors size={13} /> Z</button>
+        <button className="icon-btn px-1.5 text-[10px]" onClick={() => runEditorAction('zoneExtract')} title="Extract I/O zone: remove clips inside it and close the gap"><Trash2 size={13} /> Z</button>
         <div className="h-5 w-px bg-line mx-1" />
         <button className="icon-btn" onClick={addMarker} title="Add marker at playhead"><Flag size={15} /></button>
         <div className="h-5 w-px bg-line mx-1" />
@@ -1076,8 +1085,18 @@ export function Timeline() {
                     )}
                     {track.kind !== 'text' && (
                       <button className={`cf-track-btn icon-btn p-0.5 ${track.solo ? 'text-heat-amber' : ''}`}
-                        onClick={() => useStore.getState().commit([{ type: 'set_track', trackId: track.id, patch: { solo: !track.solo } }], track.solo ? 'Solo off' : 'Solo track')}
-                        title={track.solo ? 'Solo on — other tracks of this kind are silent' : 'Solo: play only this track (other tracks of this kind go silent)'}>
+                        onClick={(e) => {
+                          const additive = e.shiftKey;
+                          const actions: Action[] = [];
+                          if (!additive) {
+                            for (const t of project.tracks) {
+                              if (t.kind === track.kind && t.id !== track.id && t.solo) actions.push({ type: 'set_track', trackId: t.id, patch: { solo: false, soloMode: 'exclusive' } });
+                            }
+                          }
+                          actions.push({ type: 'set_track', trackId: track.id, patch: { solo: !track.solo, soloMode: additive ? 'additive' : 'exclusive' } });
+                          useStore.getState().commit(actions, track.solo ? 'Solo off' : 'Solo track');
+                        }}
+                        title={track.solo ? 'Solo on — click to clear, Shift+click to keep others soloed' : 'Solo this track (Shift+click to add to other soloed tracks)'}>
                         <Headphones size={11} />
                       </button>
                     )}

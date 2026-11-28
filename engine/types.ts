@@ -301,6 +301,9 @@ export interface Clip {
   trackId: string;
   mediaId?: string; // absent for text/motif/drawing clips
   kind: 'media' | 'text' | 'motif' | 'drawing' | 'adjustment';
+  /** Linked AV import: the same source appears once as video and once as
+   * audio on an audio track. Determines track compatibility. */
+  mediaRole?: 'video' | 'audio';
   start: number; // timeline
   duration: number; // timeline
   inPoint: number; // source
@@ -357,6 +360,9 @@ export interface Track {
   hidden: boolean;
   /** Solo this track's audio: when any track of a kind is soloed, only soloed tracks of that kind are heard. */
   solo?: boolean;
+  /** Shift+click solo = additive (several tracks of a kind play together);
+   * plain click = exclusive (only that track). Kdenlive mixer semantics. */
+  soloMode?: 'exclusive' | 'additive';
   height?: number;
 }
 

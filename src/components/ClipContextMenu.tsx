@@ -123,7 +123,7 @@ export function ClipContextMenu({ menu, onClose }: { menu: CtxMenuState; onClose
           {(() => {
             // Kdenlive-style "Extract audio" for video clips with decodable audio.
             const asset = clip.mediaId ? s.project.media.find((m) => m.id === clip.mediaId) : undefined;
-            if (!asset || asset.type !== 'video') return null;
+            if (!asset || asset.type !== 'video' || clip.mediaRole === 'audio') return null;
             const trackId = clip.audioTrackId;
             const longFileNativeAudio = s.pool.usesElementAudio(asset.id);
             const undecodable = s.pool.decodeFailedFor(asset.id, trackId) && !longFileNativeAudio;

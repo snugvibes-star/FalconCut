@@ -7,6 +7,9 @@ export type RightTab = 'inspector' | 'audio' | 'ai' | 'versions' | 'quality' | '
 export type LeftTab = 'media' | 'audio' | 'text' | 'stickers' | 'effects' | 'transitions' | 'filters' | 'templates' | 'captions' | 'adjustment' | 'tools' | 'styles' | 'stock';
 export type Dialog = 'connect' | 'export' | 'palette' | 'settings' | 'analysis' | 'projects' | 'newProject' | 'aiControl';
 export type Workspace = 'edit' | 'color' | 'audio';
+/** Timeline placement mode: snap to a free gap, overwrite what is under the
+ * clip, or insert and ripple later clips forward. */
+export type EditMode = 'snap' | 'overwrite' | 'insert';
 
 export interface Toast { id: string; text: string; kind: 'info' | 'success' | 'error'; }
 
@@ -38,6 +41,7 @@ interface UIPrefs {
   previewZoom: 'fit' | number;
   workspace: Workspace;
   snap: boolean;
+  editMode?: EditMode;
   density: 'compact' | 'comfortable';
   timelineCollapsed: boolean;
   previewRate: number;
@@ -132,6 +136,9 @@ interface UIState {
   timelineHeight: number;
   /** Magnetic snapping for timeline drags (N toggles; Alt temporarily disables). */
   snap: boolean;
+  /** Placement mode for drops/inserts (Kdenlive-style snap / overwrite / insert). */
+  editMode: EditMode;
+  setEditMode: (m: EditMode) => void;
   /** Compact vs comfortable control density — useful on phones and tablets. */
   density: 'compact' | 'comfortable';
   /** Collapse the bottom timeline to give the preview more room on small devices. */
@@ -177,6 +184,8 @@ export const useUI = create<UIState>((set, get) => ({
     return clampTimelineHeight(typeof stored === 'number' && Number.isFinite(stored) ? stored : 240);
   })(),
   snap: prefs.snap !== false,
+  editMode: prefs.editMode === 'overwrite' || prefs.editMode === 'insert' ? prefs.editMode : 'snap',
+  setEditMode: (m) => { set({ editMode: m }); persistUI({ editMode: m }); },
   density: prefs.density === 'compact' ? 'compact' : 'comfortable',
   timelineCollapsed: prefs.timelineCollapsed === true,
   previewRate: typeof prefs.previewRate === 'number' && [0.25, 0.5, 1, 1.5, 2].includes(prefs.previewRate) ? prefs.previewRate : 1,

@@ -11,6 +11,10 @@ import {
   consumedSource, detUid, enterDeterministicIds, exitDeterministicIds, getMedia, speedAtLocal, speedPointsOf, sourceTimeOf,
 } from './types';
 
+/** Placement semantics for drops: nearest free gap (legacy), replace under
+ * the clip (Kdenlive Overwrite), or ripple later clips (Kdenlive Insert). */
+export type PlacementMode = 'snap' | 'overwrite' | 'insert';
+
 export type Action =
   | { type: 'add_media'; asset: MediaAsset }
   | { type: 'add_lut'; lut: Lut }
@@ -18,13 +22,13 @@ export type Action =
   | { type: 'remove_media'; mediaId: string }
   | { type: 'add_track'; track: Partial<Track> & { kind: Track['kind'] }; index?: number }
   | { type: 'remove_track'; trackId: string }
-  | { type: 'set_track'; trackId: string; patch: Partial<Pick<Track, 'name' | 'locked' | 'muted' | 'hidden' | 'solo' | 'height'>> }
+  | { type: 'set_track'; trackId: string; patch: Partial<Pick<Track, 'name' | 'locked' | 'muted' | 'hidden' | 'solo' | 'soloMode' | 'height'>> }
   | { type: 'move_track'; trackId: string; toIndex: number }
-  | { type: 'add_clip'; clip: Partial<Clip> & { trackId: string; start: number; duration: number }; ripple?: boolean; /** unique seed so repeated copies never collide on the same generated id */ nonce?: string }
+  | { type: 'add_clip'; clip: Partial<Clip> & { trackId: string; start: number; duration: number }; ripple?: boolean; mode?: PlacementMode; /** unique seed so repeated copies never collide on the same generated id */ nonce?: string }
   | { type: 'remove_clip'; clipId: string; ripple?: boolean }
   | { type: 'split_clip'; clipId: string; time: number }
   | { type: 'trim_clip'; clipId: string; start?: number; duration?: number; inPoint?: number }
-  | { type: 'move_clip'; clipId: string; start?: number; trackId?: string }
+  | { type: 'move_clip'; clipId: string; start?: number; trackId?: string; mode?: PlacementMode }
   | { type: 'set_speed'; clipId: string; speed: number }
   | { type: 'set_speed_ramp'; clipId: string; points: SpeedPoint[] }
   | { type: 'set_transform'; clipId: string; patch: Partial<Transform> }
@@ -47,6 +51,7 @@ export type Action =
   | { type: 'set_drawing'; clipId: string; strokes: DrawingStroke[] }
   | { type: 'set_transition'; clipId: string; edge: 'in' | 'out'; transition?: Transition }
   | { type: 'ripple_delete_range'; start: number; end: number; trackIds?: string[]; shiftMarkers?: boolean }
+  | { type: 'lift_range'; start: number; end: number; trackIds?: string[] }
   | { type: 'insert_gap'; time: number; duration: number; trackIds?: string[] }
   | { type: 'group_clips'; clipIds: string[] }
   | { type: 'ungroup'; groupId: string }
@@ -102,6 +107,7 @@ export const ACTION_SCHEMA: Record<Action['type'], string> = {
   add_drawing: 'Add an editable drawing overlay layer (brush/pen/highlighter/eraser/line/arrow/rect/rect-round/ellipse/polygon/sticker). strokes = DrawingStroke[] in project pixels; sticker strokes carry char (emoji) and size.',
   set_drawing: 'Replace the strokes of an existing drawing clip (add, erase or reshape strokes in one undo step).',
   set_transition: 'Set transition at clip edge. Omit transition to remove. Types: crossfade, dip-black, dip-white, wipe-left, slide-left, zoom-in, plus blend transitions blend-multiply, blend-screen, blend-overlay, blend-soft-light, blend-hard-light, blend-difference, blend-exclusion, blend-lighten, blend-darken, blend-color-dodge, blend-color-burn, blend-hue, blend-saturation, blend-color, blend-luminosity.',
+  lift_range: 'Lift a timeline zone: remove the clips inside it and leave a gap. Use for Kdenlive Z / CapCut lift.',
   ripple_delete_range: 'Delete a time range and close the gap. Affects given tracks (default all) and shifts markers/tacks.',
   insert_gap: 'Insert empty time at a position, pushing later clips right.',
   group_clips: 'Group clips so they move/select together.',
@@ -125,13 +131,44 @@ export const ACTION_SCHEMA: Record<Action['type'], string> = {
 
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
 
-function normalizeClip(p: Project, partial: Partial<Clip> & { trackId: string; start: number; duration: number }): Clip {
+/** Apply overwrite/insert placement after a clip has been added or moved.
+ * 'snap' (the legacy default) leaves the gap-clamping in normalizeClip alone. */
+function placeClip(p: Project, c: Clip, mode?: PlacementMode): void {
+  if (!mode || mode === 'snap') return;
+  const end = c.start + c.duration;
+  if (mode === 'insert') {
+    for (const o of p.clips) {
+      if (o.id === c.id || o.trackId !== c.trackId || o.start < c.start - 1e-6) continue;
+      o.start += c.duration;
+    }
+    return;
+  }
+  for (const o of [...p.clips]) {
+    if (o.id === c.id || o.trackId !== c.trackId) continue;
+    const oe = o.start + o.duration;
+    if (oe <= c.start + 1e-6 || o.start >= end - 1e-6) continue;
+    if (o.start >= c.start - 1e-6 && oe <= end + 1e-6) {
+      p.clips = p.clips.filter((x) => x.id !== o.id);
+    } else if (o.start < c.start) {
+      o.duration = Math.max(0.04, c.start - o.start);
+    } else {
+      const cut = end - o.start;
+      o.inPoint += o.kind === 'media' && !o.reversed ? cut * o.speed : 0;
+      o.start = end;
+      o.duration = Math.max(0.04, o.duration - cut);
+    }
+  }
+}
+
+function normalizeClip(p: Project, partial: Partial<Clip> & { trackId: string; start: number; duration: number }, mode?: PlacementMode): Clip {
   const media = getMedia(p, partial.mediaId);
   const kind: Clip['kind'] = partial.kind ?? (partial.text ? 'text' : partial.motif ? 'motif' : partial.drawing ? 'drawing' : 'media');
   // A stale/fabricated track id (e.g. from an AI tool after a track was
   // deleted) must never create an orphan clip that counts toward the export
   // but has no timeline row. Fall back to a compatible track or create one.
-  const wantKind = kind === 'media' ? (media?.type === 'audio' ? 'audio' : 'video') : 'text';
+  const wantKind = kind === 'media'
+    ? (partial.mediaRole === 'audio' || media?.type === 'audio' ? 'audio' : 'video')
+    : 'text';
   let trackId = partial.trackId;
   if (!p.tracks.some((t) => t.id === trackId && t.kind === wantKind)) {
     const fallback = p.tracks.find((t) => t.kind === wantKind && !t.locked) ?? p.tracks.find((t) => t.kind === wantKind);
@@ -152,7 +189,7 @@ function normalizeClip(p: Project, partial: Partial<Clip> & { trackId: string; s
   // overlay layers and may legitimately share the text track.
   const dur = Number.isFinite(partial.duration) ? Math.max(0.04, partial.duration) : 0.04;
   let start = Number.isFinite(partial.start) ? Math.max(0, partial.start) : 0;
-  if (kind === 'media') {
+  if (kind === 'media' && (!mode || mode === 'snap')) {
     const others = p.clips.filter((c) => c.trackId === trackId).sort((a, b) => a.start - b.start);
     if (others.some((o) => start < o.start + o.duration - 1e-6 && o.start < start + dur - 1e-6)) {
       const gaps: { lo: number; hi: number }[] = [];
@@ -175,6 +212,7 @@ function normalizeClip(p: Project, partial: Partial<Clip> & { trackId: string; s
     id: partial.id ?? detUid('clip'),
     trackId,
     mediaId: partial.mediaId,
+    mediaRole: partial.mediaRole,
     kind,
     start,
     duration: dur,
@@ -317,12 +355,10 @@ export function applyAction(project: Project, action: Action): Project {
         // new clip lands exactly where asked instead of being clamped into a
         // far-away gap. Callers must have split any clip SPANNING the point
         // first (the freeze-frame flow does).
-        if (action.ripple) {
-          const insDur = Math.max(0.04, action.clip.duration);
-          const at = action.clip.start;
-          for (const c of p.clips) if (c.trackId === action.clip.trackId && c.start >= at - 1e-6) c.start += insDur;
-        }
-        p.clips.push(normalizeClip(p, action.clip));
+        const mode = action.mode ?? (action.ripple ? 'insert' : undefined);
+        const created = normalizeClip(p, action.clip, mode);
+        p.clips.push(created);
+        if (mode) placeClip(p, created, mode);
         break;
       }
       case 'remove_clip': {
@@ -407,12 +443,13 @@ export function applyAction(project: Project, action: Action): Project {
           // Compat rule (matches the Timeline drag check): audio assets only
           // on audio tracks, video/image on video tracks, text/motif on text.
           const wantKind = c.kind === 'media'
-            ? (getMedia(p, c.mediaId)?.type === 'audio' ? 'audio' : 'video')
+            ? (c.mediaRole === 'audio' || getMedia(p, c.mediaId)?.type === 'audio' ? 'audio' : 'video')
             : 'text'; // text/motif/drawing are overlay layers
           if (!target || target.kind !== wantKind) break;
           c.trackId = action.trackId;
         }
         if (action.start != null) c.start = Math.max(0, action.start);
+        if (action.mode) placeClip(p, c, action.mode);
         break;
       }
       case 'set_speed': {
@@ -580,6 +617,17 @@ export function applyAction(project: Project, action: Action): Project {
         if (!c) break;
         if (action.edge === 'in') c.transitionIn = action.transition;
         else c.transitionOut = action.transition;
+        break;
+      }
+      case 'lift_range': {
+        const { start, end } = action;
+        if (!(end > start)) break;
+        const ids = action.trackIds?.filter((id) => p.tracks.some((t) => t.id === id));
+        if (action.trackIds && !ids?.length) break;
+        p.clips = p.clips.filter((c) => {
+          if (ids && !ids.includes(c.trackId)) return true;
+          return c.start >= end - 1e-6 || c.start + c.duration <= start + 1e-6;
+        });
         break;
       }
       case 'ripple_delete_range': {

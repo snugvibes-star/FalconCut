@@ -18,8 +18,12 @@ import { audioBufferKey } from './audioTracks';
 export function trackAudible(p: Project, track: Track | undefined): boolean {
   if (!track || track.kind === 'text') return false;
   if (track.muted) return false;
-  const soloed = p.tracks.some((t) => t.kind === track.kind && t.solo);
-  return soloed ? !!track.solo : true;
+  const soloed = p.tracks.filter((t) => t.kind === track.kind && t.solo);
+  if (!soloed.length) return true;
+  // Plain solo is exclusive; Shift+click marks tracks additive so several
+  // tracks of the same kind can be heard together (Kdenlive mixer).
+  const additive = soloed.some((t) => t.soloMode === 'additive');
+  return additive ? soloed.some((t) => t.id === track.id) : !!track.solo;
 }
 
 export interface AudioGraphHandle {

@@ -110,6 +110,8 @@ VISIBLE EDITOR COMMANDS — use ui_action with the id when the user says the lab
 - split: "Split selection at playhead" [Editing] (S)
 - lift: "Lift — remove selection leaving a gap" [Editing] (Z)
 - extract: "Extract — remove selection and close the gap" [Editing] (Shift+X)
+- zoneLift: "Lift zone — remove clips in I/O zone, leave a gap" [Editing] ()
+- zoneExtract: "Extract zone — remove clips in I/O zone and close the gap" [Editing] ()
 - group: "Group clips" [Editing] (Ctrl+G)
 - ungroup: "Ungroup clips" [Editing] (Ctrl+Shift+G)
 - toggleSnap: "Toggle magnetic snapping" [Editing] (N)

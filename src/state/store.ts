@@ -491,10 +491,24 @@ export const useStore = create<State>()((set, get) => {
           await get().pool.register(asset, file);
           actions.push({ type: 'add_media', asset });
           if (addToTimeline) {
-            const trackId = type === 'audio' ? audioTrack : videoTrack;
-            if (trackId) {
-              actions.push({ type: 'add_clip', clip: { trackId, mediaId: id, start: type === 'audio' ? 0 : cursor, duration: Math.max(0.5, asset.duration || 5), inPoint: 0 } });
-              if (type !== 'audio') cursor += Math.max(0.5, asset.duration || 5);
+            const dur = Math.max(0.5, asset.duration || 5);
+            // Kdenlive-style linked AV import: a short video with sound lands
+            // as a grouped video clip + audio clip. The video half is muted so
+            // the audio graph plays the sound exactly once. Long files keep
+            // native element audio instead (no giant PCM allocation).
+            const link = type === 'video' && asset.hasAudio && !!videoTrack && !!audioTrack
+              && asset.duration <= LONG_MEDIA_SECONDS && file.size <= LARGE_MEDIA_BYTES;
+            if (link) {
+              const groupId = uid('grp');
+              actions.push({ type: 'add_clip', clip: { trackId: videoTrack!, mediaId: id, start: cursor, duration: dur, inPoint: 0, volume: 0, groupId, mediaRole: 'video' } });
+              actions.push({ type: 'add_clip', clip: { trackId: audioTrack!, mediaId: id, start: cursor, duration: dur, inPoint: 0, groupId, mediaRole: 'audio' } });
+              cursor += dur;
+            } else {
+              const trackId = type === 'audio' ? audioTrack : videoTrack;
+              if (trackId) {
+                actions.push({ type: 'add_clip', clip: { trackId, mediaId: id, start: type === 'audio' ? 0 : cursor, duration: dur, inPoint: 0 } });
+                if (type !== 'audio') cursor += dur;
+              }
             }
           }
           imported++;

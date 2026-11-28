@@ -40,6 +40,8 @@ export const DEFAULT_SHORTCUTS: ShortcutDef[] = [
   { id: 'split', group: 'Editing', label: 'Split selection at playhead', combo: 'S' },
   { id: 'lift', group: 'Editing', label: 'Lift — remove selection leaving a gap', combo: 'Z' },
   { id: 'extract', group: 'Editing', label: 'Extract — remove selection and close the gap', combo: 'Shift+X' },
+  { id: 'zoneLift', group: 'Editing', label: 'Lift zone — remove clips in I/O zone, leave a gap', combo: '' },
+  { id: 'zoneExtract', group: 'Editing', label: 'Extract zone — remove clips in I/O zone and close the gap', combo: '' },
   { id: 'group', group: 'Editing', label: 'Group clips', combo: 'Ctrl+G' },
   { id: 'ungroup', group: 'Editing', label: 'Ungroup clips', combo: 'Ctrl+Shift+G' },
   { id: 'toggleSnap', group: 'Editing', label: 'Toggle magnetic snapping', combo: 'N' },

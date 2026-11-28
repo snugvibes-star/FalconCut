@@ -115,6 +115,15 @@ export function runEditorAction(id: string): boolean {
       s.select([]);
       return true;
     }
+    case 'zoneLift':
+    case 'zoneExtract': {
+      const z = s.zone;
+      if (!z || z.out <= z.in + 0.05) { ui.toast('Mark an I/O zone first (I / O)', 'info'); return true; }
+      const type = id === 'zoneLift' ? 'lift_range' : 'ripple_delete_range';
+      s.commit([{ type, start: z.in, end: z.out }] as any, id === 'zoneLift' ? 'Lift zone' : 'Extract zone');
+      ui.toast(id === 'zoneLift' ? 'Zone lifted — gap left' : 'Zone extracted — gap closed', 'success');
+      return true;
+    }
     case 'group': {
       if (s.selection.length < 2) { ui.toast('Select two or more clips to group them', 'info'); return true; }
       s.commit([{ type: 'group_clips', clipIds: s.selection.slice() }], 'Group clips');

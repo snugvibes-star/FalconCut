@@ -113,6 +113,32 @@ describe('actions', () => {
     expect(p.tracks.length).toBe(1);
   });
 
+  it('insert mode ripples later clips and overwrite mode replaces them', () => {
+    let p = baseProject();
+    const trackId = p.clips[0].trackId;
+    p = applyActions(p, [
+      { type: 'add_clip', clip: { trackId, mediaId: 'm1', start: 6, duration: 2, inPoint: 0 } },
+      { type: 'add_clip', clip: { trackId, mediaId: 'm1', start: 3, duration: 2, inPoint: 0 }, mode: 'insert' },
+    ]);
+    expect(p.clips.some((c) => c.start === 3)).toBe(true);
+    expect(p.clips.filter((c) => c.trackId === trackId && c.start >= 8).length).toBeGreaterThan(0);
+    const ov = applyActions(p, [
+      { type: 'add_clip', clip: { trackId, mediaId: 'm1', start: 20, duration: 2, inPoint: 0 } },
+      { type: 'add_clip', clip: { trackId, mediaId: 'm1', start: 20, duration: 2, inPoint: 0 }, mode: 'overwrite' },
+    ]);
+    expect(ov.clips.filter((c) => c.trackId === trackId && c.start === 20).length).toBe(1);
+  });
+
+  it('lift zone removes clips but leaves a gap; extract zone closes it', () => {
+    let p = baseProject();
+    const trackId = p.clips[0].trackId;
+    p = applyActions(p, [{ type: 'add_clip', clip: { trackId, mediaId: 'm1', start: 12, duration: 2, inPoint: 0 } }]);
+    const lifted = applyAction(p, { type: 'lift_range', start: 2, end: 6, trackIds: [trackId] });
+    expect(lifted.clips.some((c) => c.start === 12)).toBe(true);
+    const extracted = applyAction(p, { type: 'ripple_delete_range', start: 2, end: 6, trackIds: [trackId] });
+    expect(extracted.clips.find((c) => c.start > 6)!.start).toBeLessThan(12);
+  });
+
   it('split keeps source continuity', () => {
     const p = baseProject();
     const c = p.clips[0];
