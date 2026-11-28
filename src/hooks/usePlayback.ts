@@ -78,14 +78,17 @@ export function usePlayback() {
       for (const clip of s.project.clips) {
         const track = s.project.tracks.find((t) => t.id === clip.trackId);
         const asset = getMedia(s.project, clip.mediaId);
-        if (!trackAudible(s.project, track) || !asset || asset.type !== 'video') continue;
-        // A video element always plays the file's default track — never let it
-        // leak that audio when the clip selected a different language.
+        if (!trackAudible(s.project, track) || !asset) continue;
+        if (asset.type !== 'video' && asset.type !== 'audio') continue;
+        // A native element always plays the file's default track — never let
+        // it leak that audio when the clip selected a different language.
         if (clip.audioTrackId != null) continue;
-        // syncPlayback plays a per-clip clone, not the primary frame element.
-        // Unmute THAT element, otherwise a browser that cannot decode the file
-        // with decodeAudioData still plays a muted element and stays silent.
-        const el = s.pool.ensureElement(asset.id, clip.id);
+        // syncPlayback plays a per-clip clone, not the primary element.
+        // Unmute THAT element, otherwise a file the browser cannot decode with
+        // decodeAudioData (AC3, or a long WAV) stays silent.
+        const el = asset.type === 'video'
+          ? s.pool.ensureElement(asset.id, clip.id)
+          : s.pool.ensureAudioElement(asset.id, clip.id);
         if (el && s.pool.decodeFailedFor(asset.id)) {
           el.muted = false;
           el.volume = Math.max(0, Math.min(1, clip.volume ?? 1));

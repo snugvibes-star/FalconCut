@@ -73,7 +73,7 @@ export interface MediaAsset {
   source: 'file' | 'demo' | 'stock' | 'reference';
   /** Derived assets keep a link to their source and the operation used. */
   derivedFrom?: string;
-  op?: 'voice-isolation' | 'background-removal' | 'upscale';
+  op?: 'voice-isolation' | 'background-removal' | 'upscale' | 'extract-audio';
   opParams?: Record<string, number | string>;
 }
 

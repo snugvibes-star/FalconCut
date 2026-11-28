@@ -600,6 +600,30 @@ export const useStore = create<State>()((set, get) => {
       const asset = clip ? getMedia(s.project, clip.mediaId) : undefined;
       if (!clip || !asset) return 'no-clip';
       const trackId = clip.audioTrackId;
+      const targetTrack = trackId ?? asset.audioTracks?.[0]?.id ?? null;
+      // Reuse a previous extraction of the same source window instead of
+      // duplicating a 40-minute WAV (and its memory) on every click.
+      const existing = s.project.media.find((m) => m.derivedFrom === clip.mediaId
+        && m.op === 'extract-audio'
+        && (m.opParams?.trackId ?? -1) === (targetTrack ?? -1)
+        && Math.abs(Number(m.opParams?.start ?? -1) - clip.start) < 0.01
+        && Math.abs(Number(m.opParams?.duration ?? -1) - clip.duration) < 0.01);
+      if (existing) {
+        const audioTrack = s.project.tracks.find((t) => t.kind === 'audio');
+        const actions: Action[] = [{ type: 'add_media', asset: existing }];
+        if (audioTrack) {
+          actions.push({
+            type: 'add_clip',
+            clip: {
+              trackId: audioTrack.id, mediaId: existing.id, start: clip.start, duration: clip.duration,
+              inPoint: Math.max(0, Math.min(clip.inPoint, existing.duration - 0.05)), volume: 1,
+            },
+          });
+          actions.push({ type: 'set_clip_props', clipId: clip.id, patch: { volume: 0 } });
+        }
+        get().commit(actions, `Extract audio from ${asset.name}`);
+        return 'ok';
+      }
       let buffer = clip.mediaId ? s.pool.getBuffer(clip.mediaId, trackId) : undefined;
       // A selected language track may still be decoding. Share that decode
       // instead of starting a second whole-file read and PCM allocation.
@@ -629,6 +653,9 @@ export const useStore = create<State>()((set, get) => {
         mime: 'audio/wav',
         size: wav.size,
         source: 'reference',
+        derivedFrom: clip.mediaId,
+        op: 'extract-audio',
+        opParams: { trackId: targetTrack ?? -1, start: clip.start, duration: clip.duration },
       };
       await s.pool.register(newAsset, wav);
       const audioTrack = get().project.tracks.find((t) => t.kind === 'audio');

@@ -39,6 +39,10 @@ function isSilent(buffer: AudioBuffer): boolean {
 
 export class MediaPool implements MediaResolver {
   private videos = new Map<string, VideoEntry>();
+  /** Long audio assets use a native <audio> element instead of an in-memory
+   * AudioBuffer, exactly like long video files use their element's audio. */
+  private audios = new Map<string, { el: HTMLAudioElement; url: string }>();
+  private useAudios = new Map<string, { el: HTMLAudioElement; url: string }>();
   /** Per-use clones: key `${mediaId}|${useKey}` — additional <video> elements
    * for the same asset so two clips can show different times of one source
    * simultaneously (a transition between two cuts of the same clip, a
@@ -105,6 +109,12 @@ export class MediaPool implements MediaResolver {
     if (blob && (blob.size > LARGE_MEDIA_BYTES || asset.duration > LONG_MEDIA_SECONDS)) {
       if (asset.type !== 'image') {
         this.elementAudio.add(asset.id);
+        if (asset.type === 'audio') {
+          const url = URL.createObjectURL(blob);
+          const el = new Audio(url);
+          el.preload = 'auto';
+          this.audios.set(asset.id, { el, url });
+        }
         this.onBufferReady?.(asset.id);
       }
     } else if ((asset.type === 'audio' || asset.hasAudio) && blob) {
@@ -218,10 +228,33 @@ export class MediaPool implements MediaResolver {
     return this.entryFor(mediaId, useKey)?.el ?? null;
   }
 
+  /** Per-clip <audio> element for a long audio asset. */
+  ensureAudioElement(mediaId: string, useKey: string): HTMLAudioElement | null {
+    const base = this.audios.get(mediaId);
+    if (!base) return null;
+    const key = `${mediaId}|${useKey}`;
+    let entry = this.useAudios.get(key);
+    if (!entry) {
+      const el = new Audio(base.url);
+      el.preload = 'auto';
+      el.muted = true;
+      entry = { el, url: base.url };
+      this.useAudios.set(key, entry);
+    }
+    return entry.el;
+  }
+
+  private audioEntryFor(mediaId: string, useKey: string) {
+    const key = `${mediaId}|${useKey}`;
+    return this.useAudios.get(key) ?? this.audios.get(mediaId) ?? null;
+  }
+
   /** Re-mute every preview video element (used when playback stops). */
   muteAllElements() {
     for (const v of this.videos.values()) v.el.muted = true;
     for (const v of this.useVideos.values()) v.el.muted = true;
+    for (const a of this.audios.values()) a.el.muted = true;
+    for (const a of this.useAudios.values()) a.el.muted = true;
   }
 
   ensureAudio(asset: MediaAsset, blob: Blob) {
@@ -300,14 +333,39 @@ export class MediaPool implements MediaResolver {
         if (Math.abs(v.el.currentTime - w.expected) > 0.04) this.seekEntry(v, w.expected);
       }
     }
-    for (const [key, v] of this.useVideos) {
-      if (!wanted.has(key) && !v.el.paused) v.el.pause();
+    // Long audio assets have no AudioBuffer: play their native <audio>
+    // element so preview still has sound (clip DSP/fades do not apply).
+    for (const { clip, asset } of active) {
+      if (asset.type !== 'audio') continue;
+      const entry = this.audioEntryFor(asset.id, clip.id);
+      if (!entry) continue;
+      const expected = sourceTimeOf(clip, timelineT);
+      const speed = speedAtLocal(clip, timelineT - clip.start);
+      if (clip.reversed) {
+        if (!entry.el.paused) entry.el.pause();
+        if (Math.abs(entry.el.currentTime - expected) > 0.04) entry.el.currentTime = expected;
+        continue;
+      }
+      entry.el.playbackRate = Math.max(0.1, Math.min(4, speed * previewRate));
+      if (playing) {
+        if (Math.abs(entry.el.currentTime - expected) > 0.2) entry.el.currentTime = expected;
+        if (entry.el.paused) entry.el.play().catch(() => {});
+      } else {
+        if (!entry.el.paused) entry.el.pause();
+        if (Math.abs(entry.el.currentTime - expected) > 0.04) entry.el.currentTime = expected;
+      }
+    }
+    const wantedAudio = new Set(active.filter((x) => x.asset.type === 'audio').map((x) => `${x.asset.id}|${x.clip.id}`));
+    for (const [key, a] of this.useAudios) {
+      if (!wantedAudio.has(key) && !a.el.paused) a.el.pause();
     }
   }
 
   pauseAll() {
     for (const v of this.videos.values()) if (!v.el.paused) v.el.pause();
     for (const v of this.useVideos.values()) if (!v.el.paused) v.el.pause();
+    for (const a of this.audios.values()) if (!a.el.paused) a.el.pause();
+    for (const a of this.useAudios.values()) if (!a.el.paused) a.el.pause();
   }
 
   size(mediaId: string): { width: number; height: number } | null {
@@ -357,6 +415,11 @@ export class MediaPool implements MediaResolver {
     if (v) { v.el.pause(); URL.revokeObjectURL(v.url); v.el.src = ''; this.videos.delete(mediaId); }
     for (const [key, uv] of this.useVideos) {
       if (key.startsWith(mediaId + '|')) { uv.el.pause(); uv.el.removeAttribute('src'); uv.el.load(); this.useVideos.delete(key); }
+    }
+    const av = this.audios.get(mediaId);
+    if (av) { av.el.pause(); URL.revokeObjectURL(av.url); av.el.src = ''; this.audios.delete(mediaId); }
+    for (const [key, a] of this.useAudios) {
+      if (key.startsWith(mediaId + '|')) { a.el.pause(); a.el.src = ''; this.useAudios.delete(key); }
     }
     this.images.get(mediaId)?.close();
     this.images.delete(mediaId);
