@@ -2,7 +2,7 @@ import { getMedia, projectDuration, type Project } from '../engine/types';
 import { buildAudioGraph } from '../engine/audio';
 import { audioBufferKey, decodeMp4AudioTrack } from '../engine/audioTracks';
 import { renderFrame } from '../engine/render';
-import { abortable, type BlobLoader } from './lifecycle';
+import { abortable, checkAbort, type BlobLoader } from './lifecycle';
 import { collectFrameRequests, frameKey, ExportFrameResolver, prepareExportFonts } from './frames';
 import { encodeWAV } from '../engine/wav';
 export type { BlobLoader } from './lifecycle';
@@ -39,15 +39,14 @@ export function projectVTT(project: Project): string {
   return `WEBVTT\n\n${cues.map((c) => `${t(c.start)} --> ${t(c.start + c.duration)}\n${c.text!.text.replace(/\r\n/g, '\n').trim()}`).join('\n\n')}\n`;
 }
 
-export async function mixProjectAudio(project: Project, loadBlob: BlobLoader): Promise<AudioBuffer> {
-  const duration = projectDuration(project);
-  if (duration <= 0) throw new Error('Add clips before exporting audio.');
-  const sr = project.settings.sampleRate;
-  if (duration > 1800) throw new Error('Audio export is limited to 30 minutes to bound browser memory. Split the project into parts.');
+/** Decode each audible source once, including explicitly chosen MP4 tracks.
+ * Shared by the in-memory mix and the streaming WAV exporter so both render
+ * exactly the same audio graph. */
+async function decodeProjectAudio(project: Project, loadBlob: BlobLoader, signal?: AbortSignal): Promise<Map<string, AudioBuffer>> {
   // Source audio is decoded once into a small context; each timeline window is
   // then rendered independently. This removes the old 5-minute hard cap that
   // silently produced video with NO audio because video.ts swallowed the error.
-  const decoder = new OfflineAudioContext(1, 1, sr);
+  const decoder = new OfflineAudioContext(1, 1, project.settings.sampleRate);
   const buffers = new Map<string, AudioBuffer>();
   const audibleClips = project.clips.filter((c) => !project.tracks.find((t) => t.id === c.trackId)?.muted);
   const ids = new Set(audibleClips.map((c) => c.mediaId));
@@ -61,6 +60,7 @@ export async function mixProjectAudio(project: Project, loadBlob: BlobLoader): P
     chosenTracks.set(c.mediaId, set);
   }
   for (const asset of project.media) {
+    checkAbort(signal);
     if (!ids.has(asset.id)) continue;
     if (asset.type === 'generator' || !asset.blobKey) continue;
     const blob = await loadBlob(asset.blobKey);
@@ -78,6 +78,16 @@ export async function mixProjectAudio(project: Project, loadBlob: BlobLoader): P
       }
     }
   }
+  return buffers;
+}
+
+export async function mixProjectAudio(project: Project, loadBlob: BlobLoader): Promise<AudioBuffer> {
+  const duration = projectDuration(project);
+  if (duration <= 0) throw new Error('Add clips before exporting audio.');
+  const sr = project.settings.sampleRate;
+  if (duration > 1800) throw new Error('Audio export is limited to 30 minutes to bound browser memory. Split the project into parts.');
+  const decoder = new OfflineAudioContext(1, 1, sr);
+  const buffers = await decodeProjectAudio(project, loadBlob);
   const CHUNK = 120; // seconds per offline render
   const PREROLL = 2.5; // seconds of overlap so delay/compressor tails carry across chunks
   const rendered: { offset: number; buffer: AudioBuffer }[] = [];
@@ -107,6 +117,93 @@ export async function mixProjectAudio(project: Project, loadBlob: BlobLoader): P
     for (let ch = 0; ch < 2; ch++) out.getChannelData(ch).set(buffer.getChannelData(ch), offset);
   }
   return out;
+}
+
+/** Timeline seconds rendered per OfflineAudioContext by the streaming exporter. */
+const STREAM_CHUNK_SECONDS = 120;
+/** Overlap before each chunk so delay/compressor tails carry across cuts. */
+const STREAM_PREROLL_SECONDS = 2.5;
+const WAV_HEADER_BYTES = 44;
+const WAV_MAX_DATA_BYTES = 0xffffffff - (WAV_HEADER_BYTES - 8);
+
+function wavHeader(dataBytes: number, sampleRate: number): ArrayBuffer {
+  const out = new ArrayBuffer(WAV_HEADER_BYTES);
+  const view = new DataView(out);
+  const text = (offset: number, value: string) => { for (let i = 0; i < value.length; i++) view.setUint8(offset + i, value.charCodeAt(i)); };
+  text(0, 'RIFF'); view.setUint32(4, 36 + dataBytes, true); text(8, 'WAVE'); text(12, 'fmt ');
+  view.setUint32(16, 16, true); view.setUint16(20, 1, true); view.setUint16(22, 2, true);
+  view.setUint32(24, sampleRate, true); view.setUint32(28, sampleRate * 4, true);
+  view.setUint16(32, 4, true); view.setUint16(34, 16, true); text(36, 'data'); view.setUint32(40, dataBytes, true);
+  return out;
+}
+
+/** Interleave one rendered window into stereo PCM16, skipping the preroll. */
+function pcm16Chunk(buffer: AudioBuffer, skip: number, len: number): Uint8Array {
+  const bytes = new Uint8Array(len * 4);
+  const view = new DataView(bytes.buffer);
+  const left = buffer.getChannelData(0);
+  const right = buffer.numberOfChannels > 1 ? buffer.getChannelData(1) : left;
+  const available = Math.max(0, Math.min(len, buffer.length - skip));
+  const quantize = (v: number) => {
+    const s = Math.max(-1, Math.min(1, v));
+    return Math.round(s * (s < 0 ? 32768 : 32767));
+  };
+  for (let i = 0; i < len; i++) {
+    const j = i < available ? skip + i : 0;
+    const l = i < available ? left[j] : 0;
+    const r = i < available ? right[j] : 0;
+    view.setInt16(i * 4, quantize(l), true);
+    view.setInt16(i * 4 + 2, quantize(r), true);
+  }
+  return bytes;
+}
+
+/**
+ * Export the whole timeline as a 2-channel 16-bit WAV without ever holding
+ * the complete PCM in a single ArrayBuffer. Each 120 s window is rendered
+ * with 2.5 s of preroll, encoded to PCM16 immediately and appended as a Blob
+ * part; peak JS heap is O(chunk) instead of O(duration).
+ */
+export async function streamProjectWAV(
+  project: Project,
+  loadBlob: BlobLoader,
+  onProgress?: (fraction: number, message: string) => void,
+  signal?: AbortSignal,
+): Promise<Blob> {
+  const duration = projectDuration(project);
+  if (duration <= 0) throw new Error('Add clips before exporting audio.');
+  const sr = project.settings.sampleRate;
+  const totalFrames = Math.ceil(duration * sr);
+  const dataBytes = totalFrames * 4; // 2 channels × 16-bit samples
+  if (dataBytes > WAV_MAX_DATA_BYTES) throw new Error('Audio is too long for a RIFF/WAVE file (4 GB data limit).');
+  checkAbort(signal);
+  onProgress?.(0, 'Preparing audio…');
+
+  const buffers = await decodeProjectAudio(project, loadBlob, signal);
+  const parts: BlobPart[] = [wavHeader(dataBytes, sr)];
+  let written = 0;
+  for (let start = 0; written < totalFrames && start < duration; start += STREAM_CHUNK_SECONDS) {
+    checkAbort(signal);
+    const end = Math.min(duration, start + STREAM_CHUNK_SECONDS);
+    const renderStart = Math.max(0, start - STREAM_PREROLL_SECONDS);
+    const skip = Math.round((start - renderStart) * sr);
+    const len = Math.min(Math.ceil((end - start) * sr), totalFrames - written);
+    if (len <= 0) break;
+    const ctx = new OfflineAudioContext(2, Math.ceil((end - renderStart) * sr), sr);
+    const graph = buildAudioGraph(project, ctx, ctx.destination, buffers, { startAt: renderStart, when: 0, endAt: end });
+    let full: AudioBuffer;
+    try { full = await abortable(ctx.startRendering(), signal, () => graph.stop()); }
+    finally { graph.stop(); }
+    checkAbort(signal);
+    // Copy each window into Blob-owned storage immediately so the typed array
+    // can be collected before the next render (true O(chunk) JS heap).
+    parts.push(new Blob([pcm16Chunk(full, skip, len)]));
+    written += len;
+    onProgress?.(written / totalFrames, `Rendering audio ${Math.round(end)} / ${Math.round(duration)} s…`);
+  }
+  checkAbort(signal);
+  onProgress?.(1, 'Audio ready.');
+  return new Blob(parts, { type: 'audio/wav' });
 }
 
 export async function projectPNG(project: Project, time: number, loadBlob: BlobLoader): Promise<Blob> {

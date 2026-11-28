@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import { Search, Upload } from 'lucide-react';
 import type { Project } from '../../engine/types';
 import { uid } from '../../engine';
-import { deleteProject, listProjects, saveProject } from '../state/persistence';
+import { deleteProject, listProjects, saveProject, putBlob } from '../state/persistence';
+import { isProjectBundle, restoreProjectBundle } from '../state/projectBundle';
 import { useStore } from '../state/store';
 import { useUI } from '../state/ui';
 import { Dialog } from './Dialog';
@@ -61,7 +62,14 @@ export function ProjectsDialog() {
     setBusy('import');
     setError('');
     try {
-      const parsed = JSON.parse(await file.text()) as Project;
+      const raw = JSON.parse(await file.text()) as Project & Record<string, unknown>;
+      let restored = 0;
+      let parsed: Project = raw;
+      if (isProjectBundle(raw)) {
+        const result = await restoreProjectBundle(file, putBlob);
+        parsed = result.project;
+        restored = result.restored;
+      }
       if (!parsed || typeof parsed !== 'object' || typeof parsed.name !== 'string'
         || !Array.isArray(parsed.clips) || !Array.isArray(parsed.tracks)
         || !Array.isArray(parsed.media) || !parsed.settings || typeof parsed.settings !== 'object') {
@@ -76,7 +84,9 @@ export function ProjectsDialog() {
       await saveProject(imported);
       setReload((value) => value + 1);
       setSelectedId(imported.id);
-      toast(`Imported ${imported.name}. Media files are not in the JSON — re-import matching sources on this device to see video/audio.`, 'info');
+      toast(restored
+        ? `Imported ${imported.name} with ${restored} embedded media file${restored === 1 ? '' : 's'}.`
+        : `Imported ${imported.name}. Media files are not in the JSON — re-import matching sources on this device to see video/audio.`, 'info');
     } catch (e) {
       setError(`Import failed. ${e instanceof Error ? e.message : 'The file could not be read.'}`);
     } finally {

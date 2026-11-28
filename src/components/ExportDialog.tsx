@@ -2,9 +2,10 @@ import { useEffect, useRef, useState } from 'react';
 import { Download, Loader2, Film, X, CheckCircle2, Image } from 'lucide-react';
 import { useStore } from '../state/store';
 import { useUI } from '../state/ui';
-import { getBlob } from '../state/persistence';
+import { getBlob, putBlob } from '../state/persistence';
+import { buildProjectBundle } from '../state/projectBundle';
 import { projectDuration } from '../../engine/types';
-import { downloadBlob, projectPNG, projectSRT, mixProjectAudio, encodeWAV } from '../../exporter/artifacts';
+import { downloadBlob, projectPNG, projectSRT, streamProjectWAV } from '../../exporter/artifacts';
 import { projectGIF } from '../../exporter/gif';
 import { projectWebM } from '../../exporter/webm';
 import { exportVideo, videoExportSupport, type ExportQuality } from '../../exporter/video';
@@ -62,15 +63,19 @@ export function ExportDialog() {
   }
   const blockingPreflight = preflight.some((m) => /must be even|above 4K|Less than 750 MB/.test(m));
 
-  const exportFile = async (format: 'json' | 'srt' | 'png' | 'wav') => {
+  const exportFile = async (format: 'json' | 'bundle' | 'srt' | 'png' | 'wav') => {
     setBusy(format); setError(''); setDone('');
     useStore.getState().pause();
     try {
+      const bundle = format === 'bundle' ? await buildProjectBundle(project, getBlob) : null;
+      if (bundle?.skipped.length) ui.toast(`Bundle saved; ${bundle.skipped.length} large source(s) not embedded`, 'info');
       const blob = format === 'json' ? new Blob([JSON.stringify(project, null, 2)], { type: 'application/json' })
+        : format === 'bundle' ? bundle!.blob
         : format === 'srt' ? new Blob([projectSRT(project)], { type: 'application/x-subrip' })
         : format === 'png' ? await projectPNG(project, playhead, getBlob)
-        : encodeWAV(await mixProjectAudio(project, getBlob));
-      downloadBlob(blob, `${project.name}${format === 'png' ? `-${playhead.toFixed(2)}s` : ''}.${format}`);
+        : await streamProjectWAV(project, getBlob, (f, msg) => setProg({ pct: f, label: msg }));
+      const ext = format === 'bundle' ? 'falconcut.json' : format;
+      downloadBlob(blob, `${project.name}${format === 'png' ? `-${playhead.toFixed(2)}s` : ''}.${ext}`);
       ui.toast(`${format.toUpperCase()} download started`, 'success');
     } catch (e) { setError((e as Error).message); }
     finally { setBusy(''); }
@@ -294,9 +299,10 @@ export function ExportDialog() {
       <div className="grid grid-cols-2 gap-2">
         {([
           ['json', 'Project JSON', 'Editing document; does not embed source files.', false],
+          ['bundle', 'Project bundle', 'One portable file with project + media (sources over 50 MB are skipped with a notice).', false],
           ['png', 'Current frame PNG', `Render at ${playhead.toFixed(2)}s without safe-zone guides.`, !project.clips.length],
           ['srt', 'Captions SRT', projectSRT(project).trim() ? 'Plain subtitle cues with timeline timing.' : 'No visible caption cues to export.', !projectSRT(project).trim()],
-          ['wav', 'Mixed audio WAV', 'Stereo PCM, up to 5 minutes. Speed changes pitch.', duration <= 0 || duration > 300],
+          ['wav', 'Mixed audio WAV', 'Stereo PCM, streamed in chunks — full-length projects. Speed changes pitch.', duration <= 0],
         ] as const).map(([format, title, description, disabled]) => <button key={format} disabled={!!busy || disabled} className="p-3 text-left rounded-lg border border-line hover:border-signal/50 bg-ink-850 disabled:opacity-40 disabled:cursor-not-allowed" onClick={() => void exportFile(format)}>
           <span className="flex items-center gap-2 text-paper font-medium mb-1">{busy === format ? <Loader2 size={15} className="animate-spin" /> : <Download size={15} />}{title}</span>
           <span className="text-paper-dim text-[11px]">{description}</span>
