@@ -21,8 +21,11 @@ import type { MP4File, MP4Info, MP4Module, MP4SampleEntry, MP4TrackInfo } from '
 const ISO_EXTENSIONS = new Set(['mp4', 'mov', 'm4v', 'm4a', 'm4b', 'm4p', 'm4r', '3gp', '3g2']);
 const PROBE_TIMEOUT_MS = 5000;
 const DECODE_TIMEOUT_MS = 20000;
-/** 30 minutes of 48 kHz audio — a hard memory ceiling for one decoded track. */
-const MAX_AUDIO_FRAMES = 30 * 60 * 48000;
+/** 60 minutes of 48 kHz audio — a hard memory ceiling for one decoded track.
+ * Longer files are still editable with native preview audio; extraction of a
+ * window or a full hour-long soundtrack is possible, but we refuse beyond
+ * this so the tab cannot be OOM-killed. */
+const MAX_AUDIO_FRAMES = 60 * 60 * 48000;
 
 export class AudioTrackDecodeError extends Error {
   constructor(message: string) {
@@ -266,7 +269,7 @@ export async function decodeMp4AudioTrack(blob: Blob, trackId: number, expectedD
   // Reject before touching the blob: a 2-hour soundtrack cannot fit in an
   // AudioBuffer, and reading gigabytes just to fail is the import-hang bug.
   if (expectedDuration && expectedDuration > MAX_AUDIO_FRAMES / 48000) {
-    throw new AudioTrackDecodeError('Selected audio track exceeds the 30-minute decode limit. Split the source file first.');
+    throw new AudioTrackDecodeError('Selected audio track exceeds the 60-minute decode limit. Split the source file first.');
   }
   const wc = globalThis as unknown as WebCodecsAudio;
   if (!wc.AudioDecoder || !wc.EncodedAudioChunk) {
@@ -317,7 +320,7 @@ export async function decodeMp4AudioTrack(blob: Blob, trackId: number, expectedD
       : 0;
     const length = Math.min(MAX_AUDIO_FRAMES, Math.max(1, declaredFrames));
     if (declaredFrames > MAX_AUDIO_FRAMES) {
-      throw new AudioTrackDecodeError('Selected audio track exceeds the 30-minute decode limit. Split the source file first.');
+      throw new AudioTrackDecodeError('Selected audio track exceeds the 60-minute decode limit. Split the source file first.');
     }
     const buffer = new AudioBuffer({ length, numberOfChannels: channels, sampleRate });
     const planes = Array.from({ length: channels }, (_, ch) => buffer.getChannelData(ch));

@@ -11,7 +11,7 @@ import {
 import { useStore } from '../state/store';
 import { useUI } from '../state/ui';
 import { clipboardCount, pasteClipboard } from '../features/clipClipboard';
-import { uid, type Action, type Clip } from '../../engine';
+import { uid, canDecodeAlternateAudio, type Action, type Clip } from '../../engine';
 
 export interface CtxMenuState {
   /** Viewport coordinates for the menu. */
@@ -124,14 +124,22 @@ export function ClipContextMenu({ menu, onClose }: { menu: CtxMenuState; onClose
             // Kdenlive-style "Extract audio" for video clips with decodable audio.
             const asset = clip.mediaId ? s.project.media.find((m) => m.id === clip.mediaId) : undefined;
             if (!asset || asset.type !== 'video') return null;
-            const undecodable = s.pool.decodeFailedFor(asset.id);
-            const hasBuffer = !!s.pool.getBuffer(asset.id);
+            const trackId = clip.audioTrackId;
+            const longFileNativeAudio = s.pool.usesElementAudio(asset.id);
+            const undecodable = s.pool.decodeFailedFor(asset.id, trackId) && !longFileNativeAudio;
+            // Long videos deliberately have no AudioBuffer, but WebCodecs can
+            // still decode their stream for extraction — don't grey the button
+            // out just because preview uses the native element audio.
+            const hasBuffer = !!s.pool.getBuffer(asset.id, trackId)
+              || (!!asset.audioTracks?.length && canDecodeAlternateAudio());
             return (
               <Item icon={AudioLines} label="Extract audio"
                 disabled={undecodable || !hasBuffer}
                 title={undecodable
                   ? `Cannot extract: this browser cannot decode ${asset.name}'s audio (e.g. AC3). Convert it to AAC or WAV first.`
-                  : 'Detach this video\'s audio to its own audio clip (original is muted)'}
+                  : longFileNativeAudio
+                    ? 'Extract a WAV from this long file with WebCodecs. This may use significant memory.'
+                    : 'Detach this video\'s audio to its own audio clip (original is muted)'}
                 onClick={run(() => {
                   void s.extractAudio(clip.id).then((status) => {
                     const ui = useUI.getState();

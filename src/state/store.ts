@@ -603,11 +603,15 @@ export const useStore = create<State>()((set, get) => {
       let buffer = clip.mediaId ? s.pool.getBuffer(clip.mediaId, trackId) : undefined;
       // A selected language track may still be decoding. Share that decode
       // instead of starting a second whole-file read and PCM allocation.
-      if (!buffer && trackId != null && clip.mediaId) {
-        buffer = await s.pool.getOrDecodeTrackBuffer(clip.mediaId, trackId);
+      if (!buffer && clip.mediaId) {
+        // Long videos have no whole-file AudioBuffer; decode the first real
+        // stream with WebCodecs instead of silently refusing extraction.
+        const target = trackId ?? asset.audioTracks?.[0]?.id;
+        if (target != null) buffer = await s.pool.getOrDecodeTrackBuffer(clip.mediaId, target);
       }
       if (!buffer) {
-        return s.pool.decodeFailedFor(asset.id, trackId) ? 'undecodable' : 'no-buffer';
+        return s.pool.decodeFailedFor(asset.id, trackId) && !s.pool.usesElementAudio(asset.id)
+          ? 'undecodable' : 'no-buffer';
       }
       const wav = encodeWAV(buffer);
       const id = uid('media');
