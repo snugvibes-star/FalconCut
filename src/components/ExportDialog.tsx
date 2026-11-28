@@ -32,6 +32,7 @@ export function ExportDialog() {
   const duration = projectDuration(project);
 
   const [support, setSupport] = useState<{ supported: boolean; label: string } | null>(null);
+  const [storage, setStorage] = useState<{ quota: number; usage: number } | null>(null);
   const [quality, setQuality] = useState<ExportQuality>('standard');
   const [scale, setScale] = useState(1);
   const [includeAudio, setIncludeAudio] = useState(true);
@@ -46,7 +47,20 @@ export function ExportDialog() {
   const [gifWidth, setGifWidth] = useState(480);
 
   useEffect(() => { void videoExportSupport().then(setSupport); }, []);
+  useEffect(() => { void navigator.storage?.estimate?.().then((e) => setStorage({ quota: e.quota ?? 0, usage: e.usage ?? 0 })).catch(() => {}); }, []);
   useEffect(() => () => abortRef.current?.abort(), []);
+
+  const offline = !!support?.supported;
+  /** Honest pre-flight: report problems BEFORE a long render starts. */
+  const preflight: string[] = [];
+  if (support && !support.supported) preflight.push(`${support.label} — WebM capture will be used instead.`);
+  if (project.settings.width % 2 || project.settings.height % 2) preflight.push('Output dimensions must be even numbers for video encoding.');
+  if (project.settings.width > 3840 || project.settings.height > 2160) preflight.push('Output above 4K may fail on this device; try a lower resolution.');
+  if (!offline && duration > 300) preflight.push('WebM capture is real-time: this project takes about its full duration to export.');
+  if (storage && storage.quota > 0 && duration > 60 && storage.quota - storage.usage < 750 * 1024 * 1024) {
+    preflight.push('Less than 750 MB of local storage is free — exports may fail. Free space before rendering.');
+  }
+  const blockingPreflight = preflight.some((m) => /must be even|above 4K|Less than 750 MB/.test(m));
 
   const exportFile = async (format: 'json' | 'srt' | 'png' | 'wav') => {
     setBusy(format); setError(''); setDone('');
@@ -102,7 +116,6 @@ export function ExportDialog() {
     ui.toast(`Project reframed to ${d.width}×${d.height} (${d.aspect})`, 'success');
   };
 
-  const offline = !!support?.supported;
   const zoneValid = !!zone && zone.out > zone.in + 0.05;
   const gifRange = zoneValid ? { start: zone!.in, end: zone!.out } : { start: 0, end: duration };
 
@@ -133,6 +146,13 @@ export function ExportDialog() {
   return <Dialog title="Export" onClose={closeExport}>
     <div className="space-y-4 text-xs">
       <p className="text-paper-dim">{project.name} · {duration.toFixed(2)} seconds · {project.settings.width}×{project.settings.height} @ {project.settings.fps}fps</p>
+
+      {preflight.length > 0 && (
+        <div className={`rounded-lg border p-2 text-[11px] leading-snug ${blockingPreflight ? 'border-heat/50 bg-heat/10 text-heat' : 'border-heat-amber/40 text-paper-dim'}`}>
+          <span className="font-semibold">Before you export:</span>
+          <ul className="list-disc ml-4 mt-0.5">{preflight.map((m, i) => <li key={i}>{m}</li>)}</ul>
+        </div>
+      )}
 
       {/* ---- Destination ---- */}
       <div>
@@ -259,7 +279,7 @@ export function ExportDialog() {
         ) : (
           <button
             className="btn-signal w-full py-2"
-            disabled={!!busy || support === null || duration <= 0 || (!offline && duration > 300)}
+            disabled={!!busy || support === null || duration <= 0 || (!offline && duration > 300) || blockingPreflight}
             onClick={() => void exportVideoFile()}
             title={offline ? 'Render and encode on this device (faster than real time)' : 'Records in real time'}
           >
@@ -282,6 +302,18 @@ export function ExportDialog() {
           <span className="text-paper-dim text-[11px]">{description}</span>
         </button>)}
       </div>
+
+      {typeof navigator.share === 'function' && typeof navigator.canShare === 'function' && (
+        <button className="btn-ghost w-full justify-center text-[11px] px-2 py-1" disabled={!!busy}
+          title="Share the project document via the device's native share sheet (where supported)"
+          onClick={() => {
+            const file = new File([JSON.stringify(project, null, 2)], `${project.name}.falconcut.json`, { type: 'application/json' });
+            if (navigator.canShare({ files: [file] })) void navigator.share({ files: [file], title: project.name }).catch(() => {});
+            else ui.toast('This device cannot share files', 'info');
+          }}>
+          Share project file
+        </button>
+      )}
 
       {/* ---- Animated GIF ---- */}
       <div className="rounded-xl p-3.5 border border-line bg-ink-850">
@@ -329,7 +361,20 @@ export function ExportDialog() {
       </div>
 
       {busy && busy !== 'video' && <p role="status" className="text-signal">Preparing {busy.toUpperCase()} locally…</p>}
-      {error && <p role="alert" className="text-heat">{error}</p>}
+      {error && (
+        <div role="alert" className="text-heat">
+          <p>{error}</p>
+          <button className="btn-ghost mt-1 text-[11px] px-2 py-1" onClick={() => {
+            const diagnostics = JSON.stringify({
+              error, project: project.name, duration, settings: project.settings,
+              clips: project.clips.length, tracks: project.tracks.length,
+              media: project.media.map((m) => ({ name: m.name, type: m.type, size: m.size })),
+              support, userAgent: navigator.userAgent, at: new Date().toISOString(),
+            }, null, 2);
+            void navigator.clipboard?.writeText(diagnostics).then(() => ui.toast('Diagnostics copied', 'success')).catch(() => ui.toast('Clipboard unavailable', 'error'));
+          }}>Copy diagnostics</button>
+        </div>
+      )}
       <p className="text-paper-faint">Everything is rendered and encoded on this device — no upload. JSON is not a media backup: keep your original files. Video uses the same render engine as the preview; audio uses the preview mix graph.</p>
     </div>
   </Dialog>;
