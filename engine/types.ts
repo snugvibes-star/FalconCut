@@ -125,6 +125,17 @@ export interface Keyframe {
   easing: Easing;
 }
 
+/** One sample of a single-point track. `t` is a SOURCE time (seconds inside
+ * the media file), x/y are frame-normalized 0..1 coordinates. */
+export interface TrackSample { t: number; x: number; y: number }
+
+/** Initial patch for a point track: center + size in frame-normalized 0..1.
+ * `t` is the source time of the frame the box was picked on. */
+export interface TrackSeed { t: number; x: number; y: number; w: number; h: number }
+
+/** Persisted result of a single-point patch track on the source clip. */
+export interface TrackData { seed: TrackSeed; samples: TrackSample[] }
+
 export interface Fades { in: number; out: number }
 
 export interface WordStyle {
@@ -336,6 +347,10 @@ export interface Clip {
   /** Blend mode of this layer against everything under it (canvas
    * globalCompositeOperation). 'normal'/absent = plain over. */
   blendMode?: BlendMode;
+  /** Single-point patch track seeded on this clip's source (source-time keys).
+   * The editable animation itself lives as transform.x/y keyframes on the
+   * target clip — this is provenance, not a baked-in effect. */
+  tracking?: TrackData;
   transform: Transform;
   fit: 'cover' | 'contain' | 'fill';
   volume: number; // linear gain 0..4

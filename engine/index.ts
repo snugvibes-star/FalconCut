@@ -15,3 +15,4 @@ export * from './wav';
 export * from './generators';
 export * from './motifs';
 export * from './drawing';
+export * from './tracking';

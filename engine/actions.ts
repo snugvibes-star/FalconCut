@@ -7,7 +7,7 @@
 import { produce } from 'immer';
 import {
   Clip, Effect, Keyframe, Lut, Marker, MediaAsset, MediaAnalysis, Project, Rule, SpeedPoint, StylePack, Tack, Track,
-  Transform, Transition, TextData, MotifData, DrawingStroke, defaultTransform, defaultTextStyle,
+  Transform, Transition, TextData, MotifData, DrawingStroke, TrackData, defaultTransform, defaultTextStyle,
   consumedSource, detUid, enterDeterministicIds, exitDeterministicIds, getMedia, speedAtLocal, speedPointsOf, sourceTimeOf,
 } from './types';
 
@@ -38,6 +38,7 @@ export type Action =
   | { type: 'remove_effect'; clipId: string; effectId: string }
   | { type: 'set_effect'; clipId: string; effectId: string; params?: Record<string, number | string | boolean>; enabled?: boolean }
   | { type: 'move_effect'; clipId: string; effectId: string; direction: -1 | 1 }
+  | { type: 'set_tracking'; clipId: string; tracking?: TrackData }
   | { type: 'add_keyframe'; clipId: string; path: string; time: number; value: number; easing?: Keyframe['easing'] }
   | { type: 'update_keyframe'; clipId: string; keyframeId: string; time?: number; value?: number; easing?: Keyframe['easing'] }
   | { type: 'remove_keyframe'; clipId: string; keyframeId: string }
@@ -95,6 +96,7 @@ export const ACTION_SCHEMA: Record<Action['type'], string> = {
   remove_effect: 'Remove an effect by id.',
   set_effect: 'Update effect params or enable/disable it.',
   move_effect: 'Move an effect one step up/down in the stacking order. Params: clipId, effectId, direction (-1 or 1).',
+  set_tracking: 'Store the single-point patch track (seed + source-time samples) on a media clip. Omit tracking to clear it. This is provenance; the animation lives as transform.x/y keyframes on the target clip.',
   add_keyframe: 'Animate a property. path like transform.scale or volume. time is clip-local seconds.',
   update_keyframe: 'Move or edit an existing keyframe. Params: clipId, keyframeId, time?, value?, easing?.',
   remove_keyframe: 'Delete one keyframe.',
@@ -386,6 +388,25 @@ export function applyAction(project: Project, action: Action): Project {
         right.duration = c.duration - leftDur;
         right.inPoint = c.inPoint; // split anchor — flipped below for reversed
         const srcAtSplit = sourceTimeOf(c, t); // ramp-aware consumed-source split
+        // Point-track samples are keyed by SOURCE time. Rebase them onto the
+        // two halves by source interval (works for ramps and reversed clips,
+        // where source time runs backward). A seed outside a half's source
+        // range means that half has no usable track — drop it there.
+        if (c.tracking) {
+          const srcStart = sourceTimeOf(c, c.start);
+          const srcEnd = sourceTimeOf(c, c.start + c.duration);
+          const inRange = (s: number, a: number, b: number) =>
+            s >= Math.min(a, b) - 1e-6 && s <= Math.max(a, b) + 1e-6;
+          if (inRange(c.tracking.seed.t, srcStart, srcEnd)) {
+            const seed = c.tracking.seed;
+            const samples = c.tracking.samples;
+            c.tracking = { seed, samples: samples.filter((s) => inRange(s.t, srcStart, srcAtSplit)) };
+            right.tracking = { seed, samples: samples.filter((s) => inRange(s.t, srcAtSplit, srcEnd)) };
+          } else {
+            c.tracking = undefined;
+            right.tracking = undefined;
+          }
+        }
         if (c.reversed) {
           // Reversed clips anchor at their consumed segment's END (inPoint).
           // The LEFT piece (this clip) takes the mapped source position; the
@@ -538,6 +559,11 @@ export function applyAction(project: Project, action: Action): Project {
             [c.effects[i], c.effects[j]] = [c.effects[j], c.effects[i]];
           }
         }
+        break;
+      }
+      case 'set_tracking': {
+        const c = clip(action.clipId);
+        if (c) c.tracking = action.tracking;
         break;
       }
       case 'add_keyframe': {

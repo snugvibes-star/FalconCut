@@ -3,7 +3,8 @@ import { Plus, Trash2, Diamond, Lock, Unlock, Sparkles, RotateCcw, X, Palette } 
 import { useStore } from '../state/store';
 import { useUI } from '../state/ui';
 import { MaskPolygonEditor, type MaskPoint } from './MaskPolygonEditor';
-import { resolvedTransform, clipVolumeAt, getMedia, audioStreamLabel, canDecodeAlternateAudio, COLOR_PRESETS, BLEND_MODES, TRANSITION_TYPES, speedPointsOf, avgSpeed, parseCube, type Clip, type Effect, type EffectType, type Easing, type Transform, type Transition, type Aspect, type Action, type BlendMode, type SpeedPoint, ASPECT_SIZES } from '../../engine';
+import { TrackPointEditor } from './TrackPointEditor';
+import { resolvedTransform, clipVolumeAt, getMedia, audioStreamLabel, canDecodeAlternateAudio, COLOR_PRESETS, BLEND_MODES, TRANSITION_TYPES, speedPointsOf, avgSpeed, parseCube, sourceTimeOf, type Clip, type Effect, type EffectType, type Easing, type Transform, type Transition, type Aspect, type Action, type BlendMode, type SpeedPoint, type TrackSeed, ASPECT_SIZES } from '../../engine';
 
 const EASINGS: Easing[] = ['linear', 'easeIn', 'easeOut', 'easeInOut', 'easeOutBack', 'easeOutExpo'];
 
@@ -227,6 +228,9 @@ export function Inspector() {
   const [kfPath, setKfPath] = useState('transform.scale');
   const [maskDraft, setMaskDraft] = useState<MaskPoint[] | null>(null);
   const [bgProgress, setBgProgress] = useState<number | null>(null);
+  const [trackSeed, setTrackSeed] = useState<TrackSeed | null>(null);
+  const [trackThumb, setTrackThumb] = useState<string | null>(null);
+  const queue = useStore((s) => s.queue);
 
   const set = (actions: Action[], label: string, key?: string) =>
     useStore.getState().commit(actions, label, 'human', key);
@@ -257,6 +261,19 @@ export function Inspector() {
   }, [clip?.id, clip?.kind]);
   const selectedId = clip?.id;
   useEffect(() => setMaskDraft(null), [selectedId]);
+  // Seed the point editor from persisted tracking data, or the frame in the
+  // middle of the clip. The thumbnail is sampled on a dedicated hidden element.
+  useEffect(() => {
+    if (!clip?.mediaId || clip.kind !== 'media') { setTrackSeed(null); setTrackThumb(null); return; }
+    const seed: TrackSeed = clip.tracking?.seed ?? {
+      t: sourceTimeOf(clip, clip.start + clip.duration / 2), x: 0.5, y: 0.5, w: 0.12, h: 0.12,
+    };
+    setTrackSeed(seed);
+    let alive = true;
+    void useStore.getState().pool.thumbnail(clip.mediaId, seed.t, 240).then((url) => { if (alive) setTrackThumb(url); });
+    return () => { alive = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedId]);
 
   if (!clip) {
     return <ProjectInspector />;
@@ -398,6 +415,25 @@ export function Inspector() {
               </select>
             </div>
           </Section>
+
+          {clip.kind === 'media' && asset?.type === 'video' && (
+            <Section title="Point tracking">
+              <Slider label="Box size" value={trackSeed?.w ?? 0.12} min={0.03} max={0.35} step={0.01}
+                fmt={(v) => `${Math.round(v * 100)}%`}
+                onChange={(v) => setTrackSeed((s) => s ? { ...s, w: v, h: Math.max(0.03, Math.min(1, v * (s.h / s.w))) } : s)} />
+              <TrackPointEditor thumbnail={trackThumb} seed={trackSeed ?? { t: clip.inPoint, x: 0.5, y: 0.5, w: 0.12, h: 0.12 }}
+                onChange={setTrackSeed} onCommit={setTrackSeed} />
+              <button className="btn-signal text-[11px] px-2 py-1 w-full justify-center"
+                disabled={!trackSeed || queue?.label.startsWith('Track point') === true}
+                onClick={() => { if (trackSeed) void useStore.getState().trackPoint(id, { box: trackSeed }); }}>
+                Track selected point
+              </button>
+              {queue?.label.startsWith('Track point') && (
+                <p className="text-[11px] text-signal">{queue.label} — {queue.stage} {Math.round(queue.pct * 100)}%{queue.note ? ` · ${queue.note}` : ''}</p>
+              )}
+              <p className="text-[11px] text-paper-faint">Single-point patch tracking (NCC) on this clip’s source. The result is editable transform.x/y keyframes on a new 📍 sticker drawing layer; low-confidence frames hold the previous position. Not multipoint tracking, stabilization, rotoscoping or object detection.</p>
+            </Section>
+          )}
 
           <Section title="Blend">
             <div>
@@ -799,7 +835,7 @@ export function Inspector() {
                   </button>
                 </>
               )}
-              <p className="text-[11px] text-paper-faint">Mattes are real alpha operations in the shared renderer (preview + export). Feather needs canvas filter support; polygon masks need at least 3 points. Rotoscoping/tracking is not implemented.</p>
+              <p className="text-[11px] text-paper-faint">Mattes are real alpha operations in the shared renderer (preview + export). Feather needs canvas filter support; polygon masks need at least 3 points. Rotoscoping is not implemented; single-point patch tracking is separate (Video tab).</p>
             </Section>
             <Section title="Background removal (still images)">
               <button className="btn-ghost w-full justify-center text-[11px]" disabled={bgProgress !== null}
@@ -816,7 +852,7 @@ export function Inspector() {
                 }}>
                 {bgProgress !== null ? `Loading model… ${Math.round(bgProgress * 100)}%` : 'Remove background with local model'}
               </button>
-              <p className="text-[11px] text-paper-faint">First use downloads Xenova/modnet q8 (~25 MB) from Hugging Face — no API key, nothing uploaded. Real alpha cutout in preview and export. Not video, rotoscoping or hair-accurate tracking.</p>
+              <p className="text-[11px] text-paper-faint">First use downloads Xenova/modnet q8 (~25 MB) from Hugging Face — no API key, nothing uploaded. Real alpha cutout in preview and export. Not video, rotoscoping or per-pixel tracking.</p>
             </Section>
             <Section title="Green screen">
               <button className="btn-ghost w-full justify-center text-[11px]"

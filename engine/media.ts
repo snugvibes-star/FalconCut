@@ -7,6 +7,7 @@
 import type { Clip, MediaAsset } from './types';
 import { sourceTimeOf, speedAtLocal, LARGE_MEDIA_BYTES, LONG_MEDIA_SECONDS } from './types';
 import { audioBufferKey, decodeMp4AudioTrack } from './audioTracks';
+import { rgbaToGrey, type GreyFrame } from './tracking';
 
 export interface MediaResolver {
   /** Synchronous: returns the best currently-available frame source, or null.
@@ -49,6 +50,9 @@ export class MediaPool implements MediaResolver {
    * simultaneously (a transition between two cuts of the same clip, a
    * picture-in-picture of itself, etc.). */
   private useVideos = new Map<string, VideoEntry>();
+  /** Hidden elements dedicated to frame sampling (tracking/thumbnails). Never
+   * seek the preview element — that would race the playhead. */
+  private samplers = new Map<string, HTMLVideoElement>();
   private images = new Map<string, ImageBitmap>();
   /** Last successfully decoded frame per asset. Served while a video element
    * reloads/seeks so a clip never flashes black after a timeline edit. */
@@ -452,7 +456,73 @@ export class MediaPool implements MediaResolver {
     finally { el.pause(); el.removeAttribute('src'); el.load(); }
   }
 
+  /** Grayscale 0..1 pixels from a small canvas (downscaled to `w` columns).
+   * Video seeks use a dedicated hidden element with a 500 ms guard, so a
+   * stalled decode cannot hang the track task forever. */
+  async sampleGrey(mediaId: string, sourceTime: number, w = 160): Promise<GreyFrame | null> {
+    const size = this.size(mediaId);
+    if (!size || !(size.width > 0 && size.height > 0)) return null;
+    const width = Math.max(2, Math.round(w));
+    const height = Math.max(2, Math.round((width * size.height) / size.width));
+    const canvas = document.createElement('canvas');
+    canvas.width = width; canvas.height = height;
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    if (!ctx) return null;
+    const img = this.images.get(mediaId);
+    if (img) {
+      ctx.drawImage(img, 0, 0, width, height);
+      return rgbaToGrey(ctx.getImageData(0, 0, width, height).data, width, height);
+    }
+    const v = this.videos.get(mediaId);
+    if (!v) return null; // generators have no decodable frame
+    let el = this.samplers.get(mediaId);
+    if (!el) {
+      el = document.createElement('video');
+      el.muted = true; el.playsInline = true; el.preload = 'auto'; el.src = v.url;
+      this.samplers.set(mediaId, el);
+    }
+    try {
+      if (el.readyState < 2) {
+        await new Promise<void>((res, rej) => {
+          const timer = setTimeout(() => { cleanup(); rej(new Error('sample load timeout')); }, 4000);
+          const done = () => { cleanup(); res(); };
+          const fail = () => { cleanup(); rej(new Error('sample decode')); };
+          const cleanup = () => {
+            clearTimeout(timer);
+            el!.removeEventListener('loadeddata', done);
+            el!.removeEventListener('error', fail);
+          };
+          el!.addEventListener('loadeddata', done, { once: true });
+          el!.addEventListener('error', fail, { once: true });
+        });
+      }
+      const target = Math.max(0, Math.min(sourceTime, Math.max(0, (el.duration || sourceTime) - 0.001)));
+      await new Promise<void>((res) => {
+        let finished = false;
+        const finish = () => {
+          if (finished) return;
+          finished = true;
+          clearTimeout(timer);
+          el!.removeEventListener('seeked', finish);
+          res();
+        };
+        const timer = setTimeout(finish, 500);
+        el!.addEventListener('seeked', finish, { once: true });
+        // A seek to the CURRENT time may not emit 'seeked'. Decide before
+        // assigning: currentTime changes synchronously even while decoding.
+        if (Math.abs(el!.currentTime - target) < 0.02 && el!.readyState >= 2) { finish(); return; }
+        try { el!.currentTime = target; } catch { finish(); }
+      });
+      ctx.drawImage(el, 0, 0, width, height);
+      return rgbaToGrey(ctx.getImageData(0, 0, width, height).data, width, height);
+    } catch {
+      return null;
+    }
+  }
+
   unregister(mediaId: string) {
+    const sampler = this.samplers.get(mediaId);
+    if (sampler) { sampler.pause(); sampler.removeAttribute('src'); sampler.load(); this.samplers.delete(mediaId); }
     const v = this.videos.get(mediaId);
     if (v) { v.el.pause(); URL.revokeObjectURL(v.url); v.el.src = ''; this.videos.delete(mediaId); }
     for (const [key, uv] of this.useVideos) {
@@ -480,6 +550,8 @@ export class MediaPool implements MediaResolver {
 
   dispose() {
     for (const id of [...this.assets.keys()]) this.unregister(id);
+    for (const sampler of this.samplers.values()) { sampler.pause(); sampler.removeAttribute('src'); sampler.load(); }
+    this.samplers.clear();
     this.audioCtx?.close().catch(() => {});
     this.audioCtx = null;
   }

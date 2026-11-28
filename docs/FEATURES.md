@@ -13,6 +13,7 @@ The in-app **What works** board (`src/features/checklist.ts`) is the live source
 - Adjustment layers applied to the composited frame; LUT import; speed ramps with a curve editor; 15 blend modes and 21 transitions with duration and intensity.
 - On-canvas overlay move/resize/rotate, layer boundary outlines, Bring forward / Send backward, opacity, fit modes and blend modes.
 - Auto reframe to 16:9 / 9:16 / 1:1 / 4:5 with editable face-follow keyframes (X and Y) when analysis data exists.
+- Single-point patch tracking: pick a point/box on a source frame, sample with normalized cross-correlation on a queued background task, and get editable transform X/Y keyframes on a 📍 sticker layer. Low-confidence frames hold position; manual adjustment uses the existing keyframe editor.
 
 ## Audio
 - Per-clip audio-stream selection for MP4/MOV/M4A; extract one stream or all streams to WAV clips.

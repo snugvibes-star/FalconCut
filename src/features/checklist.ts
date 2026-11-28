@@ -161,14 +161,14 @@ export const FEATURE_CHECKLIST: FeatureItem[] = [
 
   // ── Masks & keying ─────────────────────────────────────────────────────────
   { id: 'chroma-key', group: 'Masks & keying', label: 'Chroma key (green screen) with colour pick, similarity, edge softness and spill reduction', status: 'working', note: 'all four controls run in the shared pixel pass used by preview and export' },
-  { id: 'shape-masks', group: 'Masks & keying', label: 'Rectangle / ellipse / polygon masks with frame-normalized geometry, blurred feather, inverted mattes and an editable polygon point graph', status: 'working', note: 'real alpha mattes in the shared renderer — preview and export match; feather uses canvas filter blur where supported. Rotoscoping, tracking and hair-accurate keys are not implemented' },
+  { id: 'shape-masks', group: 'Masks & keying', label: 'Rectangle / ellipse / polygon masks with frame-normalized geometry, blurred feather, inverted mattes and an editable polygon point graph', status: 'working', note: 'real alpha mattes in the shared renderer — preview and export match; feather uses canvas filter blur where supported. Rotoscoping and hair-accurate keys are not implemented; single-point patch tracking is a separate feature' },
   { id: 'background-removal', group: 'Masks & keying', label: 'Local background removal for still images (Xenova/modnet q8 ONNX, ~25 MB, on demand, no API key) producing a real transparent PNG cutout', status: 'partial', note: 'image clips only; video needs per-frame inference and a re-encode, so it is intentionally not offered. Not rotoscoping or hair-accurate matting' },
   { id: 'rotoscope', group: 'Masks & keying', label: 'Rotoscoping / puppet pin', status: 'not-possible', note: 'too slow for real-time browser perf' },
   { id: 'fusion-nodes', group: 'Masks & keying', label: 'Serial node chain view of the graded clip — Source → effect nodes (reorder/bypass/delete/add) → mask node → Output', status: 'partial', note: 'every node is a real effect evaluated by the shared renderer; this is a serial chain, not a free-form compositor with merge routing, plugins or 3D nodes' },
 
   // ── AI vision ──────────────────────────────────────────────────────────────
   { id: 'face-analysis', group: 'AI vision', label: 'Face detection for reframe / zoom framing', status: 'working' },
-  { id: 'object-tracking', group: 'AI vision', label: 'Multipoint object tracking / stabilization', status: 'partial', note: 'face positions only (X and Y now), no point/object tracking; no generic object tracking is claimed' },
+  { id: 'object-tracking', group: 'AI vision', label: 'Single-point patch tracking (NCC) with editable transform keyframes', status: 'partial', note: 'one user-seeded box is followed frame to frame on the source clip with a local normalized-cross-correlation search and best/second-best confidence gate; low-confidence samples hold the previous position. Result is ordinary transform.x/y keyframes on a 📍 sticker drawing layer, editable anywhere. NOT multipoint tracking, stabilization, rotoscoping, or object detection; analysis faces remain a separate framing aid' },
   { id: 'scene-detect', group: 'AI vision', label: 'Shot / scene change detection', status: 'working' },
   { id: 'beat-detect', group: 'AI vision', label: 'Music beat detection and beat snapping', status: 'working' },
 

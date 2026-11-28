@@ -9,7 +9,9 @@ import {
   History, MediaPool, createProject, diffProjects,
   projectDuration, uid, getMedia, applyActions, encodeWAV,
   probeIsoBmff, probeAudioTracks, languageName, audioBufferKey, LARGE_MEDIA_BYTES, LONG_MEDIA_SECONDS,
+  sourceTimeOf, buildTrackActions, templateFromGrey, matchTemplate, resolveMatch,
   type Project, type Action, type Clip, type MediaAsset, type Aspect, type ProjectDiff,
+  type TrackSample, type TrackSeed,
 } from '../../engine';
 import { runTool, type ToolResult } from '../../tools/registry';
 import { isolateVoice } from '../../analysis/voiceIsolation';
@@ -142,6 +144,11 @@ interface State {
   analyze: (mediaId: string) => void;
   analyzeAll: () => void;
   refreshSilences: () => void;
+  /** Single-point patch track on a media clip. `samples` are explicit source
+   * times; when omitted the whole consumed source range is sampled at 0.5 s.
+   * One commit: tracking data + editable transform keyframes (new 📍 sticker
+   * unless `targetClipId` is given). */
+  trackPoint: (clipId: string, opts: { box: TrackSeed; targetClipId?: string; samples?: number[] }) => Promise<void>;
 
   /* playback + selection */
   setPlayhead: (t: number, opts?: { fromPlayback?: boolean }) => void;
@@ -931,6 +938,85 @@ export const useStore = create<State>()((set, get) => {
       history.current = next;
       set({ project: next, lint: relint(next) });
       scheduleSave();
+    },
+
+    async trackPoint(clipId, opts) {
+      const p = get().project;
+      const clip = p.clips.find((c) => c.id === clipId);
+      if (!clip || clip.kind !== 'media' || !clip.mediaId) return;
+      const asset = getMedia(p, clip.mediaId);
+      if (!asset || asset.type !== 'video') {
+        useUI.getState().toast('Point tracking needs a video clip', 'info');
+        return;
+      }
+      const epoch = projectEpoch;
+      const pool = get().pool;
+      const sourceSize = pool.size(asset.id) ?? { width: asset.width, height: asset.height };
+      if (!(sourceSize.width > 0 && sourceSize.height > 0)) {
+        useUI.getState().toast('Could not read this video’s frame size', 'error');
+        return;
+      }
+      const srcStart = sourceTimeOf(clip, clip.start), srcEnd = sourceTimeOf(clip, clip.start + clip.duration);
+      const lo = Math.min(srcStart, srcEnd), hi = Math.max(srcStart, srcEnd);
+      let times: number[];
+      if (opts.samples?.length) {
+        times = [...new Set(opts.samples
+          .filter((t) => Number.isFinite(t) && t >= lo - 1e-6 && t <= hi + 1e-6)
+          .map((t) => Math.round(t * 1000) / 1000))].sort((a, b) => a - b).slice(0, 240);
+      } else {
+        times = [];
+        for (let t = lo; t <= hi + 1e-6 && times.length < 240; t += 0.5) times.push(t);
+        if (!times.length || hi - times[times.length - 1] > 0.05) times.push(hi);
+      }
+      // Always resolve the seeded frame first — it defines the template.
+      if (opts.box.t >= lo - 1e-6 && opts.box.t <= hi + 1e-6 && !times.some((t) => Math.abs(t - opts.box.t) < 0.001)) {
+        times.unshift(opts.box.t);
+      }
+      if (!times.length) return;
+
+      taskQueue.push({
+        id: uid('task'),
+        label: `Track point — ${asset.name}`,
+        run: async (onProgress) => {
+          const samples: TrackSample[] = [];
+          let previous = { x: opts.box.x, y: opts.box.y };
+          let template: ReturnType<typeof templateFromGrey> | null = null;
+          let accepted = 0;
+          for (let i = 0; i < times.length; i++) {
+            if (epoch !== projectEpoch) return;
+            onProgress('tracking', i / times.length, `Sample ${i + 1}/${times.length}`);
+            const grey = await pool.sampleGrey(asset.id, times[i], 160);
+            if (epoch !== projectEpoch) return;
+            if (!grey) continue;
+            if (!template) template = templateFromGrey(grey, opts.box);
+            const match = resolveMatch(previous, matchTemplate(grey, template, previous));
+            previous = { x: match.x, y: match.y };
+            if (match.accepted) accepted++;
+            samples.push({ t: times[i], x: match.x, y: match.y });
+            // Yield between samples so the queue's progress text can paint.
+            await new Promise<void>((res) => setTimeout(res, 0));
+          }
+          if (epoch !== projectEpoch) return;
+          if (!samples.length) {
+            useUI.getState().toast('No frames could be decoded — nothing was tracked', 'error');
+            return;
+          }
+          const cur = get().project;
+          const sourceClip = cur.clips.find((c) => c.id === clipId);
+          if (!sourceClip) return;
+          const newClipId = opts.targetClipId ? undefined : uid('clip');
+          const actions = buildTrackActions(cur, sourceClip, opts.box, samples, {
+            sourceSize, targetClipId: opts.targetClipId, newClipId,
+          });
+          get().commit(actions, `Track point — ${asset.name}`);
+          const held = samples.length - accepted;
+          useUI.getState().toast(
+            `Tracked ${samples.length} frames (${accepted} confident${held ? `, ${held} held` : ''}) — editable transform keyframes on ${opts.targetClipId ? 'the target clip' : 'a new 📍 sticker'}`,
+            'success',
+          );
+          onProgress('done', 1);
+        },
+      });
     },
 
     setPlayhead(t, opts) {
