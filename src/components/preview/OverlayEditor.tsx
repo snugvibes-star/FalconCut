@@ -149,6 +149,21 @@ export function OverlayEditor({ scale }: { scale: number }) {
     if (draw.tool !== 'select') return;
 
     const hits = hitList(project, playhead, pool, measureRef.current!);
+    // Every visible media layer gets a faint boundary so overlapping overlays
+    // are obvious even when they are not selected.
+    for (const h of hits) {
+      if (h.kind !== 'media' || h.clip.id === selection[0]) continue;
+      const cs = corners(h, S);
+      ctx.save();
+      ctx.strokeStyle = 'rgba(234,234,234,0.35)';
+      ctx.setLineDash([4, 4]);
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      cs.forEach((p, i) => (i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)));
+      ctx.closePath();
+      ctx.stroke();
+      ctx.restore();
+    }
     const sel = hits.find((h) => h.clip.id === selection[0]);
     if (hoverRef.current && !sel) {
       const h = hoverRef.current;

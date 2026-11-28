@@ -368,6 +368,26 @@ export function Inspector() {
             <Slider label="Opacity" value={tf.opacity} min={0} max={1} step={0.01} fmt={(v) => `${Math.round(v * 100)}%`} onChange={(v) => set([{ type: 'set_transform', clipId: id, patch: { opacity: v } }], 'Opacity', `${id}:op`)} />
           </Section>
 
+          <Section title="Layer">
+            {(() => {
+              const tr = project.tracks.find((t) => t.id === clip.trackId);
+              const kindTracks = project.tracks.filter((t) => t.kind === tr?.kind);
+              const idx = kindTracks.findIndex((t) => t.id === clip.trackId);
+              const move = (delta: number) => {
+                const to = idx + delta;
+                if (to < 0 || to >= kindTracks.length) return;
+                set([{ type: 'move_track', trackId: clip.trackId, toIndex: project.tracks.findIndex((t) => t.id === kindTracks[to].id) }], delta > 0 ? 'Bring layer forward' : 'Send layer backward');
+              };
+              return (
+                <div className="flex gap-1">
+                  <button className="btn-ghost flex-1 text-[11px] px-2 py-1" disabled={idx <= 0} onClick={() => move(-1)} title="Send this layer behind the next lower track">Send backward</button>
+                  <button className="btn-ghost flex-1 text-[11px] px-2 py-1" disabled={idx < 0 || idx >= kindTracks.length - 1} onClick={() => move(1)} title="Bring this layer above the next higher track">Bring forward</button>
+                </div>
+              );
+            })()}
+            <p className="mt-1 text-[10px] leading-snug text-paper-faint">Higher tracks render above lower ones in preview and export. Use the on-canvas handles to move, resize or rotate this overlay.</p>
+          </Section>
+
           <Section title="Frame">
             <div><span className="label">Fit</span>
               <select className="field cursor-pointer" value={clip.fit} onChange={(e) => set([{ type: 'set_clip_props', clipId: id, patch: { fit: e.target.value as Clip['fit'] } }], 'Fit mode')}>

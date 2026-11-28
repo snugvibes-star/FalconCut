@@ -334,8 +334,14 @@ export function Timeline() {
         <div className="sticky left-0 z-20 shrink-0 bg-ink-800 border-r border-signal/50 flex items-center px-2 text-[10px] text-signal" style={{ width: HEADER_W }}>
           <Plus size={12} className="mr-1" /> New {kind}
         </div>
-        <div className="flex-1 flex items-center px-3 m-1 rounded border-2 border-dashed border-signal/60 text-[10px] text-signal font-medium" style={{ width: contentW }}>
+        <div className="relative flex-1 flex items-center px-3 m-1 rounded border-2 border-dashed border-signal/60 text-[10px] text-signal font-medium" style={{ width: contentW }}>
           + Release to create a new {kind} track and drop here
+          {(() => {
+            const c = project.clips.find((x) => x.id === drag?.clipId);
+            if (!c || !drag) return null;
+            return <div className="absolute h-6 rounded border border-signal bg-signal/25 pointer-events-none"
+              style={{ left: drag.curStart * zoom, width: Math.max(6, drag.curDuration * zoom), top: 22 }} title="Overlay preview — release to place" />;
+          })()}
         </div>
       </div>
     );
@@ -1146,7 +1152,10 @@ export function Timeline() {
                     const isDrag = drag?.clipId === clip.id;
                     const start = isDrag ? drag!.curStart : clip.start;
                     const duration = isDrag ? drag!.curDuration : clip.duration;
-                    const trackId = isDrag ? drag!.curTrack : clip.trackId;
+                    // The NEW_TRACK sentinel is a ghost lane, not a real track.
+                    // Keep the real clip on its original track until the drop
+                    // commits, so it never blinks out of existence mid-drag.
+                    const trackId = isDrag && drag!.curTrack !== NEW_TRACK_ID ? drag!.curTrack : clip.trackId;
                     if (trackId !== track.id) return null;
                     const asset = getMedia(project, clip.mediaId);
                     const selected = selection.includes(clip.id);
