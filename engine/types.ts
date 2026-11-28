@@ -707,7 +707,10 @@ export function avgSpeed(clip: Clip): number {
   const pts = speedPointsOf(clip);
   if (!pts) return clip.speed;
   if (clip.duration <= 1e-6) return clip.speed;
-  return (sourceTimeOf(clip, clip.start + clip.duration) - clip.inPoint) / clip.duration;
+  // consumedSource is the direction-agnostic span; sourceTimeOf at the end of
+  // a reversed clip equals inPoint, which used to make avgSpeed zero and kill
+  // the audio for reversed ramps.
+  return consumedSource(clip) / clip.duration;
 }
 
 export function findClip(p: Project, id: string): Clip | undefined {

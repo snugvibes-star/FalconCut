@@ -40,7 +40,7 @@ function Fader({ value, disabled, disabledReason, onCommit }: {
   const valueAt = (e: React.PointerEvent) => {
     const r = ref.current?.getBoundingClientRect();
     if (!r) return value;
-    return Math.max(0, Math.min(4, (1 - (e.clientY - r.top) / r.height) * 4));
+    return Math.max(0, Math.min(2, (1 - (e.clientY - r.top) / r.height) * 2));
   };
   const release = (e: React.PointerEvent) => {
     if (drag !== null && Math.abs(drag - value) > 0.01) onCommit(Math.round(drag * 100) / 100);
@@ -53,9 +53,9 @@ function Fader({ value, disabled, disabledReason, onCommit }: {
       onPointerMove={(e) => { if (drag !== null) setDrag(valueAt(e)); }}
       onPointerUp={release} onPointerCancel={release}>
       <div className="absolute left-1/2 top-0 bottom-0 w-1.5 -translate-x-1/2 rounded bg-ink-700" />
-      <div className="absolute bottom-0 left-1/2 w-1.5 -translate-x-1/2 rounded bg-signal" style={{ height: `${(shown / 4) * 100}%` }} />
-      <div className="absolute left-1/2 w-7 h-5 -translate-x-1/2 -translate-y-1/2 rounded border border-line bg-ink-750 shadow-panel" style={{ bottom: `${(shown / 4) * 100}%` }} />
-      <input type="range" min={0} max={4} step={0.01} value={shown} disabled={disabled}
+      <div className="absolute bottom-0 left-1/2 w-1.5 -translate-x-1/2 rounded bg-signal" style={{ height: `${(shown / 2) * 100}%` }} />
+      <div className="absolute left-1/2 w-7 h-5 -translate-x-1/2 -translate-y-1/2 rounded border border-line bg-ink-750 shadow-panel" style={{ bottom: `${(shown / 2) * 100}%` }} />
+      <input type="range" min={0} max={2} step={0.01} value={shown} disabled={disabled}
         aria-label="clips vol" className="sr-only"
         onChange={(e) => onCommit(Number(e.target.value))} />
     </div>
@@ -109,7 +109,9 @@ function TrackStrip({ track, project, playhead, commit }: { track: Track; projec
   const clips = project.clips.filter((c) => c.trackId === track.id).sort((a, b) => a.start - b.start);
   const active = clips.find((c) => playhead >= c.start && playhead < c.start + c.duration);
   const ma = active?.mediaId ? project.analysis?.byMedia[active.mediaId] : undefined;
-  const vol = track.volume ?? (clips.length ? clips[0].volume : null);
+  // Track gain is independent of legacy per-clip volumes; show only the value
+  // this fader actually writes to the audio graph.
+  const vol = track.volume ?? 1;
 
   return (
     <div className="panel w-24 shrink-0 flex flex-col items-center gap-1 px-1 py-2">

@@ -265,7 +265,7 @@ export function ClipContextMenu({ menu, onClose }: { menu: CtxMenuState; onClose
           <Item icon={Headphones} label={track.solo ? 'Solo off' : 'Solo track'}
             disabled={track.kind === 'text'}
             title={track.kind === 'text' ? 'Text tracks carry no audio' : 'Only this track of its kind plays'}
-            onClick={run(() => commit([{ type: 'set_track', trackId: track.id, patch: { solo: !track.solo } }], track.solo ? 'Solo off' : 'Solo track'))} />
+            onClick={run(() => s.setSolo(track.id, false))} />
           <Item icon={track.locked ? Unlock : Lock} label={track.locked ? 'Unlock track' : 'Lock track'}
             onClick={run(() => commit([{ type: 'set_track', trackId: track.id, patch: { locked: !track.locked } }], track.locked ? 'Unlock track' : 'Lock track'))} />
           <div className="h-px bg-line my-1" />

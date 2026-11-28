@@ -288,7 +288,10 @@ function drawMediaClip(p: Project, clip: Clip, t: number, ctx: Ctx2D, resolver: 
   const tin = clip.transitionIn;
   if (tin && localT < tin.duration) {
     const prog = Math.max(0, Math.min(1, localT / tin.duration));
-    const e = prog * prog * (3 - 2 * prog) * Math.max(0, Math.min(1, tin.intensity ?? 1)); // smoothstep
+    const smooth = prog * prog * (3 - 2 * prog);
+    // Intensity shapes the curve but always reaches 1 at the boundary, so
+    // wipes/slides finish and alpha transitions never pop at the cut.
+    const e = Math.pow(smooth, 2 - Math.max(0, Math.min(1, tin.intensity ?? 1)));
     const prev = prevClipOnTrack(p, clip);
     const prevT = prev ? prev.start + prev.duration - 0.001 : t;
     switch (tin.type) {
@@ -362,7 +365,8 @@ function drawMediaClip(p: Project, clip: Clip, t: number, ctx: Ctx2D, resolver: 
   const tout = clip.transitionOut;
   if (tout && localT > clip.duration - tout.duration) {
     const prog = Math.max(0, Math.min(1, (localT - (clip.duration - tout.duration)) / tout.duration));
-    const e = prog * prog * (3 - 2 * prog) * Math.max(0, Math.min(1, tout.intensity ?? 1));
+    const smooth = prog * prog * (3 - 2 * prog);
+    const e = Math.pow(smooth, 2 - Math.max(0, Math.min(1, tout.intensity ?? 1)));
     const next = nextClipOnTrack(p, clip);
     if (next) {
       // Out transitions are the mirror of in transitions: the following clip
@@ -558,7 +562,17 @@ export function renderFrame(p: Project, t: number, ctx: Ctx2D, resolver: MediaRe
           ctx.restore();
         }
       } else if (clip.kind === 'motif' && clip.motif) {
-        drawMotif(ctx, clip.motif, t - clip.start, clip.duration, p.settings.width, p.settings.height);
+        {
+          const tr = resolvedTransform(clip, t - clip.start);
+          ctx.save();
+          ctx.globalAlpha *= Math.max(0, Math.min(1, tr.opacity));
+          ctx.translate(p.settings.width / 2 + tr.x, p.settings.height / 2 + tr.y);
+          ctx.rotate((tr.rotation * Math.PI) / 180);
+          ctx.scale(tr.scale, tr.scale);
+          ctx.translate(-p.settings.width / 2, -p.settings.height / 2);
+          drawMotif(ctx, clip.motif, t - clip.start, clip.duration, p.settings.width, p.settings.height);
+          ctx.restore();
+        }
       } else if (clip.kind === 'drawing' && clip.drawing) {
         drawDrawingClip(p, clip, t, ctx);
       }

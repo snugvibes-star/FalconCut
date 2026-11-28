@@ -120,6 +120,8 @@ interface State {
   loadDemoTimeline: () => Promise<void>;
   loadShowcaseDemo: () => Promise<void>;
   removeMedia: (mediaId: string) => void;
+  /** Kdenlive-style solo: plain click is exclusive, additive keeps other solos. */
+  setSolo: (trackId: string, additive?: boolean) => void;
   /** Kdenlive-style "Extract audio": decode the video's audio into a new WAV
    * asset + audio-track clip at the same position, and mute the original.
    * Returns 'ok' | 'no-clip' | 'no-buffer' | 'undecodable'. */
@@ -635,6 +637,22 @@ export const useStore = create<State>()((set, get) => {
     removeMedia(mediaId) {
       // Keep the source available for undo and version restore.
       get().commit([{ type: 'remove_media', mediaId }], 'Remove media');
+    },
+
+    setSolo(trackId, additive = false) {
+      const s = get();
+      const track = s.project.tracks.find((t) => t.id === trackId);
+      if (!track || track.kind === 'text') return;
+      const actions: Action[] = [];
+      if (!additive) {
+        for (const t of s.project.tracks) {
+          if (t.kind === track.kind && t.id !== trackId && t.solo) {
+            actions.push({ type: 'set_track', trackId: t.id, patch: { solo: false, soloMode: 'exclusive' } });
+          }
+        }
+      }
+      actions.push({ type: 'set_track', trackId, patch: { solo: !track.solo, soloMode: additive ? 'additive' : 'exclusive' } });
+      s.commit(actions, track.solo ? 'Solo off' : 'Solo track');
     },
 
     async extractAudio(clipId) {

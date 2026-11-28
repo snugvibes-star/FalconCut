@@ -167,7 +167,7 @@ const EFFECT_DEFAULTS: Record<EffectType, Record<string, number | string | boole
   blur: { amount: 4 },
   sharpen: { amount: 2 },
   vignette: { amount: 1 },
-  chromaKey: { color: '#00FF00', tolerance: 0.2, softness: 0.12 },
+  chromaKey: { color: '#00FF00', tolerance: 0.2, softness: 0.12, spill: 0.5 },
   eq: { highpass: 80, lowpass: 0, gain: 0 },
   gain: { gainDb: 0 },
   gate: { thresholdDb: -45 },
@@ -1008,8 +1008,8 @@ export function Timeline() {
           onClick={() => ui.setEditMode(ui.editMode === 'snap' ? 'overwrite' : ui.editMode === 'overwrite' ? 'insert' : 'snap')}
         >{ui.editMode === 'snap' ? 'SNAP' : ui.editMode === 'overwrite' ? 'OVR' : 'INS'}</button>
         <button className="icon-btn" onClick={closeGaps} disabled={!hasGaps} title="Close gaps on video/audio tracks"><ChevronsRightLeft size={15} /></button>
-        <button className="icon-btn px-1.5 text-[10px]" onClick={() => runEditorAction('zoneLift')} title="Lift I/O zone: remove clips inside it, leave a gap"><Scissors size={13} /> Z</button>
-        <button className="icon-btn px-1.5 text-[10px]" onClick={() => runEditorAction('zoneExtract')} title="Extract I/O zone: remove clips inside it and close the gap"><Trash2 size={13} /> Z</button>
+        <button className="icon-btn px-1.5 text-[10px]" onClick={() => runEditorAction('zoneLift')} title="Lift I/O zone: remove clips inside it, leave a gap"><Scissors size={13} /> LIFT</button>
+        <button className="icon-btn px-1.5 text-[10px]" onClick={() => runEditorAction('zoneExtract')} title="Extract I/O zone: remove clips inside it and close the gap"><Trash2 size={13} /> EXT</button>
         <div className="h-5 w-px bg-line mx-1" />
         <button className="icon-btn" onClick={addMarker} title="Add marker at playhead"><Flag size={15} /></button>
         <div className="h-5 w-px bg-line mx-1" />
@@ -1101,17 +1101,7 @@ export function Timeline() {
                     )}
                     {track.kind !== 'text' && (
                       <button className={`cf-track-btn icon-btn p-0.5 ${track.solo ? 'text-heat-amber' : ''}`}
-                        onClick={(e) => {
-                          const additive = e.shiftKey;
-                          const actions: Action[] = [];
-                          if (!additive) {
-                            for (const t of project.tracks) {
-                              if (t.kind === track.kind && t.id !== track.id && t.solo) actions.push({ type: 'set_track', trackId: t.id, patch: { solo: false, soloMode: 'exclusive' } });
-                            }
-                          }
-                          actions.push({ type: 'set_track', trackId: track.id, patch: { solo: !track.solo, soloMode: additive ? 'additive' : 'exclusive' } });
-                          useStore.getState().commit(actions, track.solo ? 'Solo off' : 'Solo track');
-                        }}
+                        onClick={(e) => useStore.getState().setSolo(track.id, e.shiftKey)}
                         title={track.solo ? 'Solo on — click to clear, Shift+click to keep others soloed' : 'Solo this track (Shift+click to add to other soloed tracks)'}>
                         <Headphones size={11} />
                       </button>

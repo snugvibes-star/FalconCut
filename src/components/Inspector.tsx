@@ -142,7 +142,7 @@ export const EFFECT_DEFAULTS: Record<string, Record<string, number | string | bo
   sharpen: { amount: 0.5 },
   vignette: { amount: 0.5 },
   pixelate: { amount: 8 }, noise: { amount: 0.15 }, rgbSplit: { amount: 4 }, glow: { amount: 0.4 },
-  chromaKey: { color: '#00FF00', tolerance: 0.28, softness: 0.12 },
+  chromaKey: { color: '#00FF00', tolerance: 0.28, softness: 0.12, spill: 0.5 },
   eq: { highpass: 80, lowpass: 0, gain: 0 },
   gain: { gainDb: 0 },
   gate: { thresholdDb: -45 },
@@ -160,7 +160,7 @@ const RANGES: Record<string, [number, number, number]> = {
   temperature: [-1, 1, 0.01], grayscale: [0, 1, 0.01], sepia: [0, 1, 0.01], hue: [-180, 180, 1],
   amount: [0, 20, 0.1], tolerance: [0, 1, 0.01], softness: [0, 1, 0.01], thresholdDb: [-70, 0, 1],
   highpass: [0, 400, 1], lowpass: [0, 20000, 10], gain: [-20, 20, 0.5], reduction: [0, 20, 0.5],
-  invert: [0, 1, 0.05], strength: [0, 1, 0.05], ratio: [1, 20, 0.5], ceilingDb: [-24, 0, 0.5],
+  invert: [0, 1, 0.05], strength: [0, 1, 0.05], ratio: [1, 20, 0.5], ceilingDb: [-24, 0, 0.5], spill: [0, 1, 0.05],
   delayMs: [10, 1000, 10], feedback: [0, 0.9, 0.05], mix: [0, 1, 0.05], pan: [-1, 1, 0.05], gainDb: [-24, 24, 0.5],
 };
 /** Same table as the Effects/Transitions library — every real transition type. */
@@ -381,8 +381,10 @@ export function Inspector() {
               };
               return (
                 <div className="flex gap-1">
-                  <button className="btn-ghost flex-1 text-[11px] px-2 py-1" disabled={idx <= 0} onClick={() => move(-1)} title="Send this layer behind the next lower track">Send backward</button>
-                  <button className="btn-ghost flex-1 text-[11px] px-2 py-1" disabled={idx < 0 || idx >= kindTracks.length - 1} onClick={() => move(1)} title="Bring this layer above the next higher track">Bring forward</button>
+                  {/* renderFrame reverses project.tracks, so a LOWER index
+                      paints LATER (on top). */}
+                  <button className="btn-ghost flex-1 text-[11px] px-2 py-1" disabled={idx <= 0} onClick={() => move(-1)} title="Bring this layer above the next higher track">Bring forward</button>
+                  <button className="btn-ghost flex-1 text-[11px] px-2 py-1" disabled={idx < 0 || idx >= kindTracks.length - 1} onClick={() => move(1)} title="Send this layer behind the next lower track">Send backward</button>
                 </div>
               );
             })()}

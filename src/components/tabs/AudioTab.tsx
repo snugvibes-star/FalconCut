@@ -157,8 +157,8 @@ export function AudioTab() {
               onBlur={(e) => { const v = e.target.value.trim(); if (v && v !== t.name) commit([{ type: 'set_track', trackId: t.id, patch: { name: v } }], 'Rename audio track'); }}
               onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
             />
-            <button className={`icon-btn ${t.solo ? 'text-signal' : ''}`} title={t.solo ? 'Unsolo' : 'Solo track'}
-              onClick={() => commit([{ type: 'set_track', trackId: t.id, patch: { solo: !t.solo } }], t.solo ? 'Unsolo track' : 'Solo track')}>
+            <button className={`icon-btn ${t.solo ? 'text-signal' : ''}`}
+              onClick={(e) => useStore.getState().setSolo(t.id, e.shiftKey)} title={t.solo ? 'Unsolo (Shift+click to keep others soloed)' : 'Solo this track (Shift+click = additive)'}>
               <Headphones size={13} />
             </button>
             <button

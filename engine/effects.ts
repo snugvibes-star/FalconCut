@@ -335,10 +335,14 @@ export function applyPixelOps(canvas: HTMLCanvasElement | OffscreenCanvas, r: Re
       if (chroma.spill > 0 && d[i + 3] > 0) {
         const c = chroma.color;
         const dominant = c[1] >= c[0] && c[1] >= c[2] ? 1 : c[0] >= c[2] ? 0 : 2;
-        const other = Math.max(dominant === 0 ? G : R, dominant === 2 ? G : B);
         const channels = [R, G, B];
-        channels[dominant] = channels[dominant] * (1 - chroma.spill) + other * chroma.spill;
-        R = channels[0]; G = channels[1]; B = channels[2];
+        const other = Math.max(channels[(dominant + 1) % 3], channels[(dominant + 2) % 3]);
+        // Only suppress an EXCESS of the keyed channel (green bounce on skin,
+        // etc.). The old unconditional lerp pushed green into normal pixels.
+        if (channels[dominant] > other) {
+          channels[dominant] = other + (channels[dominant] - other) * (1 - chroma.spill);
+          R = channels[0]; G = channels[1]; B = channels[2];
+        }
       }
     }
     d[i] = clamp(R, 0, 255); d[i + 1] = clamp(G, 0, 255); d[i + 2] = clamp(B, 0, 255);

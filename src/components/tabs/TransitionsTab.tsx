@@ -62,7 +62,7 @@ export function TransitionsTab() {
         </div>
         <div className="grid grid-cols-3 gap-1.5">
           {(category === 'basic' ? BASIC : BLEND).map((t) => (
-            <button key={t} draggable={!disabled} disabled={disabled} onClick={() => apply({ type: t, duration: current?.duration ?? 0.4 })}
+            <button key={t} draggable={!disabled} disabled={disabled} onClick={() => apply({ type: t, duration: current?.duration ?? 0.4, intensity: current?.intensity })}
               onDragStart={(e) => {
                 e.dataTransfer.setData(FALCONCUT_MIME, JSON.stringify({ kind: 'transition', edge, type: t, duration: current?.duration ?? 0.4 }));
                 e.dataTransfer.effectAllowed = 'copy';
@@ -77,14 +77,14 @@ export function TransitionsTab() {
           <>
             <div className="flex gap-1.5">
               {DURATIONS.map((d) => (
-                <button key={d} disabled={disabled} onClick={() => apply({ type: current.type, duration: d })}
+                <button key={d} disabled={disabled} onClick={() => apply({ type: current.type, duration: d, intensity: current.intensity })}
                   className={`chip flex-1 justify-center border ${Math.abs(current.duration - d) < 0.01 ? 'bg-signal/15 border-signal/50 text-signal' : 'border-line text-paper-dim hover:text-paper'}`}>
                   {d.toFixed(1)}s
                 </button>
               ))}
             </div>
             <DragSlider label="Duration" value={current.duration} min={0.1} max={2} step={0.05} fmt={(v) => `${v.toFixed(2)}s`} commitKey="tr-dur"
-              onCommit={(v) => apply({ type: current.type, duration: v })} />
+              onCommit={(v) => apply({ type: current.type, duration: v, intensity: current.intensity })} />
             <DragSlider label="Intensity" value={current.intensity ?? 1} min={0} max={1} step={0.05} fmt={(v) => `${Math.round(v * 100)}%`} commitKey="tr-int"
               onCommit={(v) => apply({ type: current.type, duration: current.duration, intensity: v })} />
             <button className="btn-solid w-full justify-center text-xs" onClick={() => apply(undefined)}>Remove {edge} transition</button>

@@ -55,9 +55,19 @@ function rectFor(project: Project, clip: Clip, t: number, pool: MediaPool, measu
     return { clip, kind: 'drawing', cx: cx0 + tr.x, cy: cy0 + tr.y, hw: (b.maxX - b.minX) / 2 * tr.scale, hh: (b.maxY - b.minY) / 2 * tr.scale, rot: (tr.rotation * Math.PI) / 180 };
   }
   if (clip.kind === 'motif' && clip.motif) {
-    // Motifs paint the frame; give them a full-frame selection box so they are
-    // selectable and draggable like any other overlay.
-    return { clip, kind: 'motif', cx: W / 2 + tr.x, cy: H / 2 + tr.y, hw: (W / 2) * tr.scale, hh: (H / 2) * tr.scale, rot: (tr.rotation * Math.PI) / 180 };
+    // Hit box around the motif's own footprint, not the whole frame — a
+    // full-frame box would swallow clicks on captions/clips underneath.
+    const mp = clip.motif.params ?? {};
+    const mx = typeof mp.x === 'number' ? mp.x : 0.5;
+    const my = typeof mp.y === 'number' ? mp.y : 0.5;
+    const size = typeof mp.size === 'number' ? mp.size : 0.15;
+    return {
+      clip, kind: 'motif',
+      cx: mx * W + tr.x, cy: my * H + tr.y,
+      hw: Math.min(W * 0.45, size * W * 2.2) * tr.scale,
+      hh: Math.min(H * 0.45, size * H * 1.6) * tr.scale,
+      rot: (tr.rotation * Math.PI) / 180,
+    };
   }
   if (clip.kind === 'media') {
     const asset = getMedia(project, clip.mediaId);
@@ -264,7 +274,12 @@ export function OverlayEditor({ scale }: { scale: number }) {
     // instead of silently ignoring the pointer — otherwise the preview feels
     // dead while playing and users think overlays cannot be selected.
     if (s.playing) s.pause();
-    (e.currentTarget as HTMLCanvasElement).setPointerCapture(e.pointerId);
+    try {
+      (e.currentTarget as HTMLCanvasElement).setPointerCapture(e.pointerId);
+    } catch {
+      // Synthetic events / touch edge cases have no active pointer. The
+      // canvas-level move/up handlers still work; never abort the gesture.
+    }
     const p = toProject(e);
     const d = useUI.getState().draw;
     if (d.tool === 'crop') return; // handled by CropOverlay
