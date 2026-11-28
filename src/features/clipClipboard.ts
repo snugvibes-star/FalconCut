@@ -17,6 +17,9 @@ interface CopiedClip {
 
 let buffer: CopiedClip[] = [];
 
+/** Project switches must not carry clips whose mediaId belongs to another project. */
+export function clearClipboard(): void { buffer = []; }
+
 const clone = (c: Clip): Clip => JSON.parse(JSON.stringify(c)) as Clip;
 
 function collect(ids: string[]): CopiedClip[] {
@@ -38,9 +41,9 @@ export function cutSelection(): number {
   const n = copySelection();
   if (!n) return 0;
   const s = useStore.getState();
-  s.commit(s.selection.map((id) => ({ type: 'remove_clip' as const, clipId: id })), 'Cut clips');
-  s.select([]);
-  return n;
+  const applied = s.commit(s.selection.map((id) => ({ type: 'remove_clip' as const, clipId: id })), 'Cut clips');
+  if (applied) s.select([]);
+  return applied ? n : 0;
 }
 
 /** First track that can legally hold this clip, preferring the clip's own track. */
@@ -57,7 +60,11 @@ function trackFor(clip: Clip): Track | undefined {
 function paste(entries: CopiedClip[], at: number, label: string): number {
   if (!entries.length) return 0;
   const actions: Action[] = [];
+  const p = useStore.getState().project;
   for (const { clip, offset } of entries) {
+    // Copied media from another project has no matching asset here — pasting
+    // it would create an invisible clip that still inflates the export.
+    if (clip.kind === 'media' && clip.mediaId && !getMedia(p, clip.mediaId)) continue;
     const track = trackFor(clip);
     if (!track) continue;
     const next = clone(clip);

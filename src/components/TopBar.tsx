@@ -282,12 +282,14 @@ export function TopBar({ leftOpen, rightOpen, onToggleLeft, onToggleRight }: Top
             <span className="text-heat hidden md:block">Save failed</span>
           </>
         )}
-        {(saveStatus === 'saved' || saveStatus === 'idle') && (
+        {saveStatus === 'saved' && (
           <>
             <Check size={11} className="text-heat-green" />
             <span className="text-paper-faint hidden md:block">Saved{savedClock ? ` ${savedClock}` : ''}</span>
           </>
         )}
+        {saveStatus === 'idle' && <span className="text-paper-faint hidden md:block">Not saved yet</span>}
+        {saveStatus === 'saving' && <span className="text-paper-faint hidden md:block">Saving…</span>}
       </div>
 
       <div className="flex items-center gap-0.5">

@@ -73,8 +73,8 @@ export async function listBlobKeys(): Promise<string[]> {
 
 /** Delete blobs no project references anymore (failed imports, removed media,
  * deleted projects). Conservative: only touches keys that look like media. */
-export async function garbageCollectBlobs(): Promise<number> {
-  const projects = await listProjects();
+export async function garbageCollectBlobs(extraProjects: Project[] = []): Promise<number> {
+  const projects = [...await listProjects(), ...extraProjects];
   const referenced = new Set<string>();
   for (const p of projects) {
     for (const m of p.media ?? []) if (m.blobKey) referenced.add(m.blobKey);

@@ -587,8 +587,12 @@ export function Timeline() {
         const nextStart = Math.min(...others.filter((c) => c.start >= d.origStart + d.origDuration - 1e-6).map((c) => c.start), Infinity);
         if (start + duration > nextStart) duration = Math.max(0.1, nextStart - start);
       }
-      if (Math.abs(start - d.origStart) > 0.001 || Math.abs(duration - d.origDuration) > 0.001)
-        s.commit([{ type: 'trim_clip', clipId: d.clipId, start, duration, inPoint }], 'Trim clip');
+      if (Math.abs(start - d.origStart) > 0.001 || Math.abs(duration - d.origDuration) > 0.001) {
+        // Let the engine derive the new inPoint: it handles speed ramps and
+        // reversed clips correctly, while this gesture's inPoint guess does not.
+        void inPoint;
+        s.commit([{ type: 'trim_clip', clipId: d.clipId, start, duration }], 'Trim clip');
+      }
     }
   };
 
@@ -695,11 +699,20 @@ export function Timeline() {
       let track: Track | undefined = tracks[hit.trackIdx];
       const compatible = track && track.kind !== 'text' && (track.kind === 'audio') === isAudio;
       if (!compatible) track = project.tracks.find((t) => t.kind === (isAudio ? 'audio' : 'video'));
-      if (!track) { ui.toast(`No ${isAudio ? 'audio' : 'video'} track — add one first`, 'error'); return; }
+      const actions: Action[] = [];
+      if (!track) {
+        // Same behaviour as dragging an existing clip past the last track:
+        // create the missing compatible track in the SAME undo step.
+        const kind = isAudio ? 'audio' : 'video';
+        const id = uid('trk');
+        actions.push({ type: 'add_track', track: { id, kind, name: kind === 'audio' ? `A${project.tracks.filter((t) => t.kind === 'audio').length + 1}` : `V${project.tracks.filter((t) => t.kind === 'video').length + 1}` } });
+        track = { id, kind, name: '', locked: false, muted: false, hidden: false };
+      }
       if (track.locked) { ui.toast('Track is locked', 'info'); return; }
       const duration = Math.max(0.5, asset.duration || 5);
       const start = resolveFreeStart(project.clips, track.id, hit.time, duration);
-      commitAndSelect([{ type: 'add_clip', clip: { trackId: track.id, mediaId: asset.id, start, duration, inPoint: 0 } }], 'Drop media');
+      actions.push({ type: 'add_clip', clip: { trackId: track.id, mediaId: asset.id, start, duration, inPoint: 0 } });
+      commitAndSelect(actions, 'Drop media');
       ui.toast(`Added ${asset.name} to timeline`);
     } else if (payload.kind === 'text' && payload.preset) {
       const preset = payload.preset;
@@ -770,8 +783,8 @@ export function Timeline() {
   const deleteSel = () => {
     const s = useStore.getState();
     if (!s.selection.length) return;
-    s.commit(s.selection.map((id) => ({ type: 'remove_clip', clipId: id, ripple: true })), 'Delete clips');
-    s.select([]);
+    const applied = s.commit(s.selection.map((id) => ({ type: 'remove_clip', clipId: id, ripple: true })), 'Delete clips');
+    if (applied) s.select([]);
   };
 
   const addTrack = (kind: Track['kind']) => {

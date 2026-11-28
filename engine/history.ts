@@ -36,6 +36,12 @@ export class History {
     return next;
   }
 
+  /** All project documents that can still be restored. Blob GC must keep
+   * their media, not just the current document's. */
+  snapshots(): Project[] {
+    return [...this.past.map((e) => e.project), ...this.future.map((e) => e.project), this.current];
+  }
+
   reset(project: Project): void {
     this.past = [];
     this.future = [];

@@ -358,7 +358,7 @@ export function Preview() {
                 aria-busy={demoBusy === 'showcase'}
                 onClick={() => { void loadDemo('showcase'); }}
               >
-                {demoBusy === 'showcase' ? 'Loading demo footage…' : 'Load demo — real footage, cut · reverse · speed · titles'}
+                {demoBusy === 'showcase' ? 'Loading demo footage…' : 'Load demo — cut · reverse · speed · titles'}
               </button>
               <button
                 className="btn-ghost text-[11px] disabled:opacity-60"

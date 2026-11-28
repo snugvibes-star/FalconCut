@@ -124,7 +124,13 @@ export function ExportDialog() {
     } finally { setBusy(''); setProg(null); abortRef.current = null; }
   };
 
-  return <Dialog title="Export" onClose={() => ui.close('export')}>
+  const closeExport = () => {
+    if (busy && !window.confirm('Cancel the running export? The partial file will be discarded.')) return;
+    if (busy) abortRef.current?.abort();
+    ui.close('export');
+  };
+
+  return <Dialog title="Export" onClose={closeExport}>
     <div className="space-y-4 text-xs">
       <p className="text-paper-dim">{project.name} · {duration.toFixed(2)} seconds · {project.settings.width}×{project.settings.height} @ {project.settings.fps}fps</p>
 
@@ -269,7 +275,7 @@ export function ExportDialog() {
         {([
           ['json', 'Project JSON', 'Editing document; does not embed source files.', false],
           ['png', 'Current frame PNG', `Render at ${playhead.toFixed(2)}s without safe-zone guides.`, !project.clips.length],
-          ['srt', 'Captions SRT', 'Plain subtitle cues with timeline timing.', !project.clips.some((c) => c.text?.role === 'caption')],
+          ['srt', 'Captions SRT', projectSRT(project).trim() ? 'Plain subtitle cues with timeline timing.' : 'No visible caption cues to export.', !projectSRT(project).trim()],
           ['wav', 'Mixed audio WAV', 'Stereo PCM, up to 5 minutes. Speed changes pitch.', duration <= 0 || duration > 300],
         ] as const).map(([format, title, description, disabled]) => <button key={format} disabled={!!busy || disabled} className="p-3 text-left rounded-lg border border-line hover:border-signal/50 bg-ink-850 disabled:opacity-40 disabled:cursor-not-allowed" onClick={() => void exportFile(format)}>
           <span className="flex items-center gap-2 text-paper font-medium mb-1">{busy === format ? <Loader2 size={15} className="animate-spin" /> : <Download size={15} />}{title}</span>

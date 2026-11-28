@@ -59,6 +59,27 @@ export async function projectWebM(
   // Mixed audio (volume, fades, enabled effects). Silence if no audio clips.
   const audioBuffer = await mixProjectAudio(project, loadBlob);
 
+  // Load each source video once. Without this the elements have no src and
+  // every exported frame is just the background colour.
+  const objectUrls: string[] = [];
+  for (const asset of project.media) {
+    if (asset.type !== 'video' || !asset.blobKey) continue;
+    const blob = await loadBlob(asset.blobKey);
+    if (!blob) continue;
+    const el = videoFor(asset, loadBlob);
+    const url = URL.createObjectURL(blob);
+    objectUrls.push(url);
+    el.src = url;
+    await new Promise<void>((res) => {
+      if (el.readyState >= 2) return res();
+      let done = false;
+      const finish = () => { if (!done) { done = true; clearTimeout(timer); res(); } };
+      const timer = setTimeout(finish, 5000);
+      el.addEventListener('loadeddata', finish, { once: true });
+      el.addEventListener('error', finish, { once: true });
+    });
+  }
+
   const canvas = document.createElement('canvas');
   canvas.width = width; canvas.height = height;
   const ctx = canvas.getContext('2d') as CanvasRenderingContext2D;
@@ -81,10 +102,16 @@ export async function projectWebM(
   const stream = new MediaStream([videoTrack, audioTrack]);
 
   const chunks: Blob[] = [];
+  let rejectExport: (e: Error) => void = () => { /* replaced by the promise below */ };
   const recorder = new MediaRecorder(stream, { mimeType: 'video/webm' });
   recorder.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
   let finished = false;
-  recorder.onstop = () => { finished = true; videoTrack.stop(); audioTrack.stop(); src.stop(); ctxAudio.close().catch(() => {}); };
+  recorder.onerror = (e) => { rejectExport(e instanceof Error ? e : new Error('Recorder failed')); };
+  recorder.onstop = () => {
+    finished = true; videoTrack.stop(); audioTrack.stop(); src.stop();
+    ctxAudio.close().catch(() => {});
+    for (const url of objectUrls) URL.revokeObjectURL(url);
+  };
 
   const startWall = performance.now();
   let startAudioAt = 0;
@@ -113,8 +140,9 @@ export async function projectWebM(
           if (!asset || asset.type !== 'video') return null;
           const el = videoFor(asset, loadBlob);
           // fire-and-forget seek; drawLoop will redraw next frame once seeked
-          void seekFrame(el, sourceTime).then(() => {
-            // next frame redraw will pick up the seeked frame
+          void seekFrame(el, sourceTime).catch(() => {
+            // A failed seek must not become an unhandled rejection; the next
+            // frame will retry and the canvas still renders other layers.
           });
           return el.readyState >= 2 ? el : null;
         },
@@ -127,6 +155,7 @@ export async function projectWebM(
   requestAnimationFrame(drawLoop);
 
   return new Promise<Blob>((resolve, reject) => {
+    rejectExport = reject;
     const wait = () => {
       if (finished) resolve(new Blob(chunks, { type: 'video/webm' }));
       else if (signal?.aborted) reject(new DOMException('Export cancelled.', 'AbortError'));

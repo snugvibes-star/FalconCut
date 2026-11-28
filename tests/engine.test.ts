@@ -73,6 +73,46 @@ describe('actions', () => {
     for (const [k, v] of Object.entries(ACTION_SCHEMA)) expect(v.length, k).toBeGreaterThan(15);
   });
 
+  it('rejects duplicate track ids and half-applied moves', () => {
+    let p = baseProject();
+    const original = p.tracks[0];
+    p = applyAction(p, { type: 'add_track', track: { id: original.id, kind: 'video', name: 'Dup' } });
+    const ids = p.tracks.map((t) => t.id);
+    expect(new Set(ids).size).toBe(ids.length);
+    const c = p.clips[0];
+    const moved = applyAction(p, { type: 'move_clip', clipId: c.id, trackId: 'missing', start: 12 });
+    expect(moved.clips.find((x) => x.id === c.id)!.start).toBe(c.start);
+  });
+
+  it('changing speed on a reversed clip keeps its duration and source span', () => {
+    let p = baseProject();
+    const id = p.clips[0].id;
+    p = applyActions(p, [
+      { type: 'set_clip_props', clipId: id, patch: { reversed: true } },
+      { type: 'set_speed', clipId: id, speed: 2 },
+    ]);
+    const c = p.clips.find((x) => x.id === id)!;
+    expect(c.reversed).toBe(true);
+    expect(c.duration).toBeGreaterThan(3);
+  });
+
+  it('ripple delete does not destroy notes just after the removed range', () => {
+    let p = baseProject();
+    p = applyAction(p, { type: 'add_tack', tack: { id: 't1', time: 20, text: 'note' } as any });
+    p = applyAction(p, { type: 'ripple_delete_range', start: 5, end: 15, trackIds: [p.clips[0].trackId] });
+    expect(p.tacks?.some((t) => t.id === 't1')).toBe(true);
+  });
+
+  it('keeps one timeline track and preserves supplied track properties', () => {
+    let p = baseProject();
+    p = applyAction(p, { type: 'add_track', track: { kind: 'audio', name: 'QA audio', height: 96, locked: true } });
+    const audio = p.tracks.find((t) => t.name === 'QA audio')!;
+    expect(audio.height).toBe(96);
+    expect(audio.locked).toBe(true);
+    p = applyActions(p, p.tracks.filter((t) => t.id !== audio.id).map((t) => ({ type: 'remove_track' as const, trackId: t.id })));
+    expect(p.tracks.length).toBe(1);
+  });
+
   it('split keeps source continuity', () => {
     const p = baseProject();
     const c = p.clips[0];

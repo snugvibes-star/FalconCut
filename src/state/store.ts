@@ -23,6 +23,7 @@ import { type Plan, type PlanStep } from '../../ai/planner';
 import { respond, undoIntent, type HistoryTurn } from '../../ai/agent';
 import { saveProject, loadProject, listProjects, putBlob, getBlob, deleteBlob, garbageCollectBlobs, saveVersion as persistVersion, loadVersions, deleteVersionRecord } from './persistence';
 import { useUI } from './ui';
+import { clearClipboard } from '../features/clipClipboard';
 
 export interface Version {
   id: string;
@@ -107,7 +108,7 @@ interface State {
   openProject: (id: string) => Promise<void>;
 
   /* editing — the ONE path for human + AI */
-  commit: (actions: Action[], label: string, source?: 'human' | 'ai', coalesceKey?: string) => void;
+  commit: (actions: Action[], label: string, source?: 'human' | 'ai', coalesceKey?: string) => boolean;
   previewTool: (name: string, params?: Record<string, unknown>, source?: 'human' | 'ai') => Promise<ToolResult>;
   applyTool: (name: string, params?: Record<string, unknown>, source?: 'human' | 'ai') => Promise<ToolResult>;
   undo: () => void;
@@ -207,7 +208,12 @@ export const useStore = create<State>()((set, get) => {
         set({ saveStatus: 'saved', lastSaved: Date.now() });
         // Reclaim storage from blobs no project references (failed imports,
         // removed media, deleted projects) so quota deaths stay rare.
-        void garbageCollectBlobs().catch(() => {});
+        // Keep blobs referenced by undo/redo history and saved versions too —
+        // deleting media must remain undoable and versions restorable.
+        void garbageCollectBlobs([
+          ...history.snapshots(),
+          ...get().versions.map((v) => v.project),
+        ]).catch(() => {});
       } catch {
         set({ saveStatus: 'error' });
       }
@@ -308,6 +314,7 @@ export const useStore = create<State>()((set, get) => {
 
     async newProject(name = 'Untitled project', aspect: Aspect = '16:9') {
       projectEpoch++;
+      clearClipboard();
       if (saveTimer) clearTimeout(saveTimer);
       // Switching projects is destructive to the current session state — the
       // outgoing document must be on disk before we reset anything.
@@ -330,6 +337,7 @@ export const useStore = create<State>()((set, get) => {
 
     async openProject(id: string) {
       const epoch = ++projectEpoch;
+      clearClipboard();
       get().pause();
       get().revokeSession();
       taskQueue.cancelAll();
@@ -358,17 +366,25 @@ export const useStore = create<State>()((set, get) => {
     },
 
     commit(actions, label, source = 'human', coalesceKey) {
-      if (!actions.length) return;
+      if (!actions.length) return false;
       const before = get().project;
       const locks = source === 'ai' ? get().lockedIds() : new Set<string>();
       const protectedClips = before.clips.filter((c) => c.locked || locks.has(c.id) || before.tracks.find((t) => t.id === c.trackId)?.locked);
       const unlocking = source === 'human' && actions.every((a) => a.type === 'set_track' || (a.type === 'set_clip_props' && Object.keys(a.patch).every((k) => k === 'locked')));
-      if (protectedClips.length && !unlocking) {
+      // Lock means no adding/removing/moving clips on that track and no
+      // structural deletion of the track itself (Kdenlive semantics).
+      const lockedTracks = new Set(before.tracks.filter((t) => t.locked).map((t) => t.id));
+      const touchesLockedTrack = actions.some((a) => {
+        if (a.type === 'remove_track' || a.type === 'move_track') return lockedTracks.has(a.trackId);
+        if ('clip' in a && a.clip && 'trackId' in a.clip) return lockedTracks.has((a.clip as { trackId?: string }).trackId ?? '');
+        return false;
+      });
+      if ((protectedClips.length || touchesLockedTrack) && !unlocking) {
         const candidate = applyActions(before, actions);
-        if (protectedClips.some((c) => JSON.stringify(c) !== JSON.stringify(candidate.clips.find((next) => next.id === c.id)))) {
+        if (touchesLockedTrack || protectedClips.some((c) => JSON.stringify(c) !== JSON.stringify(candidate.clips.find((next) => next.id === c.id)))) {
           if (source === 'ai') throw new Error('Edit would modify a locked clip. Wait for the human lock to expire or change the edit.');
           useUI.getState().toast('That clip or track is locked. Unlock it to edit.', 'info');
-          return;
+          return false;
         }
       }
       const p = history.apply(actions, label, coalesceKey);
@@ -377,6 +393,7 @@ export const useStore = create<State>()((set, get) => {
         if (ids.length) get().touch(ids);
       }
       afterChange(p, label);
+      return true;
     },
 
     async previewTool(name, params = {}, source = 'human') {
@@ -524,24 +541,28 @@ export const useStore = create<State>()((set, get) => {
           if (tracks?.length) { asset.audioTracks = tracks; asset.hasAudio = true; }
         }
         await get().pool.register(asset, file);
-        get().commit([{ type: 'add_media', asset }], `Add demo ${name}`);
-        return id;
+        return { id, asset };
       };
-      if (!videoAsset) mediaIds.push(await load('testvideo.mp4'));
-      else mediaIds.push(videoAsset.id);
-      if (!audioAsset) mediaIds.push(await load('tone.wav'));
-      else mediaIds.push(audioAsset.id);
+      const loaded: MediaAsset[] = [];
+      const videoLoaded = videoAsset ? null : await load('testvideo.mp4');
+      const audioLoaded = audioAsset ? null : await load('tone.wav');
+      mediaIds.push(videoLoaded?.id ?? videoAsset!.id, audioLoaded?.id ?? audioAsset!.id);
+      if (videoLoaded) loaded.push(videoLoaded.asset);
+      if (audioLoaded) loaded.push(audioLoaded.asset);
 
       const videoTrack = p.tracks.find((t) => t.kind === 'video')?.id;
       const audioTrack = p.tracks.find((t) => t.kind === 'audio')?.id;
       const textTrack = p.tracks.find((t) => t.kind === 'text')?.id;
       const videoId = mediaIds[0];
       const audioId = mediaIds[1];
-      const actions: Action[] = [];
+      const actions: Action[] = loaded.map((asset) => ({ type: 'add_media', asset }));
       if (videoTrack && videoId) actions.push({ type: 'add_clip', clip: { trackId: videoTrack, mediaId: videoId, start: 0, duration: 4, inPoint: 0 } });
       if (audioTrack && audioId) actions.push({ type: 'add_clip', clip: { trackId: audioTrack, mediaId: audioId, start: 0, duration: 5, inPoint: 0 } });
       if (textTrack) actions.push({ type: 'add_text', trackId: textTrack, start: 0, duration: 4, text: 'FalconCut Demo', role: 'title', preset: 'word-pop', style: { fontSize: 0.1, y: 0.12 } });
-      if (actions.length) get().commit(actions, 'Load demo timeline');
+      if (actions.length) {
+        get().commit(actions, 'Load demo timeline');
+        for (const asset of loaded) get().analyze(asset.id);
+      }
     },
 
     /** Feature-showcase demo built from the bundled real-footage sample
@@ -552,7 +573,11 @@ export const useStore = create<State>()((set, get) => {
     async loadShowcaseDemo() {
       const p = get().project;
       const res = await fetch('/sample-scarlet.mp4');
-      if (!res.ok) { await get().loadDemoTimeline(); return; }
+      if (!res.ok) {
+        await get().loadDemoTimeline();
+        useUI.getState().toast('Sample footage unavailable — minimal demo loaded instead', 'info');
+        return;
+      }
       const blob = await res.blob();
       const file = new File([blob], 'sample-scarlet.mp4', { type: 'video/mp4' });
       const id = uid('media');
@@ -567,13 +592,13 @@ export const useStore = create<State>()((set, get) => {
       const showcaseTracks = await probeAudioTracks(file, file.name);
       if (showcaseTracks?.length) { asset.audioTracks = showcaseTracks; asset.hasAudio = true; }
       await get().pool.register(asset, file);
-      get().commit([{ type: 'add_media', asset }], 'Add showcase sample');
-      // The sample is vertical: match the canvas so it plays full-frame.
-      get().commit([{ type: 'set_settings', patch: { aspect: '9:16', width: 1080, height: 1920, fps: 30 } }], 'Match sample format');
-
-      const videoTrack = get().project.tracks.find((t) => t.kind === 'video')?.id;
-      const textTrack = get().project.tracks.find((t) => t.kind === 'text')?.id;
-      const actions: Action[] = [];
+      const videoTrack = p.tracks.find((t) => t.kind === 'video')?.id;
+      const textTrack = p.tracks.find((t) => t.kind === 'text')?.id;
+      // One click = one undo step, including the vertical canvas change.
+      const actions: Action[] = [
+        { type: 'add_media', asset },
+        { type: 'set_settings', patch: { aspect: '9:16', width: 1080, height: 1920, fps: 30 } },
+      ];
       if (videoTrack) {
         // One clip per showcase section, each demonstrating a different tool:
         // 1) straight cut · 2) reverse · 3) 1.5x speed · 4) outro.
@@ -586,7 +611,8 @@ export const useStore = create<State>()((set, get) => {
         actions.push({ type: 'add_text', trackId: textTrack, start: 0.3, duration: 2.2, text: 'SCARLET WITCH', role: 'title', preset: 'word-pop', style: { fontSize: 0.07, y: 0.12 } });
         actions.push({ type: 'add_text', trackId: textTrack, start: 11.2, duration: 2.2, text: 'edited in FalconCut — every cut is one undo step', role: 'caption', preset: 'word-pop', style: { fontSize: 0.035, y: 0.86 } });
       }
-      if (actions.length) get().commit(actions, 'Load showcase timeline');
+      get().commit(actions, 'Load showcase timeline');
+      get().analyze(id);
     },
 
     removeMedia(mediaId) {
@@ -762,8 +788,11 @@ export const useStore = create<State>()((set, get) => {
     upscaleOutput(factor) {
       const st = get();
       const cur = st.project.settings;
-      const width = Math.min(3840, Math.round(cur.width * factor / 2) * 2);
-      const height = Math.min(2160, Math.round((width * cur.height) / cur.width / 2) * 2);
+      // Scale both axes by the SAME factor, limited by whichever output cap
+      // binds first. Capping them independently turned 9:16 into 1:1.
+      const scale = Math.min(factor, 3840 / Math.max(1, cur.width), 2160 / Math.max(1, cur.height));
+      const width = Math.max(2, Math.round((cur.width * scale) / 2) * 2);
+      const height = Math.max(2, Math.round((cur.height * scale) / 2) * 2);
       const actions: Action[] = [{ type: 'set_settings', patch: { width, height, aspect: cur.aspect } }];
       for (const c of st.project.clips) {
         if (c.kind !== 'media' || !c.mediaId) continue;

@@ -169,15 +169,24 @@ export async function exportVideo(
     });
   }
 
+  const videoConfig = {
+    codec: plan.videoCodec, width, height, bitrate, framerate: fps,
+    latencyMode: 'quality',
+    ...(plan.container === 'mp4' ? { avc: { format: 'avc' } } : {}),
+  } as VideoEncoderConfig;
+  // Support was probed at 720p earlier; check the ACTUAL export size before
+  // spending minutes on fonts and audio mixing.
+  try {
+    const actual = await VideoEncoder.isConfigSupported(videoConfig);
+    if (!actual.supported) throw new Error('unsupported at this resolution');
+  } catch {
+    throw new Error(`This browser cannot encode ${width}×${height} ${fps}fps ${plan.videoCodec}. Try a lower resolution or another browser.`);
+  }
   const videoEncoder = new VideoEncoder({
     output: (chunk, meta) => addVideo(chunk, meta),
     error: (e) => fail(e instanceof Error ? e : new Error(String(e))),
   });
-  videoEncoder.configure({
-    codec: plan.videoCodec, width, height, bitrate, framerate: fps,
-    latencyMode: 'quality',
-    ...(plan.container === 'mp4' ? { avc: { format: 'avc' } } : {}),
-  } as VideoEncoderConfig);
+  videoEncoder.configure(videoConfig);
 
   let audioEncoder: AudioEncoder | null = null;
   if (hasAudio) {

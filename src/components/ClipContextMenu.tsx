@@ -104,7 +104,7 @@ export function ClipContextMenu({ menu, onClose }: { menu: CtxMenuState; onClose
             {clip.name ?? clip.text?.text ?? 'Clip'}
           </div>
           <Item icon={Scissors} label="Split at playhead"
-            disabled={!(s.playhead > clip.start + 0.01 && s.playhead < clip.start + clip.duration - 0.01)}
+            disabled={!(s.playhead > clip.start + 0.02 && s.playhead < clip.start + clip.duration - 0.02)}
             title="Split the clip where the playhead sits"
             onClick={run(() => commit([{ type: 'split_clip', clipId: clip.id, time: s.playhead }], 'Split clip'))} />
           <Item icon={Copy} label="Duplicate"
@@ -204,10 +204,16 @@ export function ClipContextMenu({ menu, onClose }: { menu: CtxMenuState; onClose
           <Item icon={clip.locked ? Unlock : Lock} label={clip.locked ? 'Unlock clip' : 'Lock clip'}
             onClick={run(() => commit([{ type: 'set_clip_props', clipId: clip.id, patch: { locked: !clip.locked } }], clip.locked ? 'Unlock clip' : 'Lock clip'))} />
           <Item icon={Trash2} label="Delete" danger
-            onClick={run(() => commit([{ type: 'remove_clip', clipId: clip.id }], 'Delete clip'))} />
+            onClick={run(() => {
+              const ids = clip.groupId ? s.project.clips.filter((c) => c.groupId === clip.groupId).map((c) => c.id) : [clip.id];
+              commit(ids.map((clipId) => ({ type: 'remove_clip' as const, clipId })), 'Delete clip');
+            })} />
           <Item icon={FastForward} label="Ripple delete (close gap)" danger
             title="Delete this clip and pull every later clip back to close the gap"
-            onClick={run(() => commit([{ type: 'remove_clip', clipId: clip.id, ripple: true }], 'Ripple delete clip'))} />
+            onClick={run(() => {
+              const ids = clip.groupId ? s.project.clips.filter((c) => c.groupId === clip.groupId).map((c) => c.id) : [clip.id];
+              commit(ids.map((clipId) => ({ type: 'remove_clip' as const, clipId, ripple: true })), 'Ripple delete clip');
+            })} />
         </>
       ) : track ? (
         <>
@@ -264,8 +270,12 @@ export function ClipContextMenu({ menu, onClose }: { menu: CtxMenuState; onClose
             onClick={run(() => commit([{ type: 'set_track', trackId: track.id, patch: { locked: !track.locked } }], track.locked ? 'Unlock track' : 'Lock track'))} />
           <div className="h-px bg-line my-1" />
           <Item icon={Trash2} label={`Delete track${trackClips.length ? ` and ${trackClips.length} clip${trackClips.length === 1 ? '' : 's'}` : ''}`} danger
-            title="Removes the track and everything on it — undo brings it back"
-            onClick={run(() => commit([{ type: 'remove_track', trackId: track.id }], 'Delete track'))} />
+            disabled={track.locked || s.project.tracks.length <= 1}
+            title={track.locked ? 'Unlock the track before deleting it' : s.project.tracks.length <= 1 ? 'The last timeline track cannot be deleted' : 'Removes the track and everything on it — undo brings it back'}
+            onClick={run(() => {
+              if (trackClips.length && !window.confirm(`Delete “${track.name}” and its ${trackClips.length} clip${trackClips.length === 1 ? '' : 's'}? Undo restores them.`)) return;
+              commit([{ type: 'remove_track', trackId: track.id }], 'Delete track');
+            })} />
         </>
       ) : (
         <>

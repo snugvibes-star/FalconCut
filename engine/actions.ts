@@ -8,7 +8,7 @@ import { produce } from 'immer';
 import {
   Clip, Effect, Keyframe, Lut, Marker, MediaAsset, MediaAnalysis, Project, Rule, SpeedPoint, StylePack, Tack, Track,
   Transform, Transition, TextData, MotifData, DrawingStroke, defaultTransform, defaultTextStyle,
-  detUid, enterDeterministicIds, exitDeterministicIds, getMedia, speedAtLocal, speedPointsOf, sourceTimeOf,
+  consumedSource, detUid, enterDeterministicIds, exitDeterministicIds, getMedia, speedAtLocal, speedPointsOf, sourceTimeOf,
 } from './types';
 
 export type Action =
@@ -128,14 +128,32 @@ const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v
 function normalizeClip(p: Project, partial: Partial<Clip> & { trackId: string; start: number; duration: number }): Clip {
   const media = getMedia(p, partial.mediaId);
   const kind: Clip['kind'] = partial.kind ?? (partial.text ? 'text' : partial.motif ? 'motif' : partial.drawing ? 'drawing' : 'media');
+  // A stale/fabricated track id (e.g. from an AI tool after a track was
+  // deleted) must never create an orphan clip that counts toward the export
+  // but has no timeline row. Fall back to a compatible track or create one.
+  const wantKind = kind === 'media' ? (media?.type === 'audio' ? 'audio' : 'video') : 'text';
+  let trackId = partial.trackId;
+  if (!p.tracks.some((t) => t.id === trackId && t.kind === wantKind)) {
+    const fallback = p.tracks.find((t) => t.kind === wantKind && !t.locked) ?? p.tracks.find((t) => t.kind === wantKind);
+    if (fallback) trackId = fallback.id;
+    else {
+      const created: Track = {
+        id: detUid('trk'), kind: wantKind,
+        name: wantKind === 'text' ? 'Text' : wantKind === 'audio' ? 'A1' : 'V1',
+        locked: false, muted: false, hidden: false,
+      };
+      p.tracks.push(created);
+      trackId = created.id;
+    }
+  }
   // Same-track overlap makes media clips invisibly stack under each other (the
   // one drawn later swallows clicks), so a new media clip landing on occupied
   // space is clamped into the nearest free gap instead. Text/motif clips are
   // overlay layers and may legitimately share the text track.
-  const dur = Math.max(0.04, partial.duration);
-  let start = Math.max(0, partial.start);
+  const dur = Number.isFinite(partial.duration) ? Math.max(0.04, partial.duration) : 0.04;
+  let start = Number.isFinite(partial.start) ? Math.max(0, partial.start) : 0;
   if (kind === 'media') {
-    const others = p.clips.filter((c) => c.trackId === partial.trackId).sort((a, b) => a.start - b.start);
+    const others = p.clips.filter((c) => c.trackId === trackId).sort((a, b) => a.start - b.start);
     if (others.some((o) => start < o.start + o.duration - 1e-6 && o.start < start + dur - 1e-6)) {
       const gaps: { lo: number; hi: number }[] = [];
       let prevEnd = 0;
@@ -155,12 +173,12 @@ function normalizeClip(p: Project, partial: Partial<Clip> & { trackId: string; s
   }
   return {
     id: partial.id ?? detUid('clip'),
-    trackId: partial.trackId,
+    trackId,
     mediaId: partial.mediaId,
     kind,
     start,
     duration: dur,
-    inPoint: Math.max(0, partial.inPoint ?? 0),
+    inPoint: Number.isFinite(partial.inPoint) ? Math.max(0, partial.inPoint ?? 0) : 0,
     speed: clamp(partial.speed ?? 1, 0.1, 8),
     transform: { ...defaultTransform(), ...(partial.transform ?? {}) },
     fit: partial.fit ?? 'cover',
@@ -251,11 +269,29 @@ export function applyAction(project: Project, action: Action): Project {
         break;
       }
       case 'add_track': {
-        const t: Track = { id: action.track.id ?? detUid('trk'), kind: action.track.kind, name: action.track.name ?? (action.track.kind === 'video' ? `V${p.tracks.filter((x) => x.kind === 'video').length + 1}` : action.track.kind === 'audio' ? `A${p.tracks.filter((x) => x.kind === 'audio').length + 1}` : 'Text'), locked: false, muted: false, hidden: false };
-        if (action.index != null) p.tracks.splice(action.index, 0, t); else p.tracks.unshift(t);
+        // An AI/tool action may carry a stale id. Reusing it creates duplicate
+        // React keys and breaks track selection, so always mint a free id.
+        let id = action.track.id ?? detUid('trk');
+        if (p.tracks.some((x) => x.id === id)) id = detUid('trk');
+        const t: Track = {
+          id, kind: action.track.kind,
+          name: action.track.name ?? (action.track.kind === 'video' ? `V${p.tracks.filter((x) => x.kind === 'video').length + 1}` : action.track.kind === 'audio' ? `A${p.tracks.filter((x) => x.kind === 'audio').length + 1}` : 'Text'),
+          locked: action.track.locked ?? false, muted: action.track.muted ?? false,
+          hidden: action.track.hidden ?? false, solo: action.track.solo ?? false,
+          height: action.track.height,
+        };
+        if (action.index != null) p.tracks.splice(action.index, 0, t);
+        else {
+          // Append after existing tracks of the same kind, not at the very
+          // top — a new audio track belongs with audio tracks.
+          const last = p.tracks.reduce((best, x, i) => x.kind === t.kind ? i : best, -1);
+          p.tracks.splice(last >= 0 ? last + 1 : p.tracks.length, 0, t);
+        }
         break;
       }
       case 'remove_track': {
+        // A timeline needs at least one track; Kdenlive refuses the last one.
+        if (p.tracks.length <= 1 || !p.tracks.some((t) => t.id === action.trackId)) break;
         p.tracks = p.tracks.filter((t) => t.id !== action.trackId);
         p.clips = p.clips.filter((c) => c.trackId !== action.trackId);
         break;
@@ -340,7 +376,7 @@ export function applyAction(project: Project, action: Action): Project {
         const c = clip(action.clipId);
         if (!c) break;
         const media = getMedia(p, c.mediaId);
-        if (action.start != null) {
+        if (action.start != null && Number.isFinite(action.start)) {
           const delta = action.start - c.start;
           // Forward clips re-anchor at the mapped source position. Reversed
           // clips anchor at the segment end (inPoint), so trimming the head
@@ -349,8 +385,10 @@ export function applyAction(project: Project, action: Action): Project {
           c.start = Math.max(0, action.start);
           c.duration = Math.max(0.04, c.duration - delta);
         }
-        if (action.inPoint != null) c.inPoint = Math.max(0, action.inPoint);
-        if (action.duration != null) c.duration = Math.max(0.04, action.duration);
+        // The UI trim gesture supplies inPoint; it must not overwrite the
+        // ramp-aware re-anchor computed above.
+        if (action.inPoint != null && action.start == null && Number.isFinite(action.inPoint)) c.inPoint = Math.max(0, action.inPoint);
+        if (action.duration != null && Number.isFinite(action.duration)) c.duration = Math.max(0.04, action.duration);
         if (media && c.kind === 'media' && media.type !== 'image') {
           const maxDur = (media.duration - c.inPoint) / c.speed;
           c.duration = Math.min(c.duration, Math.max(0.04, maxDur));
@@ -361,7 +399,9 @@ export function applyAction(project: Project, action: Action): Project {
       case 'move_clip': {
         const c = clip(action.clipId);
         if (!c) break;
-        if (action.start != null) c.start = Math.max(0, action.start);
+        // A stale or incompatible track id (e.g. from an AI action) must not
+        // half-apply the move — otherwise the clip jumps in time while
+        // silently staying on the old track.
         if (action.trackId) {
           const target = p.tracks.find((t) => t.id === action.trackId);
           // Compat rule (matches the Timeline drag check): audio assets only
@@ -369,16 +409,20 @@ export function applyAction(project: Project, action: Action): Project {
           const wantKind = c.kind === 'media'
             ? (getMedia(p, c.mediaId)?.type === 'audio' ? 'audio' : 'video')
             : 'text'; // text/motif/drawing are overlay layers
-          if (target && target.kind === wantKind) c.trackId = action.trackId;
+          if (!target || target.kind !== wantKind) break;
+          c.trackId = action.trackId;
         }
+        if (action.start != null) c.start = Math.max(0, action.start);
         break;
       }
       case 'set_speed': {
         const c = clip(action.clipId);
         if (!c || c.kind !== 'media') break;
         const speed = clamp(action.speed, 0.1, 8);
-        // Ramp-aware: the source the clip consumes today (under any ramp).
-        const usedSource = sourceTimeOf(c, c.start + c.duration) - c.inPoint;
+        // Ramp- and direction-aware. For a reversed clip sourceTimeOf at the
+        // end equals inPoint, which used to collapse the clip to zero length.
+        const usedSource = consumedSource(c);
+        if (!(usedSource > 0)) break;
         const ratio = usedSource / (c.duration * speed);
         c.speed = speed;
         c.duration = usedSource / speed;
@@ -542,7 +586,13 @@ export function applyAction(project: Project, action: Action): Project {
         const { start, end } = action;
         const len = end - start;
         if (len <= 0) break;
-        const ids = action.trackIds ?? null;
+        let ids = action.trackIds ?? null;
+        if (ids) {
+          ids = ids.filter((id) => p.tracks.some((t) => t.id === id));
+          // No valid tracks means the edit was aimed at deleted ids — do not
+          // shift markers or tacks as if a cut had happened.
+          if (!ids.length) break;
+        }
         for (const c of [...p.clips]) {
           if (ids && !ids.includes(c.trackId)) continue;
           const cEnd = c.start + c.duration;
@@ -567,7 +617,7 @@ export function applyAction(project: Project, action: Action): Project {
               right.inPoint = srcAtEnd;
             }
             right.keyframes = c.keyframes.filter((k) => k.time >= end - c.start).map((k) => ({ ...k, id: detUid('kf'), time: k.time - (end - c.start) }));
-            right.speedPoints = splitSpeedPoints(c, start - c.start).right;
+            right.speedPoints = splitSpeedPoints(c, end - c.start).right;
             right.fades = { in: 0.015, out: c.fades.out };
             right.transitionIn = undefined;
             c.duration = leftDur;
@@ -596,20 +646,34 @@ export function applyAction(project: Project, action: Action): Project {
         if (action.shiftMarkers !== false) {
           p.markers = p.markers.filter((m) => m.time < start || m.time >= end);
           for (const m of p.markers) if (m.time >= end) m.time -= len;
-          for (const t of p.tacks) if (t.time >= end) t.time = Math.max(start, t.time - len);
+          // Filter by ORIGINAL time first — shifting before filtering deletes
+          // notes shortly after the cut (they move into the removed range).
           p.tacks = p.tacks.filter((t) => t.time < start || t.time >= end);
+          for (const t of p.tacks) if (t.time >= end) t.time = Math.max(start, t.time - len);
         }
         break;
       }
       case 'insert_gap': {
-        shiftFollowing(p, action.trackIds ?? null, action.time, action.duration, true);
+        let ids = action.trackIds ?? null;
+        if (ids) {
+          ids = ids.filter((id) => p.tracks.some((t) => t.id === id));
+          if (!ids.length) break;
+        }
+        shiftFollowing(p, ids, action.time, action.duration, true);
         for (const m of p.markers) if (m.time >= action.time) m.time += action.duration;
         for (const t of p.tacks) if (t.time >= action.time) t.time += action.duration;
         break;
       }
       case 'group_clips': {
         const gid = detUid('grp');
-        for (const c of p.clips) if (action.clipIds.includes(c.id)) c.groupId = gid;
+        // Grouping B with C must not tear B away from A: every member of any
+        // touched group joins the new group.
+        const oldGroups = new Set(
+          p.clips.filter((c) => action.clipIds.includes(c.id) && c.groupId).map((c) => c.groupId!),
+        );
+        for (const c of p.clips) {
+          if (action.clipIds.includes(c.id) || (c.groupId && oldGroups.has(c.groupId))) c.groupId = gid;
+        }
         break;
       }
       case 'ungroup': {
