@@ -22,6 +22,17 @@ Privacy-first by design: media never leaves the device — no uploads, no accoun
 
 ![FalconCut color grading](docs/screenshots/color-grading.png)
 
+## Quickstart
+
+```bash
+# Windows (existing launcher) or macOS / Linux:
+npm install
+npm run build
+npm run serve
+```
+
+Then open the local URL printed by the server. Detailed capabilities live in [docs/FEATURES.md](docs/FEATURES.md); current build notes are in [docs/CHANGELOG.md](docs/CHANGELOG.md) and upcoming work in [docs/ROADMAP.md](docs/ROADMAP.md).
+
 ## Why it's fast and premium
 
 - **No upload wait.** Import a long clip and start cutting immediately — decoding, grading, effects and export all run on your machine.
